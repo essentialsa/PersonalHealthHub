@@ -54,6 +54,30 @@ export const validateFile = (file: File): { valid: boolean; error?: string } => 
   return { valid: true };
 };
 
+// 查找无引用的孤立附件
+export const findOrphanedAttachments = (): HealthAttachment[] => {
+  const attachments = loadAttachments();
+  try {
+    const recordsData = localStorage.getItem('health_records_v1');
+    const records: { attachmentId?: string }[] = recordsData ? JSON.parse(recordsData) : [];
+    const referencedIds = new Set(records.map(r => r.attachmentId).filter(Boolean));
+    return attachments.filter(a => !referencedIds.has(a.id));
+  } catch {
+    return [];
+  }
+};
+
+// 清理孤立附件
+export const cleanupOrphanedAttachments = (): number => {
+  const orphaned = findOrphanedAttachments();
+  if (orphaned.length === 0) return 0;
+  const orphanedIds = new Set(orphaned.map(a => a.id));
+  const attachments = loadAttachments();
+  const cleaned = attachments.filter(a => !orphanedIds.has(a.id));
+  saveAttachments(cleaned);
+  return orphaned.length;
+};
+
 export const deleteAttachment = (attachmentId: string) => {
   const attachments = loadAttachments();
   const filtered = attachments.filter(a => a.id !== attachmentId);
