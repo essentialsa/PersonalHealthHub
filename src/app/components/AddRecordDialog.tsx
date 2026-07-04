@@ -5,8 +5,11 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/app/components/ui/select";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/app/components/ui/collapsible";
 import { cn } from "@/app/components/ui/utils";
-import { Plus } from "lucide-react";
+import { Plus, Paperclip } from "lucide-react";
+import { FileUploadZone } from "./FileUploadZone";
+import type { HealthAttachment } from "@/app/services/attachment";
 
 export interface IndicatorItem {
   id: string;
@@ -41,15 +44,18 @@ export interface HealthRecord {
 
 interface AddRecordDialogProps {
   onAddRecord: (record: HealthRecord) => void;
+  onAddAttachment?: (attachment: HealthAttachment) => boolean;
   indicatorCategories: IndicatorCategory[];
   triggerClassName?: string;
 }
 
-export function AddRecordDialog({ onAddRecord, indicatorCategories, triggerClassName }: AddRecordDialogProps) {
+export function AddRecordDialog({ onAddRecord, onAddAttachment, indicatorCategories, triggerClassName }: AddRecordDialogProps) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentDataUrl, setAttachmentDataUrl] = useState<string>("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +78,25 @@ export function AddRecordDialog({ onAddRecord, indicatorCategories, triggerClass
       return;
     }
 
+    let attachmentId: string | undefined;
+
+    // 创建附件并关联到记录
+    if (attachmentFile && attachmentDataUrl && onAddAttachment) {
+      const newAttachmentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const attachment: HealthAttachment = {
+        id: newAttachmentId,
+        fileName: attachmentFile.name,
+        fileType: attachmentFile.type,
+        fileSize: attachmentFile.size,
+        data: attachmentDataUrl,
+        date,
+        createdAt: new Date().toISOString(),
+      };
+      if (onAddAttachment(attachment)) {
+        attachmentId = newAttachmentId;
+      }
+    }
+
     activeItems.forEach(item => {
       const raw = values[item.id];
       const parsed = parseFloat(raw);
@@ -86,6 +111,7 @@ export function AddRecordDialog({ onAddRecord, indicatorCategories, triggerClass
         value: parsed,
         unit: item.unit,
         operationAt: new Date().toISOString(),
+        attachmentId,
       };
 
       onAddRecord(newRecord);
@@ -93,6 +119,8 @@ export function AddRecordDialog({ onAddRecord, indicatorCategories, triggerClass
 
     setValues({});
     setSelectedCategoryId("");
+    setAttachmentFile(null);
+    setAttachmentDataUrl("");
     setOpen(false);
   };
 
@@ -177,6 +205,28 @@ export function AddRecordDialog({ onAddRecord, indicatorCategories, triggerClass
               ))}
             </div>
           )}
+
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="ghost" className="w-full justify-start text-gray-600">
+                <Paperclip className="h-4 w-4 mr-2" />
+                附件（可选）
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <FileUploadZone
+                onFileSelect={(file, dataUrl) => {
+                  setAttachmentFile(file);
+                  setAttachmentDataUrl(dataUrl);
+                }}
+                onFileRemove={() => {
+                  setAttachmentFile(null);
+                  setAttachmentDataUrl("");
+                }}
+                selectedFile={attachmentFile ? { name: attachmentFile.name, size: attachmentFile.size, type: attachmentFile.type } : null}
+              />
+            </CollapsibleContent>
+          </Collapsible>
 
           <div className="flex justify-end gap-2 pt-4">
             <Button 

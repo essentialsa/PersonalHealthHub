@@ -2,6 +2,7 @@
 change: import-attachment
 design-doc: docs/superpowers/specs/2026-07-04-import-attachment-design.md
 base-ref: c98640998a9f4a3d3f4e10dc855607b861a01e9c
+archived-with: 2026-07-04-import-attachment
 ---
 
 # 检验指标附件导入 Implementation Plan
@@ -23,6 +24,7 @@ base-ref: c98640998a9f4a3d3f4e10dc855607b861a01e9c
 - 删除记录时仅移除 attachmentId 引用，不删除附件本身
 - 删除附件时级联清除关联记录的 attachmentId
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## File Structure
@@ -49,6 +51,7 @@ base-ref: c98640998a9f4a3d3f4e10dc855607b861a01e9c
 | Modify | `src/app/components/RecordChart.tsx:10-14` | Props 新增 attachments 和 onPreviewAttachment |
 | Modify | `src/app/components/RecordChart.tsx:483-501` | 明细表新增附件图标列 |
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 1: HealthAttachment 数据模型与类型定义
@@ -106,6 +109,7 @@ git add src/app/components/AddRecordDialog.tsx src/app/services/attachment.ts
 git commit -m "feat(attachment): define HealthAttachment interface and extend HealthRecord"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 2: 附件存储层
@@ -279,6 +283,7 @@ git add src/app/services/attachment.ts src/app/services/attachment.test.ts
 git commit -m "feat(attachment): implement attachment storage layer with tests"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 3: 文件校验工具
@@ -384,6 +389,7 @@ git add src/app/services/attachment.ts src/app/services/attachmentValidation.tes
 git commit -m "feat(attachment): implement file validation with tests"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 4: 附件上传组件 (FileUploadZone)
@@ -518,6 +524,7 @@ git add src/app/components/FileUploadZone.tsx
 git commit -m "feat(attachment): create reusable FileUploadZone component"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 5: 附件状态管理 (App.tsx)
@@ -608,6 +615,7 @@ git add src/app/App.tsx
 git commit -m "feat(attachment): add attachment state management to App.tsx"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 6: Excel 导入附件集成
@@ -724,6 +732,7 @@ git add src/app/components/ImportRecordsDialog.tsx
 git commit -m "feat(attachment): integrate attachment upload into Excel import dialog"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 7: OCR 报告导入附件集成
@@ -831,6 +840,7 @@ git add src/app/components/MedicalReportImportDialog.tsx
 git commit -m "feat(attachment): integrate retain-report option into OCR import dialog"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 8: App.tsx 传递附件 Props 到子组件
@@ -926,6 +936,7 @@ git add src/app/App.tsx
 git commit -m "feat(attachment): wire attachment props through App.tsx to child components"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 9: 附件预览对话框 (AttachmentPreviewDialog)
@@ -1008,6 +1019,7 @@ git add src/app/components/AttachmentPreviewDialog.tsx
 git commit -m "feat(attachment): create AttachmentPreviewDialog with image/PDF support"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 10: RecordTable 附件展示
@@ -1092,6 +1104,7 @@ git add src/app/components/RecordTable.tsx
 git commit -m "feat(attachment): add attachment icon column to RecordTable"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 11: RecordChart 附件展示
@@ -1156,6 +1169,7 @@ git add src/app/components/RecordChart.tsx
 git commit -m "feat(attachment): add attachment column to RecordChart detail table"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 12: 附件预览对话框集成到 App.tsx
@@ -1191,6 +1205,7 @@ git add src/app/App.tsx
 git commit -m "feat(attachment): integrate AttachmentPreviewDialog into App.tsx"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 13: 孤立附件检测与清理
@@ -1239,6 +1254,7 @@ git add src/app/services/attachment.ts
 git commit -m "feat(attachment): implement orphaned attachment detection and cleanup"
 ```
 
+archived-with: 2026-07-04-import-attachment
 ---
 
 ## Task 14: 全量测试验证

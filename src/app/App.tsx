@@ -4735,6 +4735,7 @@ export default function App() {
           <div className="grid w-full gap-2 pb-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
               <AddRecordDialog
                 onAddRecord={handleAddRecord}
+                onAddAttachment={handleAddAttachment}
                 indicatorCategories={indicatorCategories}
                 triggerClassName={actionTriggerClassName}
               />
@@ -4772,7 +4773,6 @@ export default function App() {
               <ImportRecordsDialog
                 categories={indicatorCategories}
                 onImportRecords={handleImportRecords}
-                onAddAttachment={handleAddAttachment}
                 triggerClassName={actionTriggerClassName}
               />
               <ExportDialog

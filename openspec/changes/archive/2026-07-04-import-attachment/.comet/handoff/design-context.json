@@ -1,0 +1,16 @@
+{
+  "change": "import-attachment",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "13982ec674f666d9d2db80dd138a7b4bb59b98b4034985c8e73d9209e13c51f2",
+  "files": [
+    { "path": "openspec/changes/import-attachment/proposal.md", "sha256": "3736b2424f1332d1a73caae1106a0dacd9b752d32a7017c603c98baa6f157329" },
+    { "path": "openspec/changes/import-attachment/design.md", "sha256": "9d48160e73bef74f3ca6d22cc18a1b67707aefc70688d96543d9407b444cd529" },
+    { "path": "openspec/changes/import-attachment/tasks.md", "sha256": "a1a3ab4d378f7b131cfcba43846aca334a2cafe65a21d15f30a7aadcec9f5ee9" },
+    { "path": "openspec/changes/import-attachment/specs/attachment-storage/spec.md", "sha256": "6cf3a247da83a5f7fdcfeffa1aa70e4e546b117b630e7abc1996e89629613635" },
+    { "path": "openspec/changes/import-attachment/specs/attachment-upload/spec.md", "sha256": "2e0fa927510526fd214720b3be918aecf83973db8a9a5f8512161f13a9ec2839" },
+    { "path": "openspec/changes/import-attachment/specs/attachment-view/spec.md", "sha256": "379b306151ffe7c4424c9ff0411325c3cf09eb98595b4513c298c3700f56a6e9" }
+  ]
+}

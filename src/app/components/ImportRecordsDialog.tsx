@@ -7,12 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { cn } from "@/app/components/ui/utils";
-import { UploadCloud, FileSpreadsheet, AlertTriangle, CheckCircle2, Paperclip } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, AlertTriangle, CheckCircle2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
-import type { HealthAttachment } from "@/app/services/attachment";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/app/components/ui/collapsible";
-import { FileUploadZone } from "./FileUploadZone";
 
 const normalizeHeaderKey = (value: string) =>
   value
@@ -35,11 +32,10 @@ interface ParsedRow {
 interface ImportRecordsDialogProps {
   categories: IndicatorCategory[];
   onImportRecords: (records: HealthRecord[]) => void;
-  onAddAttachment?: (attachment: HealthAttachment) => boolean;
   triggerClassName?: string;
 }
 
-export function ImportRecordsDialog({ categories, onImportRecords, onAddAttachment, triggerClassName }: ImportRecordsDialogProps) {
+export function ImportRecordsDialog({ categories, onImportRecords, triggerClassName }: ImportRecordsDialogProps) {
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
@@ -51,8 +47,6 @@ export function ImportRecordsDialog({ categories, onImportRecords, onAddAttachme
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const [manualError, setManualError] = useState<string | null>(null);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [attachmentDataUrl, setAttachmentDataUrl] = useState<string>("");
 
   const selectedCategory = useMemo(
     () => categories.find(c => c.id === selectedCategoryId) ?? categories[0],
@@ -121,8 +115,6 @@ export function ImportRecordsDialog({ categories, onImportRecords, onAddAttachme
     setManualDate(new Date().toISOString().split("T")[0]);
     setManualValues({});
     setManualError(null);
-    setAttachmentFile(null);
-    setAttachmentDataUrl("");
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -360,22 +352,6 @@ export function ImportRecordsDialog({ categories, onImportRecords, onAddAttachme
         operationAt,
       };
     });
-
-    // 创建附件并关联到导入的记录
-    if (attachmentFile && attachmentDataUrl && onAddAttachment) {
-      const attachmentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const attachment: HealthAttachment = {
-        id: attachmentId,
-        fileName: attachmentFile.name,
-        fileType: attachmentFile.type,
-        fileSize: attachmentFile.size,
-        data: attachmentDataUrl,
-        date: records[0]?.date || new Date().toISOString().split("T")[0],
-        createdAt: new Date().toISOString(),
-      };
-      onAddAttachment(attachment);
-      records = records.map(r => ({ ...r, attachmentId }));
-    }
 
     onImportRecords(records);
     setPhase("parsed");
@@ -708,28 +684,6 @@ export function ImportRecordsDialog({ categories, onImportRecords, onAddAttachme
                   </p>
                 )}
               </div>
-
-              <Collapsible>
-                <CollapsibleTrigger asChild>
-                  <Button type="button" variant="ghost" className="w-full justify-start text-gray-600">
-                    <Paperclip className="h-4 w-4 mr-2" />
-                    附件（可选）
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <FileUploadZone
-                    onFileSelect={(file, dataUrl) => {
-                      setAttachmentFile(file);
-                      setAttachmentDataUrl(dataUrl);
-                    }}
-                    onFileRemove={() => {
-                      setAttachmentFile(null);
-                      setAttachmentDataUrl("");
-                    }}
-                    selectedFile={attachmentFile ? { name: attachmentFile.name, size: attachmentFile.size, type: attachmentFile.type } : null}
-                  />
-                </CollapsibleContent>
-              </Collapsible>
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
                 <div className="text-[11px] text-gray-400">
