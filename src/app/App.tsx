@@ -61,6 +61,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/app/components/ui/utils";
 import * as XLSX from "xlsx";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { type HealthAttachment, loadAttachments as loadAttachmentsStorage, saveAttachments as saveAttachmentsStorage, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -71,6 +72,7 @@ const CHANGE_LOG_STORAGE_KEY = `health_change_logs_${STORAGE_VERSION}`;
 const INDICATOR_CHANGE_LOG_STORAGE_KEY = `health_indicator_change_logs_${STORAGE_VERSION}`;
 const AUTH_CONFIG_STORAGE_KEY = `health_auth_config_${STORAGE_VERSION}`;
 const LAST_ACTIVE_USER_KEY = `health_last_active_user_${STORAGE_VERSION}`;
+const ATTACHMENTS_STORAGE_KEY = `health_attachments_${STORAGE_VERSION}`;
 
 // Encryption helper (Simple XOR for demo purposes, in production use Web Crypto API)
 const XOR_KEY = "health-data-secure-key";
@@ -2769,6 +2771,7 @@ export default function App() {
   const [manualSyncing, setManualSyncing] = useState(false);
   const [cloudPulling, setCloudPulling] = useState(false);
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
+  const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
   const [maintenanceCategoryId, setMaintenanceCategoryId] = useState<string>("__all__");
 
@@ -2942,6 +2945,14 @@ export default function App() {
     };
 
     loadData();
+  }, [supabaseEnabled, activeUserId]);
+
+  useEffect(() => {
+    if (supabaseEnabled && !activeUserId) return;
+    const saved = loadAttachmentsStorage();
+    if (saved.length > 0) {
+      setAttachments(saved);
+    }
   }, [supabaseEnabled, activeUserId]);
 
   useEffect(() => {
@@ -3180,6 +3191,15 @@ export default function App() {
       safeSetItem(buildUserStorageKey(AUTH_CONFIG_STORAGE_KEY, activeUserId), encryptData(JSON.stringify(authConfig)));
     }
   }, [authConfig, supabaseEnabled, activeUserId]);
+
+  useEffect(() => {
+    if (supabaseEnabled && !activeUserId) return;
+    if (attachments.length > 0) {
+      saveAttachmentsStorage(attachments);
+    } else {
+      localStorage.removeItem(ATTACHMENTS_KEY);
+    }
+  }, [attachments, supabaseEnabled, activeUserId]);
 
   const indicatorItems: IndicatorItem[] = indicatorCategories.flatMap((category) => category.items);
   const indicatorDataCategory =
@@ -4125,6 +4145,19 @@ export default function App() {
         },
       ],
     );
+  };
+
+  const handleAddAttachment = (attachment: HealthAttachment): boolean => {
+    const success = addAttachmentStorage(attachment);
+    if (success) {
+      setAttachments(prev => [...prev, attachment]);
+    }
+    return success;
+  };
+
+  const handleDeleteAttachment = (attachmentId: string) => {
+    deleteAttachmentStorage(attachmentId);
+    setAttachments(prev => prev.filter(a => a.id !== attachmentId));
   };
 
   const handleImportRecords = (newRecords: HealthRecord[]) => {
