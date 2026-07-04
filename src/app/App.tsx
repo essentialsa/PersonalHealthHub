@@ -6,6 +6,7 @@ import { ImportRecordsDialog } from "@/app/components/ImportRecordsDialog";
 import { MedicalReportImportDialog } from "@/app/components/MedicalReportImportDialog";
 import { ExportDialog } from "@/app/components/ExportDialog";
 import { ConsultationBriefDialog } from "@/app/components/ConsultationBriefDialog";
+import { AttachmentPreviewDialog } from "@/app/components/AttachmentPreviewDialog";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
@@ -5096,6 +5097,11 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <AttachmentPreviewDialog
+        attachment={attachments.find(a => a.id === previewAttachmentId) || null}
+        onClose={() => setPreviewAttachmentId(null)}
+      />
     </div>
   );
 }
