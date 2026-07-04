@@ -6,6 +6,7 @@ import { ImportRecordsDialog } from "@/app/components/ImportRecordsDialog";
 import { MedicalReportImportDialog } from "@/app/components/MedicalReportImportDialog";
 import { ExportDialog } from "@/app/components/ExportDialog";
 import { ConsultationBriefDialog } from "@/app/components/ConsultationBriefDialog";
+import { AttachmentPreviewDialog } from "@/app/components/AttachmentPreviewDialog";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
@@ -61,6 +62,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/app/components/ui/utils";
 import * as XLSX from "xlsx";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { type HealthAttachment, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -2769,6 +2771,8 @@ export default function App() {
   const [manualSyncing, setManualSyncing] = useState(false);
   const [cloudPulling, setCloudPulling] = useState(false);
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
+  const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
   const [maintenanceCategoryId, setMaintenanceCategoryId] = useState<string>("__all__");
 
@@ -2942,6 +2946,20 @@ export default function App() {
     };
 
     loadData();
+  }, [supabaseEnabled, activeUserId]);
+
+  useEffect(() => {
+    if (supabaseEnabled && !activeUserId) return;
+    const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
+    try {
+      const raw = localStorage.getItem(scopedKey);
+      const saved = raw ? JSON.parse(raw) as HealthAttachment[] : [];
+      if (saved.length > 0) {
+        setAttachments(saved);
+      }
+    } catch {
+      // ignore parse errors
+    }
   }, [supabaseEnabled, activeUserId]);
 
   useEffect(() => {
@@ -3180,6 +3198,16 @@ export default function App() {
       safeSetItem(buildUserStorageKey(AUTH_CONFIG_STORAGE_KEY, activeUserId), encryptData(JSON.stringify(authConfig)));
     }
   }, [authConfig, supabaseEnabled, activeUserId]);
+
+  useEffect(() => {
+    if (supabaseEnabled && !activeUserId) return;
+    const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
+    if (attachments.length > 0) {
+      safeSetItem(scopedKey, JSON.stringify(attachments));
+    } else {
+      localStorage.removeItem(scopedKey);
+    }
+  }, [attachments, supabaseEnabled, activeUserId]);
 
   const indicatorItems: IndicatorItem[] = indicatorCategories.flatMap((category) => category.items);
   const indicatorDataCategory =
@@ -4127,6 +4155,19 @@ export default function App() {
     );
   };
 
+  const handleAddAttachment = (attachment: HealthAttachment): boolean => {
+    const success = addAttachmentStorage(attachment);
+    if (success) {
+      setAttachments(prev => [...prev, attachment]);
+    }
+    return success;
+  };
+
+  const handleDeleteAttachment = (attachmentId: string) => {
+    deleteAttachmentStorage(attachmentId);
+    setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+  };
+
   const handleImportRecords = (newRecords: HealthRecord[]) => {
     if (!newRecords || newRecords.length === 0) {
       return;
@@ -4694,6 +4735,7 @@ export default function App() {
           <div className="grid w-full gap-2 pb-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
               <AddRecordDialog
                 onAddRecord={handleAddRecord}
+                onAddAttachment={handleAddAttachment}
                 indicatorCategories={indicatorCategories}
                 triggerClassName={actionTriggerClassName}
               />
@@ -4707,6 +4749,7 @@ export default function App() {
               />
               <MedicalReportImportDialog
                 onImportRecords={handleImportRecords}
+                onAddAttachment={handleAddAttachment}
                 existingCategories={indicatorCategories.map(category => ({
                   id: category.id,
                   name: category.name,
@@ -4928,6 +4971,8 @@ export default function App() {
               records={records}
               indicators={indicatorItems}
               categories={indicatorCategories}
+              attachments={attachments}
+              onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
             />
           </TabsContent>
           <TabsContent value="maintenance">
@@ -4967,6 +5012,8 @@ export default function App() {
                     onDeleteRecord={handleDeleteRecord}
                     onUpdateRecord={handleUpdateRecord}
                     onAddFollowupRecord={handleAddFollowupRecord}
+                    attachments={attachments}
+                    onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
                   />
                 </div>
                 <div>
@@ -5056,6 +5103,11 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <AttachmentPreviewDialog
+        attachment={attachments.find(a => a.id === previewAttachmentId) || null}
+        onClose={() => setPreviewAttachmentId(null)}
+      />
     </div>
   );
 }

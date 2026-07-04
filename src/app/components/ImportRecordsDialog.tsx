@@ -335,7 +335,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
 
     const now = Date.now();
     const operationAt = new Date().toISOString();
-    const records: HealthRecord[] = validRows.map((row, index: number) => {
+    let records: HealthRecord[] = validRows.map((row, index: number) => {
       const indicatorId = row.indicatorId as string;
       const fallbackCategory = categories.find(category =>
         category.items.some((indicator: IndicatorItem) => indicator.id === indicatorId),

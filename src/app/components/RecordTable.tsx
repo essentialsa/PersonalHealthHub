@@ -2,8 +2,9 @@ import { useState, type ChangeEvent } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { Trash2, Database, Pencil, PlusCircle } from "lucide-react";
+import { Trash2, Database, Pencil, PlusCircle, Paperclip } from "lucide-react";
 import { HealthRecord, IndicatorItem } from "./AddRecordDialog";
+import type { HealthAttachment } from "@/app/services/attachment";
 
 interface RecordTableProps {
   records: HealthRecord[];
@@ -11,6 +12,8 @@ interface RecordTableProps {
   onDeleteRecord: (id: string) => void;
   onUpdateRecord: (record: HealthRecord) => void;
   onAddFollowupRecord: (base: HealthRecord, payload: { date: string; value: number }) => void;
+  attachments?: HealthAttachment[];
+  onPreviewAttachment?: (attachmentId: string) => void;
 }
 
 export function RecordTable({
@@ -19,6 +22,8 @@ export function RecordTable({
   onDeleteRecord,
   onUpdateRecord,
   onAddFollowupRecord,
+  attachments = [],
+  onPreviewAttachment,
 }: RecordTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -98,13 +103,14 @@ export function RecordTable({
             <TableHead className="text-gray-700 w-40">操作日期</TableHead>
             <TableHead className="text-gray-700">检验指标</TableHead>
             <TableHead className="text-gray-700 w-32">数值</TableHead>
+            <TableHead className="text-gray-700 w-16">附件</TableHead>
             <TableHead className="w-[220px] text-right text-gray-700">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {sortedRecords.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={6} className="text-center text-gray-500 py-12">
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center mb-2">
                     <Database className="w-8 h-8 text-violet-400" />
@@ -154,6 +160,18 @@ export function RecordTable({
                       <span className="px-3 py-1 bg-gradient-to-r from-violet-100 to-blue-100 rounded-full text-violet-700">
                         {record.value} {record.unit}
                       </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {record.attachmentId && onPreviewAttachment && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
+                        onClick={() => onPreviewAttachment(record.attachmentId!)}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
                     )}
                   </TableCell>
                   <TableCell className="py-3 align-middle">
