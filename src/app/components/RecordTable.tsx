@@ -95,7 +95,7 @@ export function RecordTable({
   };
 
   return (
-    <div className="border border-violet-100 rounded-xl overflow-hidden bg-white/40">
+    <div className="border border-violet-100 overflow-hidden bg-white/40">
       <Table>
         <TableHeader>
           <TableRow className="border-violet-100 hover:bg-violet-50/50">
