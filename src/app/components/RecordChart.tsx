@@ -5,17 +5,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/app/components/ui/button";
 import { useState, useEffect } from "react";
 import { HealthRecord, IndicatorCategory, IndicatorItem } from "./AddRecordDialog";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, Paperclip } from "lucide-react";
+import type { HealthAttachment } from "@/app/services/attachment";
 
 interface RecordChartProps {
   records: HealthRecord[];
   indicators: IndicatorItem[];
   categories: IndicatorCategory[];
+  attachments?: HealthAttachment[];
+  onPreviewAttachment?: (attachmentId: string) => void;
 }
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 
-export function RecordChart({ records, indicators, categories }: RecordChartProps) {
+export function RecordChart({ records, indicators, categories, attachments = [], onPreviewAttachment }: RecordChartProps) {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
     if (typeof window === "undefined") {
       return categories[0]?.id ?? "";
@@ -458,6 +461,7 @@ export function RecordChart({ records, indicators, categories }: RecordChartProp
               <Table>
                 <TableHeader>
                   <TableRow className="border-violet-100 bg-violet-50/60">
+                    <TableHead className="text-gray-700 text-xs w-10">附件</TableHead>
                     <TableHead
                       className="text-gray-700 text-xs w-32 cursor-pointer select-none"
                       onClick={() => setSortAscending(prev => !prev)}
@@ -485,6 +489,9 @@ export function RecordChart({ records, indicators, categories }: RecordChartProp
                       key={String(row.date)}
                       className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                     >
+                      <TableCell className="text-xs text-center w-10">
+                        {/* 附件图标将在后续关联后显示 */}
+                      </TableCell>
                       <TableCell className="text-xs text-gray-700 w-32">
                         {String(row.date)}
                       </TableCell>
