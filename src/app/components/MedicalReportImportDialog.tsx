@@ -9,6 +9,8 @@ import { Input } from "@/app/components/ui/input";
 import { cn } from "@/app/components/ui/utils";
 import { UploadCloud, FileText, AlertCircle, CheckCircle, Loader2, X, RefreshCw } from "lucide-react";
 import type { HealthRecord } from "@/app/components/AddRecordDialog";
+import type { HealthAttachment } from "@/app/services/attachment";
+import { Checkbox } from "@/app/components/ui/checkbox";
 import {
   parseMedicalReport,
   checkParserService,
@@ -28,11 +30,12 @@ const MAX_SIZE = 50 * 1024 * 1024;
 
 interface Props {
   onImportRecords: (records: HealthRecord[]) => void;
+  onAddAttachment?: (attachment: HealthAttachment) => boolean;
   existingCategories?: UserIndicatorCategory[];
   triggerClassName?: string;
 }
 
-export function MedicalReportImportDialog({ onImportRecords, existingCategories = [], triggerClassName }: Props) {
+export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], triggerClassName }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"upload" | "preview">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -46,6 +49,7 @@ export function MedicalReportImportDialog({ onImportRecords, existingCategories 
   const [serviceStatus, setServiceStatus] = useState<ParserServiceStatus | null>(null);
   const [serviceChecking, setServiceChecking] = useState(false);
   const [filter, setFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const [retainReport, setRetainReport] = useState(true);
   const serviceOnline = serviceStatus?.online ?? null;
 
   const checkService = useCallback(async () => {
@@ -107,7 +111,7 @@ export function MedicalReportImportDialog({ onImportRecords, existingCategories 
   const handleImport = () => {
     if (!result) return;
     const date = result.reportDate || new Date().toISOString().split("T")[0];
-    const records: HealthRecord[] = matched
+    let records: HealthRecord[] = matched
       .filter(m => m.action === "import" && (m.userItemId || m.systemId))
       .map(m => ({
         id: `${Date.now()}_${m.userItemId || m.systemId}_${Math.random().toString(36).slice(2, 8)}`,
@@ -117,6 +121,29 @@ export function MedicalReportImportDialog({ onImportRecords, existingCategories 
         unit: m.unit,
         operationAt: new Date().toISOString(),
       }));
+
+    // 保留原始报告作为附件
+    if (retainReport && file && onAddAttachment) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const attachment: HealthAttachment = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          data: reader.result as string,
+          date,
+          createdAt: new Date().toISOString(),
+        };
+        onAddAttachment(attachment);
+        const recordsWithAttachment = records.map(r => ({ ...r, attachmentId: attachment.id }));
+        onImportRecords(recordsWithAttachment);
+        handleClose();
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
     onImportRecords(records);
     handleClose();
   };
@@ -133,6 +160,7 @@ export function MedicalReportImportDialog({ onImportRecords, existingCategories 
     setCategoryDialogOpen(false);
     setServiceStatus(null);
     setServiceChecking(false);
+    setRetainReport(true);
   };
 
   const handleCategoryConfirm = (actions: { groupId: string; action: "create" | "assign" | "skip"; categoryId?: string; customName?: string }[]) => {
@@ -385,6 +413,17 @@ export function MedicalReportImportDialog({ onImportRecords, existingCategories 
                   <span>可导入: {importableCount}</span>
                   <span>建议维护: {suggestedCount}</span>
                   <span>未命名: {groupedCounts.unnamed.length}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="retain-report"
+                    checked={retainReport}
+                    onCheckedChange={(checked) => setRetainReport(checked === true)}
+                  />
+                  <label htmlFor="retain-report" className="text-sm text-gray-700">
+                    保留原始报告作为附件
+                  </label>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
