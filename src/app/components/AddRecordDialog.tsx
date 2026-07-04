@@ -36,6 +36,7 @@ export interface HealthRecord {
   value: number;
   unit: string;
   operationAt?: string;
+  attachmentId?: string;
 }
 
 interface AddRecordDialogProps {
