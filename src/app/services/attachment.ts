@@ -44,6 +44,16 @@ export const addAttachment = (attachment: HealthAttachment): boolean => {
   return true;
 };
 
+export const validateFile = (file: File): { valid: boolean; error?: string } => {
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return { valid: false, error: '不支持的文件类型，请上传图片或 PDF' };
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    return { valid: false, error: `文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）` };
+  }
+  return { valid: true };
+};
+
 export const deleteAttachment = (attachmentId: string) => {
   const attachments = loadAttachments();
   const filtered = attachments.filter(a => a.id !== attachmentId);
