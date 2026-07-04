@@ -4763,6 +4763,7 @@ export default function App() {
               <ImportRecordsDialog
                 categories={indicatorCategories}
                 onImportRecords={handleImportRecords}
+                onAddAttachment={handleAddAttachment}
                 triggerClassName={actionTriggerClassName}
               />
               <ExportDialog
