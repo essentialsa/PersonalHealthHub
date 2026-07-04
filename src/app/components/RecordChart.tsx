@@ -457,7 +457,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                 </span>
               </div>
             </div>
-            <div className="border border-violet-100 rounded-xl overflow-hidden bg-white/40">
+            <div className="border border-violet-100 overflow-hidden bg-white/40">
               <Table>
                 <TableHeader>
                   <TableRow className="border-violet-100 bg-violet-50/60">

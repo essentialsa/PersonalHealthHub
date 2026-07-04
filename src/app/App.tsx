@@ -817,14 +817,14 @@ function IndicatorMaintenanceDialog({
           检验指标维护
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[780px] max-h-[80vh] bg-white/95 backdrop-blur-xl border-0 shadow-2xl flex flex-col">
+      <DialogContent className="sm:max-w-[780px] h-[85vh] bg-white/95 backdrop-blur-xl border-0 shadow-2xl flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
             检验指标维护
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4 h-full">
-          <div className="flex-1 overflow-hidden">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4 flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden">
             <Tabs defaultValue="category" className="h-full flex flex-col">
               <TabsList className="grid grid-cols-2 w-full mb-3 bg-violet-50/60 border border-violet-100 rounded-xl">
                 <TabsTrigger value="category" className="text-xs sm:text-sm">
@@ -835,7 +835,7 @@ function IndicatorMaintenanceDialog({
                 </TabsTrigger>
               </TabsList>
 
-              <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
                 <TabsContent value="category" className="m-0 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4">
                     <div className="space-y-3 rounded-xl border border-violet-100 bg-white/80 px-4 py-3">
@@ -1131,25 +1131,22 @@ function IndicatorMaintenanceDialog({
                               />
                             </div>
                             <div className="col-span-1">
-                              <Select
+                              <select
                                 value={item.dataType || "number"}
-                                onValueChange={(value: "number" | "text" | "boolean") =>
+                                onChange={(e) => {
+                                  const val = e.target.value as "number" | "text" | "boolean";
                                   setItems(prev =>
                                     prev.map((row, i) =>
-                                      i === index ? { ...row, dataType: value } : row,
+                                      i === index ? { ...row, dataType: val } : row,
                                     ),
-                                  )
-                                }
+                                  );
+                                }}
+                                className="h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-xs focus:border-violet-400 focus:ring-violet-400"
                               >
-                                <SelectTrigger className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400">
-                                  <SelectValue placeholder="数据类型" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
-                                  <SelectItem value="number">数值</SelectItem>
-                                  <SelectItem value="text">文本</SelectItem>
-                                  <SelectItem value="boolean">是/否</SelectItem>
-                                </SelectContent>
-                              </Select>
+                                <option value="number">数值</option>
+                                <option value="text">文本</option>
+                                <option value="boolean">是/否</option>
+                              </select>
                             </div>
                             <div className="col-span-1 flex items-center gap-1 justify-end">
                               <Button
@@ -1294,7 +1291,7 @@ function IndicatorMaintenanceDialog({
             </Tabs>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-violet-50 mt-1">
+          <div className="flex justify-end gap-2 pt-2 border-t border-violet-50 mt-auto shrink-0">
             <Button
               type="button"
               variant="outline"
