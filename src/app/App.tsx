@@ -2772,6 +2772,7 @@ export default function App() {
   const [cloudPulling, setCloudPulling] = useState(false);
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
   const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
   const [maintenanceCategoryId, setMaintenanceCategoryId] = useState<string>("__all__");
 
@@ -4740,6 +4741,7 @@ export default function App() {
               />
               <MedicalReportImportDialog
                 onImportRecords={handleImportRecords}
+                onAddAttachment={handleAddAttachment}
                 existingCategories={indicatorCategories.map(category => ({
                   id: category.id,
                   name: category.name,
@@ -4962,6 +4964,8 @@ export default function App() {
               records={records}
               indicators={indicatorItems}
               categories={indicatorCategories}
+              attachments={attachments}
+              onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
             />
           </TabsContent>
           <TabsContent value="maintenance">
@@ -5001,6 +5005,8 @@ export default function App() {
                     onDeleteRecord={handleDeleteRecord}
                     onUpdateRecord={handleUpdateRecord}
                     onAddFollowupRecord={handleAddFollowupRecord}
+                    attachments={attachments}
+                    onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
                   />
                 </div>
                 <div>
