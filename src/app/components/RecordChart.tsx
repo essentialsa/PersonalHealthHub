@@ -484,16 +484,28 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pageRows.map(row => (
+                  {pageRows.map(row => {
+                    const dateStr = String(row.date);
+                    const hasAttachment = records.some(r => r.date === dateStr && r.attachmentId);
+                    const attachmentRecord = records.find(r => r.date === dateStr && r.attachmentId);
+                    return (
                     <TableRow
-                      key={String(row.date)}
+                      key={dateStr}
                       className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                     >
                       <TableCell className="text-xs text-center w-10">
-                        {/* 附件图标将在后续关联后显示 */}
+                        {hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
+                          <button
+                            type="button"
+                            className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
+                            onClick={() => onPreviewAttachment(attachmentRecord.attachmentId!)}
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </button>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-gray-700 w-32">
-                        {String(row.date)}
+                        {dateStr}
                       </TableCell>
                       {activeItems.map(item => {
                         const value = (row as Record<string, unknown>)[item.id];
@@ -507,7 +519,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         );
                       })}
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

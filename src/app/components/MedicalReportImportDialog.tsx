@@ -140,6 +140,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         onImportRecords(recordsWithAttachment);
         handleClose();
       };
+      reader.onerror = () => setError("文件读取失败");
       reader.readAsDataURL(file);
       return;
     }

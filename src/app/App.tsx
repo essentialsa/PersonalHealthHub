@@ -62,7 +62,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/app/components/ui/utils";
 import * as XLSX from "xlsx";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import { type HealthAttachment, loadAttachments as loadAttachmentsStorage, saveAttachments as saveAttachmentsStorage, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
+import { type HealthAttachment, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -73,7 +73,6 @@ const CHANGE_LOG_STORAGE_KEY = `health_change_logs_${STORAGE_VERSION}`;
 const INDICATOR_CHANGE_LOG_STORAGE_KEY = `health_indicator_change_logs_${STORAGE_VERSION}`;
 const AUTH_CONFIG_STORAGE_KEY = `health_auth_config_${STORAGE_VERSION}`;
 const LAST_ACTIVE_USER_KEY = `health_last_active_user_${STORAGE_VERSION}`;
-const ATTACHMENTS_STORAGE_KEY = `health_attachments_${STORAGE_VERSION}`;
 
 // Encryption helper (Simple XOR for demo purposes, in production use Web Crypto API)
 const XOR_KEY = "health-data-secure-key";
@@ -2951,9 +2950,15 @@ export default function App() {
 
   useEffect(() => {
     if (supabaseEnabled && !activeUserId) return;
-    const saved = loadAttachmentsStorage();
-    if (saved.length > 0) {
-      setAttachments(saved);
+    const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
+    try {
+      const raw = localStorage.getItem(scopedKey);
+      const saved = raw ? JSON.parse(raw) as HealthAttachment[] : [];
+      if (saved.length > 0) {
+        setAttachments(saved);
+      }
+    } catch {
+      // ignore parse errors
     }
   }, [supabaseEnabled, activeUserId]);
 
@@ -3196,10 +3201,11 @@ export default function App() {
 
   useEffect(() => {
     if (supabaseEnabled && !activeUserId) return;
+    const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
     if (attachments.length > 0) {
-      saveAttachmentsStorage(attachments);
+      safeSetItem(scopedKey, JSON.stringify(attachments));
     } else {
-      localStorage.removeItem(ATTACHMENTS_KEY);
+      localStorage.removeItem(scopedKey);
     }
   }, [attachments, supabaseEnabled, activeUserId]);
 
