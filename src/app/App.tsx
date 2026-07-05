@@ -1063,18 +1063,18 @@ function IndicatorMaintenanceDialog({
                       </Button>
                     </div>
                     <div className="border border-violet-100 bg-white/80">
-                      <div className="grid grid-cols-12 gap-1 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
-                        <div className="col-span-3">项目名称</div>
-                        <div className="col-span-3">别名/缩写</div>
-                        <div className="col-span-1">单位</div>
-                        <div className="col-span-1">参考范围</div>
-                        <div className="col-span-2">类型</div>
-                        <div className="col-span-2 text-right">操作</div>
+                      <div className="flex gap-2 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
+                        <div className="flex-1 min-w-0">项目名称</div>
+                        <div className="w-44 shrink-0">别名/缩写</div>
+                        <div className="w-16 shrink-0">单位</div>
+                        <div className="w-20 shrink-0">参考范围</div>
+                        <div className="w-20 shrink-0">类型</div>
+                        <div className="w-24 shrink-0 text-right">操作</div>
                       </div>
                       <div className="max-h-56 overflow-y-auto py-1 pr-1 space-y-1">
                         {items.map((item, index) => (
-                          <div key={item.id} className="grid grid-cols-12 gap-1 items-center px-3 py-1.5">
-                            <div className="col-span-3">
+                          <div key={item.id} className="flex gap-2 items-center px-3 py-1.5">
+                            <div className="flex-1 min-w-0">
                               <Input
                                 value={item.name}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -1084,11 +1084,11 @@ function IndicatorMaintenanceDialog({
                                     ),
                                   )
                                 }
-                                placeholder="项目名称，例如：总胆固醇"
+                                placeholder="项目名称"
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-3">
+                            <div className="w-44 shrink-0">
                               <Input
                                 value={item.aliases || ""}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -1098,11 +1098,11 @@ function IndicatorMaintenanceDialog({
                                     ),
                                   )
                                 }
-                                placeholder="GLU、葡萄糖、空腹血糖"
+                                placeholder="GLU、葡萄糖"
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-1">
+                            <div className="w-16 shrink-0">
                               <Input
                                 value={item.unit}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -1116,7 +1116,7 @@ function IndicatorMaintenanceDialog({
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-1">
+                            <div className="w-20 shrink-0">
                               <Input
                                 value={item.referenceRange || ""}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -1130,7 +1130,7 @@ function IndicatorMaintenanceDialog({
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-1">
+                            <div className="w-20 shrink-0">
                               <select
                                 value={item.dataType || "number"}
                                 onChange={(e) => {
@@ -1148,7 +1148,7 @@ function IndicatorMaintenanceDialog({
                                 <option value="boolean">是/否</option>
                               </select>
                             </div>
-                            <div className="col-span-2 flex items-center gap-1 justify-end">
+                            <div className="w-24 shrink-0 flex items-center gap-1 justify-end">
                               <Button
                                 type="button"
                                 variant="outline"
