@@ -568,7 +568,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       key={dateStr}
                       className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                     >
-                      <TableCell className="text-xs text-gray-700 w-[12%]">
+                      <TableCell className="text-xs text-gray-700 w-[12%] text-center">
                         {dateStr}
                       </TableCell>
                       {activeItems.map(item => {
@@ -577,7 +577,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         const rangeStatus = checkRange(typeof value === "number" ? value : 0, range);
 
                         return (
-                          <TableCell key={item.id} className="text-xs text-gray-700 w-[12%]">
+                          <TableCell key={item.id} className="text-xs text-gray-700 w-[12%] text-center">
                             {isRowEditing && onUpdateRecord ? (
                               <Input
                                 type="number"
@@ -589,7 +589,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 className="h-7 w-full text-xs border-violet-200"
                               />
                             ) : (
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center justify-center gap-1">
                                 {typeof value === "number" ? (
                                   <>
                                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -610,7 +610,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                           </TableCell>
                         );
                       })}
-                      <TableCell className="text-xs text-gray-500 w-[12%]">
+                      <TableCell className="text-xs text-gray-500 w-[12%] text-center">
                         {activeItems.length > 0 ? (getIndicatorRange(activeItems[0].id) || "-") : "-"}
                       </TableCell>
                       <TableCell className="text-center w-[12%]">
