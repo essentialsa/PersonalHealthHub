@@ -1063,17 +1063,17 @@ function IndicatorMaintenanceDialog({
                       </Button>
                     </div>
                     <div className="border border-violet-100 bg-white/80">
-                      <div className="grid grid-cols-12 gap-1.5 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
+                      <div className="grid grid-cols-12 gap-1 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
                         <div className="col-span-3">项目名称</div>
                         <div className="col-span-3">别名/缩写</div>
                         <div className="col-span-1">单位</div>
-                        <div className="col-span-2">参考范围</div>
-                        <div className="col-span-1">类型</div>
+                        <div className="col-span-1">参考范围</div>
+                        <div className="col-span-2">类型</div>
                         <div className="col-span-2 text-right">操作</div>
                       </div>
                       <div className="max-h-56 overflow-y-auto py-1 pr-1 space-y-1">
                         {items.map((item, index) => (
-                          <div key={item.id} className="grid grid-cols-12 gap-1.5 items-center px-3 py-1.5">
+                          <div key={item.id} className="grid grid-cols-12 gap-1 items-center px-3 py-1.5">
                             <div className="col-span-3">
                               <Input
                                 value={item.name}
@@ -1116,7 +1116,7 @@ function IndicatorMaintenanceDialog({
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-2">
+                            <div className="col-span-1">
                               <Input
                                 value={item.referenceRange || ""}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
