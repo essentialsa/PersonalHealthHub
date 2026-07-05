@@ -4971,6 +4971,7 @@ export default function App() {
               attachments={attachments}
               onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
               onUpdateRecord={handleUpdateRecord}
+              onDeleteRecord={handleDeleteRecord}
             />
           </TabsContent>
           <TabsContent value="maintenance">
