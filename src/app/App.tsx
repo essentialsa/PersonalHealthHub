@@ -1062,18 +1062,18 @@ function IndicatorMaintenanceDialog({
                         新增项目
                       </Button>
                     </div>
-                    <div className="rounded-xl border border-violet-100 bg-white/80">
-                      <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
+                    <div className="border border-violet-100 bg-white/80">
+                      <div className="grid grid-cols-12 gap-1.5 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
                         <div className="col-span-3">项目名称</div>
                         <div className="col-span-3">别名/缩写</div>
-                        <div className="col-span-2">单位</div>
+                        <div className="col-span-1">单位</div>
                         <div className="col-span-2">参考范围</div>
                         <div className="col-span-1">类型</div>
-                        <div className="col-span-1 text-right">排序</div>
+                        <div className="col-span-2 text-right">操作</div>
                       </div>
                       <div className="max-h-56 overflow-y-auto py-1 pr-1 space-y-1">
                         {items.map((item, index) => (
-                          <div key={item.id} className="grid grid-cols-12 gap-2 items-center px-3 py-1.5">
+                          <div key={item.id} className="grid grid-cols-12 gap-1.5 items-center px-3 py-1.5">
                             <div className="col-span-3">
                               <Input
                                 value={item.name}
@@ -1102,7 +1102,7 @@ function IndicatorMaintenanceDialog({
                                 className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                               />
                             </div>
-                            <div className="col-span-2">
+                            <div className="col-span-1">
                               <Input
                                 value={item.unit}
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -1141,14 +1141,14 @@ function IndicatorMaintenanceDialog({
                                     ),
                                   );
                                 }}
-                                className="h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-xs focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 w-full rounded-md border border-violet-200 bg-white px-1 text-xs focus:border-violet-400 focus:ring-violet-400"
                               >
                                 <option value="number">数值</option>
                                 <option value="text">文本</option>
                                 <option value="boolean">是/否</option>
                               </select>
                             </div>
-                            <div className="col-span-1 flex items-center gap-1 justify-end">
+                            <div className="col-span-2 flex items-center gap-1 justify-end">
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4888,7 +4888,7 @@ export default function App() {
           </TabsList>
 
           <TabsContent value="table">
-            <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-violet-100/50">
+            <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-violet-100/50 rounded-none">
               <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
@@ -4914,15 +4914,15 @@ export default function App() {
               </CardHeader>
               <CardContent>
                 {indicatorDataItems.length === 0 ? (
-                  <div className="border border-violet-100 rounded-xl bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
+                  <div className="border border-violet-100 bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
                     暂无可展示的指标数据
                   </div>
                 ) : indicatorDataRows.length === 0 ? (
-                  <div className="border border-violet-100 rounded-xl bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
+                  <div className="border border-violet-100 bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
                     当前分类暂无数据
                   </div>
                 ) : (
-                  <div className="border border-violet-100 rounded-xl overflow-hidden bg-white/40">
+                  <div className="border border-violet-100 overflow-hidden bg-white/40">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-violet-100 bg-violet-50/60">
