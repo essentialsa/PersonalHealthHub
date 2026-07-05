@@ -2,7 +2,7 @@ import { useState, type ChangeEvent } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { Trash2, Database, Pencil, PlusCircle, Paperclip } from "lucide-react";
+import { Trash2, Database, Pencil, PlusCircle, Paperclip, ArrowUp, ArrowDown } from "lucide-react";
 import { HealthRecord, IndicatorItem } from "./AddRecordDialog";
 import type { HealthAttachment } from "@/app/services/attachment";
 
@@ -15,6 +15,26 @@ interface RecordTableProps {
   attachments?: HealthAttachment[];
   onPreviewAttachment?: (attachmentId: string) => void;
 }
+
+const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
+  if (!range) return null;
+  const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
+  const parts = cleaned.split("-").filter(Boolean);
+  if (parts.length === 2) {
+    const min = parseFloat(parts[0]);
+    const max = parseFloat(parts[1]);
+    if (!isNaN(min) && !isNaN(max)) return { min, max };
+  }
+  return null;
+};
+
+const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
+  const parsed = parseReferenceRange(range);
+  if (!parsed) return "normal";
+  if (parsed.max !== undefined && value > parsed.max) return "above";
+  if (parsed.min !== undefined && value < parsed.min) return "below";
+  return "normal";
+};
 
 export function RecordTable({
   records,
@@ -34,14 +54,15 @@ export function RecordTable({
     return indicator ? indicator.label : type;
   };
 
+  const getIndicatorRange = (type: string): string | undefined => {
+    const indicator = indicators.find(t => t.id === type);
+    return indicator?.referenceRange;
+  };
+
   const formatOperationAt = (value?: string) => {
-    if (!value) {
-      return "-";
-    }
+    if (!value) return "-";
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
+    if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString("zh-CN");
   };
 
@@ -62,55 +83,47 @@ export function RecordTable({
   };
 
   const handleSaveEdit = (record: HealthRecord) => {
-    if (!editDate) {
-      return;
-    }
+    if (!editDate) return;
     const parsed = parseFloat(editValue.replace(",", "."));
     if (!Number.isFinite(parsed) || parsed < 0) {
       alert("请输入有效的非负数值。");
       return;
     }
-    onUpdateRecord({
-      ...record,
-      date: editDate,
-      value: parsed,
-    });
+    onUpdateRecord({ ...record, date: editDate, value: parsed });
     handleCancelEdit();
   };
 
   const handleSaveAsNew = (record: HealthRecord) => {
-    if (!editDate) {
-      return;
-    }
+    if (!editDate) return;
     const parsed = parseFloat(editValue.replace(",", "."));
     if (!Number.isFinite(parsed) || parsed < 0) {
       alert("请输入有效的非负数值。");
       return;
     }
-    onAddFollowupRecord(record, {
-      date: editDate,
-      value: parsed,
-    });
+    onAddFollowupRecord(record, { date: editDate, value: parsed });
     handleCancelEdit();
   };
+
+  const colClass = "w-[13%]";
 
   return (
     <div className="border border-violet-100 overflow-hidden bg-white/40">
       <Table>
         <TableHeader>
           <TableRow className="border-violet-100 hover:bg-violet-50/50">
-            <TableHead className="text-gray-700 w-32">数据日期</TableHead>
-            <TableHead className="text-gray-700 w-40">操作日期</TableHead>
-            <TableHead className="text-gray-700">检验指标</TableHead>
-            <TableHead className="text-gray-700 w-32">数值</TableHead>
-            <TableHead className="text-gray-700 w-16">附件</TableHead>
-            <TableHead className="w-[220px] text-right text-gray-700">操作</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>数据日期</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>检验指标</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>数值</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>参考范围</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>操作日期</TableHead>
+            <TableHead className={`text-gray-700 ${colClass}`}>附件</TableHead>
+            <TableHead className={`${colClass} text-right text-gray-700`}>操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {sortedRecords.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={7} className="text-center text-gray-500 py-12">
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center mb-2">
                     <Database className="w-8 h-8 text-violet-400" />
@@ -123,6 +136,9 @@ export function RecordTable({
           ) : (
             sortedRecords.map(record => {
               const isEditing = editingId === record.id;
+              const range = getIndicatorRange(record.indicatorType);
+              const rangeStatus = checkRange(record.value, range);
+
               return (
                 <TableRow
                   key={record.id}
@@ -140,13 +156,10 @@ export function RecordTable({
                       record.date
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-gray-500 py-3 align-middle whitespace-nowrap">
-                    {formatOperationAt(record.operationAt)}
-                  </TableCell>
                   <TableCell className="text-gray-700 py-3 align-middle">
                     {getIndicatorLabel(record.indicatorType)}
                   </TableCell>
-                  <TableCell className="text-gray-700 py-3 align-middle">
+                  <TableCell className="py-3 align-middle">
                     {isEditing ? (
                       <Input
                         type="number"
@@ -157,10 +170,30 @@ export function RecordTable({
                         className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
                       />
                     ) : (
-                      <span className="px-3 py-1 bg-gradient-to-r from-violet-100 to-blue-100 rounded-full text-violet-700">
-                        {record.value} {record.unit}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          rangeStatus === "above"
+                            ? "bg-red-50 text-red-600"
+                            : rangeStatus === "below"
+                              ? "bg-red-50 text-red-600"
+                              : "bg-gradient-to-r from-violet-100 to-blue-100 text-violet-700"
+                        }`}>
+                          {record.value} {record.unit}
+                        </span>
+                        {rangeStatus === "above" && (
+                          <ArrowUp className="w-4 h-4 text-red-500" />
+                        )}
+                        {rangeStatus === "below" && (
+                          <ArrowDown className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
                     )}
+                  </TableCell>
+                  <TableCell className="text-gray-500 text-sm py-3 align-middle">
+                    {range || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs text-gray-500 py-3 align-middle whitespace-nowrap">
+                    {formatOperationAt(record.operationAt)}
                   </TableCell>
                   <TableCell className="text-center">
                     {record.attachmentId && onPreviewAttachment && (
@@ -218,9 +251,7 @@ export function RecordTable({
                           size="sm"
                           onClick={() => {
                             const ok = window.confirm("确定要删除这条记录吗？");
-                            if (!ok) {
-                              return;
-                            }
+                            if (!ok) return;
                             onDeleteRecord(record.id);
                           }}
                           className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
