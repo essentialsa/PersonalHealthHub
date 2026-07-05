@@ -533,7 +533,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                 <TableHeader>
                   <TableRow className="border-violet-100 bg-violet-50/60">
                     <TableHead
-                      className="text-gray-700 text-xs w-[12%] text-center cursor-pointer select-none"
+                      className="text-gray-700 text-xs w-[14%] text-center cursor-pointer select-none"
                       onClick={() => setSortAscending(prev => !prev)}
                     >
                       数据日期
@@ -542,7 +542,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       </span>
                     </TableHead>
                     {activeItems.map(item => (
-                      <TableHead key={item.id} className="text-gray-700 text-xs w-[12%] text-center">
+                      <TableHead key={item.id} className="text-gray-700 text-xs w-[14%] text-center">
                         {item.label}
                         {item.unit && (
                           <span className="ml-1 text-[10px] text-gray-400">
@@ -551,9 +551,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         )}
                       </TableHead>
                     ))}
-                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">参考范围</TableHead>
-                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">附件</TableHead>
-                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">操作</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[14%] text-center">附件</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[14%] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -568,7 +567,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       key={dateStr}
                       className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                     >
-                      <TableCell className="text-xs text-gray-700 w-[12%] text-center">
+                      <TableCell className="text-xs text-gray-700 w-[14%] text-center">
                         {dateStr}
                       </TableCell>
                       {activeItems.map(item => {
@@ -577,7 +576,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         const rangeStatus = checkRange(typeof value === "number" ? value : 0, range);
 
                         return (
-                          <TableCell key={item.id} className="text-xs text-gray-700 w-[12%] text-center">
+                          <TableCell key={item.id} className="text-xs text-gray-700 w-[14%] text-center">
                             {isRowEditing && onUpdateRecord ? (
                               <Input
                                 type="number"
@@ -589,18 +588,18 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 className="h-7 w-full text-xs border-violet-200"
                               />
                             ) : (
-                              <div className="flex items-center justify-center gap-1">
+                              <div className="inline-flex items-center justify-center">
                                 {typeof value === "number" ? (
                                   <>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    <span className={`min-w-[3rem] text-center inline-block ${
                                       rangeStatus === "above" || rangeStatus === "below"
-                                        ? "bg-red-50 text-red-600"
+                                        ? "text-red-600 font-medium"
                                         : "text-gray-700"
                                     }`}>
                                       {value}
                                     </span>
-                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-red-500" />}
-                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-red-500" />}
+                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-red-500 ml-0.5" />}
+                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-red-500 ml-0.5" />}
                                   </>
                                 ) : (
                                   <span className="text-gray-400">-</span>
@@ -610,10 +609,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                           </TableCell>
                         );
                       })}
-                      <TableCell className="text-xs text-gray-500 w-[12%] text-center">
-                        {activeItems.length > 0 ? (getIndicatorRange(activeItems[0].id) || "-") : "-"}
-                      </TableCell>
-                      <TableCell className="text-center w-[12%]">
+                      <TableCell className="text-center w-[14%]">
                         {hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
                           <button
                             type="button"
@@ -624,9 +620,9 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                           </button>
                         )}
                       </TableCell>
-                      <TableCell className="py-3 align-middle w-[12%]">
+                      <TableCell className="py-3 align-middle w-[14%] text-center">
                         {isRowEditing ? (
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <Button
                               type="button"
                               variant="outline"
