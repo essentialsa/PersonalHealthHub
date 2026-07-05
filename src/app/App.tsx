@@ -4963,13 +4963,14 @@ export default function App() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="chart">
+           <TabsContent value="chart">
             <RecordChart
               records={records}
               indicators={indicatorItems}
               categories={indicatorCategories}
               attachments={attachments}
               onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
+              onUpdateRecord={handleUpdateRecord}
             />
           </TabsContent>
           <TabsContent value="maintenance">

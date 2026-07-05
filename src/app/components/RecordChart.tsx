@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/app/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { Button } from "@/app/components/ui/button";
-import { useState, useEffect } from "react";
+import { Input } from "@/app/components/ui/input";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { HealthRecord, IndicatorCategory, IndicatorItem } from "./AddRecordDialog";
-import { TrendingUp, Paperclip } from "lucide-react";
+import { TrendingUp, Paperclip, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 import type { HealthAttachment } from "@/app/services/attachment";
 
 interface RecordChartProps {
@@ -14,11 +15,12 @@ interface RecordChartProps {
   categories: IndicatorCategory[];
   attachments?: HealthAttachment[];
   onPreviewAttachment?: (attachmentId: string) => void;
+  onUpdateRecord?: (record: HealthRecord) => void;
 }
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 
-export function RecordChart({ records, indicators, categories, attachments = [], onPreviewAttachment }: RecordChartProps) {
+export function RecordChart({ records, indicators, categories, attachments = [], onPreviewAttachment, onUpdateRecord }: RecordChartProps) {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
     if (typeof window === "undefined") {
       return categories[0]?.id ?? "";
@@ -100,6 +102,56 @@ export function RecordChart({ records, indicators, categories, attachments = [],
     } catch {
     }
   }, [categories, selectedCategoryId, visibleIndicators]);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
+    if (!range) return null;
+    const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
+    const parts = cleaned.split("-").filter(Boolean);
+    if (parts.length === 2) {
+      const min = parseFloat(parts[0]);
+      const max = parseFloat(parts[1]);
+      if (!isNaN(min) && !isNaN(max)) return { min, max };
+    }
+    return null;
+  };
+
+  const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
+    const parsed = parseReferenceRange(range);
+    if (!parsed) return "normal";
+    if (parsed.max !== undefined && value > parsed.max) return "above";
+    if (parsed.min !== undefined && value < parsed.min) return "below";
+    return "normal";
+  };
+
+  const getIndicatorRange = (type: string): string | undefined => {
+    const indicator = indicators.find(t => t.id === type);
+    return indicator?.referenceRange;
+  };
+
+  const handleStartEdit = (recordId: string, value: number) => {
+    setEditingId(recordId);
+    setEditValue(String(value));
+  };
+
+  const handleSaveEdit = (record: HealthRecord) => {
+    if (!onUpdateRecord) return;
+    const parsed = parseFloat(editValue.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      alert("请输入有效的非负数值。");
+      return;
+    }
+    onUpdateRecord({ ...record, value: parsed });
+    setEditingId(null);
+    setEditValue("");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditValue("");
+  };
 
   const selectedCategory =
     categories.find(c => c.id === selectedCategoryId) ?? categories[0];
@@ -461,9 +513,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
               <Table>
                 <TableHeader>
                   <TableRow className="border-violet-100 bg-violet-50/60">
-                    <TableHead className="text-gray-700 text-xs w-10">附件</TableHead>
                     <TableHead
-                      className="text-gray-700 text-xs w-32 cursor-pointer select-none"
+                      className="text-gray-700 text-xs w-[13%] cursor-pointer select-none"
                       onClick={() => setSortAscending(prev => !prev)}
                     >
                       数据日期
@@ -472,7 +523,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       </span>
                     </TableHead>
                     {activeItems.map(item => (
-                      <TableHead key={item.id} className="text-gray-700 text-xs">
+                      <TableHead key={item.id} className="text-gray-700 text-xs w-[13%]">
                         {item.label}
                         {item.unit && (
                           <span className="ml-1 text-[10px] text-gray-400">
@@ -481,6 +532,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         )}
                       </TableHead>
                     ))}
+                    <TableHead className="text-gray-700 text-xs w-[13%]">参考范围</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[13%]">附件</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -488,12 +541,88 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                     const dateStr = String(row.date);
                     const hasAttachment = records.some(r => r.date === dateStr && r.attachmentId);
                     const attachmentRecord = records.find(r => r.date === dateStr && r.attachmentId);
+                    const dateRecords = records.filter(r => r.date === dateStr);
                     return (
                     <TableRow
                       key={dateStr}
                       className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                     >
-                      <TableCell className="text-xs text-center w-10">
+                      <TableCell className="text-xs text-gray-700 w-[13%]">
+                        {dateStr}
+                      </TableCell>
+                      {activeItems.map(item => {
+                        const value = (row as Record<string, unknown>)[item.id];
+                        const record = dateRecords.find(r => r.indicatorType === item.id);
+                        const isEditing = editingId === record?.id;
+                        const range = getIndicatorRange(item.id);
+                        const rangeStatus = checkRange(typeof value === "number" ? value : 0, range);
+
+                        return (
+                          <TableCell key={item.id} className="text-xs text-gray-700 w-[13%]">
+                            {isEditing && onUpdateRecord ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={editValue}
+                                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEditValue(e.target.value)}
+                                  className="h-7 w-20 text-xs border-violet-200"
+                                  autoFocus
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-1 text-xs text-emerald-600"
+                                  onClick={() => record && handleSaveEdit(record)}
+                                >
+                                  ✓
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-1 text-xs text-gray-500"
+                                  onClick={handleCancelEdit}
+                                >
+                                  ✗
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                {typeof value === "number" ? (
+                                  <>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      rangeStatus === "above" || rangeStatus === "below"
+                                        ? "bg-red-50 text-red-600"
+                                        : "text-gray-700"
+                                    }`}>
+                                      {value}
+                                    </span>
+                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-red-500" />}
+                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-red-500" />}
+                                    {record && onUpdateRecord && (
+                                      <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-violet-600 ml-0.5"
+                                        onClick={() => handleStartEdit(record.id, value)}
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                      <TableCell className="text-xs text-gray-500 w-[13%]">
+                        {activeItems.length > 0 ? (getIndicatorRange(activeItems[0].id) || "-") : "-"}
+                      </TableCell>
+                      <TableCell className="text-center w-[13%]">
                         {hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
                           <button
                             type="button"
@@ -504,20 +633,6 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                           </button>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-gray-700 w-32">
-                        {dateStr}
-                      </TableCell>
-                      {activeItems.map(item => {
-                        const value = (row as Record<string, unknown>)[item.id];
-                        return (
-                          <TableCell
-                            key={item.id}
-                            className="text-xs text-gray-700"
-                          >
-                            {typeof value === "number" ? value : "-"}
-                          </TableCell>
-                        );
-                      })}
                     </TableRow>
                     );
                   })}
