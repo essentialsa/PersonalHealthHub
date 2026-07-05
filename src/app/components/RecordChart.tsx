@@ -466,7 +466,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
               />
               <YAxis 
                 label={{
-                  value: shouldNormalize ? "标准化值 (0-100)" : yAxisUnit,
+                  value: yAxisUnit,
                   angle: -90,
                   position: "insideLeft",
                   fill: "#6b7280",
@@ -533,7 +533,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                 <TableHeader>
                   <TableRow className="border-violet-100 bg-violet-50/60">
                     <TableHead
-                      className="text-gray-700 text-xs w-[12%] cursor-pointer select-none"
+                      className="text-gray-700 text-xs w-[12%] text-center cursor-pointer select-none"
                       onClick={() => setSortAscending(prev => !prev)}
                     >
                       数据日期
@@ -542,7 +542,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       </span>
                     </TableHead>
                     {activeItems.map(item => (
-                      <TableHead key={item.id} className="text-gray-700 text-xs w-[12%]">
+                      <TableHead key={item.id} className="text-gray-700 text-xs w-[12%] text-center">
                         {item.label}
                         {item.unit && (
                           <span className="ml-1 text-[10px] text-gray-400">
@@ -551,9 +551,9 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         )}
                       </TableHead>
                     ))}
-                    <TableHead className="text-gray-700 text-xs w-[12%]">参考范围</TableHead>
-                    <TableHead className="text-gray-700 text-xs w-[12%]">附件</TableHead>
-                    <TableHead className="text-gray-700 text-xs w-[12%] text-right">操作</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">参考范围</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">附件</TableHead>
+                    <TableHead className="text-gray-700 text-xs w-[12%] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
