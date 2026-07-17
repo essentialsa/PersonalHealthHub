@@ -1526,6 +1526,7 @@ interface CloudSyncPayloadState {
   categories: IndicatorCategory[];
   changeLogs: RecordChangeLogEntry[];
   indicatorChangeLogs: IndicatorChangeLogEntry[];
+  attachments: HealthAttachment[];
 }
 
 interface CloudSyncSnapshot {
@@ -1554,6 +1555,7 @@ const cloneStatePayload = (payload: CloudSyncPayloadState): CloudSyncPayloadStat
   categories: [...payload.categories],
   changeLogs: [...payload.changeLogs],
   indicatorChangeLogs: [...payload.indicatorChangeLogs],
+  attachments: [...payload.attachments],
 });
 
 const buildStateUpdatedAt = (payload: CloudSyncPayloadState): string => {
@@ -1606,6 +1608,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
         categories: [],
         changeLogs: [],
         indicatorChangeLogs: [],
+        attachments: [],
       },
       updatedAt: fallbackUpdatedAt || new Date(0).toISOString(),
     };
@@ -1623,6 +1626,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
     categories?: IndicatorCategory[];
     changeLogs?: RecordChangeLogEntry[];
     indicatorChangeLogs?: IndicatorChangeLogEntry[];
+    attachments?: HealthAttachment[];
   };
 
   if (source.schemaVersion === CLOUD_SYNC_SCHEMA_VERSION && source.payload) {
@@ -1634,6 +1638,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
         indicatorChangeLogs: Array.isArray(source.payload.indicatorChangeLogs)
           ? source.payload.indicatorChangeLogs
           : [],
+        attachments: Array.isArray(source.payload.attachments) ? source.payload.attachments : [],
       },
       updatedAt: source.updatedAt || fallbackUpdatedAt || new Date(0).toISOString(),
     };
@@ -1655,6 +1660,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
       categories: Array.isArray(source.categories) ? source.categories : [],
       changeLogs: Array.isArray(source.changeLogs) ? source.changeLogs : [],
       indicatorChangeLogs: Array.isArray(source.indicatorChangeLogs) ? source.indicatorChangeLogs : [],
+      attachments: Array.isArray(source.attachments) ? source.attachments : [],
     },
     updatedAt: source.updatedAt || fallbackUpdatedAt || new Date(0).toISOString(),
   };
@@ -1724,12 +1730,30 @@ const mergeCloudState = (
     (a, b) => parseTimeValue(a.timestamp) - parseTimeValue(b.timestamp),
   );
 
+  // Merge attachments by id, prefer newer createdAt
+  const localAttachmentMap = new Map(local.attachments.map(a => [a.id, a]));
+  remote.attachments.forEach(attachment => {
+    const localAttachment = localAttachmentMap.get(attachment.id);
+    if (!localAttachment) {
+      localAttachmentMap.set(attachment.id, attachment);
+      return;
+    }
+    // Prefer newer attachment
+    const localTime = parseTimeValue(localAttachment.createdAt);
+    const remoteTime = parseTimeValue(attachment.createdAt);
+    if (remoteTime > localTime) {
+      localAttachmentMap.set(attachment.id, attachment);
+    }
+  });
+  const mergedAttachments = Array.from(localAttachmentMap.values());
+
   return {
     payload: {
       records: mergedRecords,
       categories: mergedCategories,
       changeLogs: mergedChangeLogs,
       indicatorChangeLogs: mergedIndicatorLogs,
+      attachments: mergedAttachments,
     },
     stats: {
       addedRecords,
@@ -3716,6 +3740,7 @@ export default function App() {
     let effectiveCategories = indicatorCategories;
     let effectiveChangeLogs = changeLogs;
     let effectiveIndicatorChangeLogs = indicatorChangeLogs;
+    let effectiveAttachments = attachments;
     if (effectiveRecords.length === 0) {
       try {
         const saved = localStorage.getItem(buildUserStorageKey(STORAGE_KEY, activeUserId));
@@ -3768,6 +3793,19 @@ export default function App() {
         console.error("[CloudSync] failed to load indicator logs from storage for manual sync", error);
       }
     }
+    if (effectiveAttachments.length === 0) {
+      try {
+        const saved = localStorage.getItem(buildUserStorageKey(ATTACHMENTS_KEY, activeUserId));
+        if (saved) {
+          const parsed = JSON.parse(saved) as HealthAttachment[];
+          if (Array.isArray(parsed)) {
+            effectiveAttachments = parsed;
+          }
+        }
+      } catch (error) {
+        console.error("[CloudSync] failed to load attachments from storage for manual sync", error);
+      }
+    }
     if (effectiveRecords.length === 0) {
       alert("暂无数据可同步。");
       return;
@@ -3790,6 +3828,7 @@ export default function App() {
           categories: effectiveCategories,
           changeLogs: effectiveChangeLogs,
           indicatorChangeLogs: effectiveIndicatorChangeLogs,
+          attachments: effectiveAttachments,
         },
         "web",
       );
@@ -3839,6 +3878,7 @@ export default function App() {
         categories: indicatorCategories,
         changeLogs,
         indicatorChangeLogs,
+        attachments,
       };
 
       const localUpdatedAtMs = parseTimeValue(buildStateUpdatedAt(localPayload));
@@ -3853,6 +3893,7 @@ export default function App() {
       setIndicatorCategories(merged.payload.categories);
       setChangeLogs(merged.payload.changeLogs);
       setIndicatorChangeLogs(merged.payload.indicatorChangeLogs);
+      setAttachments(merged.payload.attachments);
       setHistoryStack([]);
       setFutureStack([]);
 
@@ -4181,6 +4222,7 @@ export default function App() {
           categories: indicatorCategories,
           changeLogs,
           indicatorChangeLogs,
+          attachments,
         },
         "web",
       );
