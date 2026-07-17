@@ -6,8 +6,9 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { useState, useEffect, type ChangeEvent } from "react";
 import { HealthRecord, IndicatorCategory, IndicatorItem } from "./AddRecordDialog";
-import { TrendingUp, Paperclip, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { TrendingUp, Paperclip, Pencil, Trash2, ArrowUp, ArrowDown, RefreshCw, X } from "lucide-react";
 import type { HealthAttachment } from "@/app/services/attachment";
+import { FileUploadZone } from "./FileUploadZone";
 
 interface RecordChartProps {
   records: HealthRecord[];
@@ -17,11 +18,13 @@ interface RecordChartProps {
   onPreviewAttachment?: (attachmentId: string) => void;
   onUpdateRecord?: (record: HealthRecord) => void;
   onDeleteRecord?: (id: string) => void;
+  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onDeleteAttachment?: (attachmentId: string) => void;
 }
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 
-export function RecordChart({ records, indicators, categories, attachments = [], onPreviewAttachment, onUpdateRecord, onDeleteRecord }: RecordChartProps) {
+export function RecordChart({ records, indicators, categories, attachments = [], onPreviewAttachment, onUpdateRecord, onDeleteRecord, onAddAttachment, onDeleteAttachment }: RecordChartProps) {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(() => {
     if (typeof window === "undefined") {
       return categories[0]?.id ?? "";
@@ -106,6 +109,9 @@ export function RecordChart({ records, indicators, categories, attachments = [],
 
   const [editingDate, setEditingDate] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [editAttachmentFile, setEditAttachmentFile] = useState<File | null>(null);
+  const [editAttachmentDataUrl, setEditAttachmentDataUrl] = useState<string>("");
+  const [editAttachmentMode, setEditAttachmentMode] = useState<"none" | "add" | "replace">("none");
 
   const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
     if (!range) return null;
@@ -142,11 +148,45 @@ export function RecordChart({ records, indicators, categories, attachments = [],
     });
     setEditingDate(dateStr);
     setEditValues(values);
+    setEditAttachmentFile(null);
+    setEditAttachmentDataUrl("");
+    setEditAttachmentMode("none");
   };
 
   const handleSaveRowEdit = (dateStr: string) => {
     if (!onUpdateRecord) return;
     const dateRecords = records.filter(r => r.date === dateStr);
+
+    // Handle attachment changes for all records of this date
+    if (editAttachmentMode !== "none" && editAttachmentFile && editAttachmentDataUrl && onAddAttachment) {
+      // Find current attachment from any record of this date
+      const currentAttachmentId = dateRecords[0]?.attachmentId;
+
+      // Delete old attachment if replacing
+      if (editAttachmentMode === "replace" && currentAttachmentId && onDeleteAttachment) {
+        onDeleteAttachment(currentAttachmentId);
+      }
+
+      // Create new attachment
+      const newAttachmentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const attachment: HealthAttachment = {
+        id: newAttachmentId,
+        fileName: editAttachmentFile.name,
+        fileType: editAttachmentFile.type,
+        fileSize: editAttachmentFile.size,
+        data: editAttachmentDataUrl,
+        date: dateStr,
+        createdAt: new Date().toISOString(),
+      };
+      if (onAddAttachment(attachment)) {
+        // Update all records of this date with the new attachment
+        dateRecords.forEach(record => {
+          onUpdateRecord({ ...record, attachmentId: newAttachmentId });
+        });
+      }
+    }
+
+    // Update values
     activeItems.forEach(item => {
       const record = dateRecords.find(r => r.indicatorType === item.id);
       if (!record) return;
@@ -155,13 +195,20 @@ export function RecordChart({ records, indicators, categories, attachments = [],
         onUpdateRecord({ ...record, value: val });
       }
     });
+
     setEditingDate(null);
     setEditValues({});
+    setEditAttachmentFile(null);
+    setEditAttachmentDataUrl("");
+    setEditAttachmentMode("none");
   };
 
   const handleCancelRowEdit = () => {
     setEditingDate(null);
     setEditValues({});
+    setEditAttachmentFile(null);
+    setEditAttachmentDataUrl("");
+    setEditAttachmentMode("none");
   };
 
   const handleDeleteRow = (dateStr: string) => {
@@ -610,14 +657,88 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         );
                       })}
                       <TableCell className="text-center w-[14%]">
-                        {hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
-                          <button
-                            type="button"
-                            className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
-                            onClick={() => onPreviewAttachment(attachmentRecord.attachmentId!)}
-                          >
-                            <Paperclip className="h-4 w-4" />
-                          </button>
+                        {isRowEditing ? (
+                          <div className="flex flex-col items-center gap-1">
+                            {hasAttachment && attachmentRecord?.attachmentId && editAttachmentMode === "none" && !editAttachmentFile ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
+                                  onClick={() => onPreviewAttachment?.(attachmentRecord.attachmentId!)}
+                                >
+                                  <Paperclip className="h-4 w-4" />
+                                </button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                                  onClick={() => setEditAttachmentMode("replace")}
+                                  title="替换附件"
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 p-0 text-rose-400 hover:text-rose-500 hover:bg-rose-50"
+                                  onClick={() => {
+                                    if (onDeleteAttachment && attachmentRecord?.attachmentId) {
+                                      onDeleteAttachment(attachmentRecord.attachmentId);
+                                    }
+                                    setEditAttachmentMode("none");
+                                  }}
+                                  title="移除附件"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : editAttachmentFile ? (
+                              <div className="flex items-center gap-1">
+                                <Paperclip className="h-3 w-3 text-violet-500" />
+                                <span className="text-[10px] text-gray-600 truncate max-w-[50px]">{editAttachmentFile.name}</span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 p-0 text-rose-400 hover:text-rose-500"
+                                  onClick={() => {
+                                    setEditAttachmentFile(null);
+                                    setEditAttachmentDataUrl("");
+                                    setEditAttachmentMode("none");
+                                  }}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <FileUploadZone
+                                className="w-full"
+                                onFileSelect={(file, dataUrl) => {
+                                  setEditAttachmentFile(file);
+                                  setEditAttachmentDataUrl(dataUrl);
+                                  setEditAttachmentMode("add");
+                                }}
+                                onFileRemove={() => {
+                                  setEditAttachmentFile(null);
+                                  setEditAttachmentDataUrl("");
+                                  setEditAttachmentMode("none");
+                                }}
+                                selectedFile={null}
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
+                            <button
+                              type="button"
+                              className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
+                              onClick={() => onPreviewAttachment(attachmentRecord.attachmentId!)}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </button>
+                          )
                         )}
                       </TableCell>
                       <TableCell className="py-3 align-middle w-[14%] text-center">

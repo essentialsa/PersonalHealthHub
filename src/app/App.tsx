@@ -4972,6 +4972,8 @@ export default function App() {
               onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
               onUpdateRecord={handleUpdateRecord}
               onDeleteRecord={handleDeleteRecord}
+              onAddAttachment={handleAddAttachment}
+              onDeleteAttachment={handleDeleteAttachment}
             />
           </TabsContent>
           <TabsContent value="maintenance">
@@ -5013,6 +5015,8 @@ export default function App() {
                     onAddFollowupRecord={handleAddFollowupRecord}
                     attachments={attachments}
                     onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
+                    onAddAttachment={handleAddAttachment}
+                    onDeleteAttachment={handleDeleteAttachment}
                   />
                 </div>
                 <div>

@@ -2,9 +2,10 @@ import { useState, type ChangeEvent } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { Trash2, Database, Pencil, PlusCircle, Paperclip, ArrowUp, ArrowDown } from "lucide-react";
+import { Trash2, Database, Pencil, PlusCircle, Paperclip, ArrowUp, ArrowDown, RefreshCw, X } from "lucide-react";
 import { HealthRecord, IndicatorItem } from "./AddRecordDialog";
 import type { HealthAttachment } from "@/app/services/attachment";
+import { FileUploadZone } from "./FileUploadZone";
 
 interface RecordTableProps {
   records: HealthRecord[];
@@ -14,6 +15,8 @@ interface RecordTableProps {
   onAddFollowupRecord: (base: HealthRecord, payload: { date: string; value: number }) => void;
   attachments?: HealthAttachment[];
   onPreviewAttachment?: (attachmentId: string) => void;
+  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onDeleteAttachment?: (attachmentId: string) => void;
 }
 
 const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
@@ -44,10 +47,15 @@ export function RecordTable({
   onAddFollowupRecord,
   attachments = [],
   onPreviewAttachment,
+  onAddAttachment,
+  onDeleteAttachment,
 }: RecordTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editValue, setEditValue] = useState("");
+  const [editAttachmentFile, setEditAttachmentFile] = useState<File | null>(null);
+  const [editAttachmentDataUrl, setEditAttachmentDataUrl] = useState<string>("");
+  const [editAttachmentMode, setEditAttachmentMode] = useState<"none" | "add" | "replace">("none");
 
   const getIndicatorLabel = (type: string) => {
     const indicator = indicators.find(t => t.id === type);
@@ -74,12 +82,18 @@ export function RecordTable({
     setEditingId(record.id);
     setEditDate(record.date);
     setEditValue(String(record.value));
+    setEditAttachmentFile(null);
+    setEditAttachmentDataUrl("");
+    setEditAttachmentMode("none");
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditDate("");
     setEditValue("");
+    setEditAttachmentFile(null);
+    setEditAttachmentDataUrl("");
+    setEditAttachmentMode("none");
   };
 
   const handleSaveEdit = (record: HealthRecord) => {
@@ -89,7 +103,36 @@ export function RecordTable({
       alert("请输入有效的非负数值。");
       return;
     }
-    onUpdateRecord({ ...record, date: editDate, value: parsed });
+
+    let attachmentId = record.attachmentId;
+
+    // Handle attachment changes
+    if (editAttachmentMode === "add" || editAttachmentMode === "replace") {
+      if (editAttachmentFile && editAttachmentDataUrl && onAddAttachment) {
+        // Delete old attachment if replacing
+        if (editAttachmentMode === "replace" && record.attachmentId && onDeleteAttachment) {
+          onDeleteAttachment(record.attachmentId);
+        }
+        // Create new attachment
+        const newAttachmentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const attachment: HealthAttachment = {
+          id: newAttachmentId,
+          fileName: editAttachmentFile.name,
+          fileType: editAttachmentFile.type,
+          fileSize: editAttachmentFile.size,
+          data: editAttachmentDataUrl,
+          date: editDate,
+          createdAt: new Date().toISOString(),
+        };
+        if (onAddAttachment(attachment)) {
+          attachmentId = newAttachmentId;
+        }
+      }
+    } else if (editAttachmentMode === "none" && !editAttachmentFile && record.attachmentId) {
+      // Keep existing attachment
+    }
+
+    onUpdateRecord({ ...record, date: editDate, value: parsed, attachmentId });
     handleCancelEdit();
   };
 
@@ -100,6 +143,26 @@ export function RecordTable({
       alert("请输入有效的非负数值。");
       return;
     }
+
+    let attachmentId: string | undefined;
+
+    // Handle attachment for new record
+    if (editAttachmentFile && editAttachmentDataUrl && onAddAttachment) {
+      const newAttachmentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const attachment: HealthAttachment = {
+        id: newAttachmentId,
+        fileName: editAttachmentFile.name,
+        fileType: editAttachmentFile.type,
+        fileSize: editAttachmentFile.size,
+        data: editAttachmentDataUrl,
+        date: editDate,
+        createdAt: new Date().toISOString(),
+      };
+      if (onAddAttachment(attachment)) {
+        attachmentId = newAttachmentId;
+      }
+    }
+
     onAddFollowupRecord(record, { date: editDate, value: parsed });
     handleCancelEdit();
   };
@@ -196,15 +259,87 @@ export function RecordTable({
                     {formatOperationAt(record.operationAt)}
                   </TableCell>
                   <TableCell className="text-center">
-                    {record.attachmentId && onPreviewAttachment && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
-                        onClick={() => onPreviewAttachment(record.attachmentId!)}
-                      >
-                        <Paperclip className="h-4 w-4" />
-                      </Button>
+                    {isEditing ? (
+                      <div className="flex flex-col items-center gap-1">
+                        {record.attachmentId && editAttachmentMode === "none" && !editAttachmentFile ? (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
+                              onClick={() => onPreviewAttachment?.(record.attachmentId!)}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                              onClick={() => setEditAttachmentMode("replace")}
+                              title="替换附件"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 p-0 text-rose-400 hover:text-rose-500 hover:bg-rose-50"
+                              onClick={() => {
+                                if (onDeleteAttachment && record.attachmentId) {
+                                  onDeleteAttachment(record.attachmentId);
+                                }
+                                setEditAttachmentMode("none");
+                              }}
+                              title="移除附件"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : editAttachmentFile ? (
+                          <div className="flex items-center gap-1">
+                            <Paperclip className="h-3.5 w-3.5 text-violet-500" />
+                            <span className="text-xs text-gray-600 truncate max-w-[60px]">{editAttachmentFile.name}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 p-0 text-rose-400 hover:text-rose-500"
+                              onClick={() => {
+                                setEditAttachmentFile(null);
+                                setEditAttachmentDataUrl("");
+                                setEditAttachmentMode("none");
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <FileUploadZone
+                            className="w-full"
+                            onFileSelect={(file, dataUrl) => {
+                              setEditAttachmentFile(file);
+                              setEditAttachmentDataUrl(dataUrl);
+                              setEditAttachmentMode("add");
+                            }}
+                            onFileRemove={() => {
+                              setEditAttachmentFile(null);
+                              setEditAttachmentDataUrl("");
+                              setEditAttachmentMode("none");
+                            }}
+                            selectedFile={null}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      record.attachmentId && onPreviewAttachment && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
+                          onClick={() => onPreviewAttachment(record.attachmentId!)}
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                      )
                     )}
                   </TableCell>
                   <TableCell className="py-3 align-middle">
