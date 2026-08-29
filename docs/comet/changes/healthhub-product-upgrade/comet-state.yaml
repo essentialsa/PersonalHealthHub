@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: healthhub-product-upgrade
 language: zh-CN
-phase: build
+phase: archive
 status: active
-state_version: 2
+state_version: 11
 brief: brief.md
 children_contract_hash: d37c9c296b1de2bc835c4c88d984827353042414e54e4fc3cf58c4fe56dce6e1
 spec_changes:
@@ -20,266 +20,534 @@ workspace:
   isolation: branch
   change_branch: comet/healthhub-product-upgrade
   target_branch: main
-  finish: null
+  finish: pull-request
 loop:
-  stage: building
+  stage: archive-ready
   goal_cycle: 1
-  iteration: 1
-  attempt: 0
+  iteration: 2
+  attempt: 1
   retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: submit-builder-candidate
+  next_action: archive
 acceptance:
   - id: A1
     source: brief.md
     text: A1 授权持久化：首次 Google 授权后，refresh token 持久保存；此后重新打开应用，无需人工重新授权即可完成 Drive 上传/拉取
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 子 change drive-auto-backup A1 已验+集成复核：refreshToken
+        加密按用户持久化，ensureFreshGoogleDriveAuth 静默续期在位；端到端待真机确认为已记录风险。
+      truncated: false
   - id: A2
     source: brief.md
     text: A2 自动备份：记录数据发生变更后（增删改、导入），自动静默上传 Google Drive；提供开关，默认开启；家人无需任何手动操作
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: applyRecordsUpdate 统一 triggerAutoBackup，cloudAutoSync 默认 true，关闭后回退手动上传。
+      truncated: false
   - id: A3
     source: brief.md
     text: A3 拉取保护：云端备份比本地新时，拉取前明确提示（显示两侧时间），不会静默覆盖本地
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: handleCloudPull confirm 弹窗显示两侧时间，确认后才覆盖。
+      truncated: false
   - id: A4
     source: brief.md
     text: A4 附件同步：附件（报告照片/PDF）随备份上传 Google Drive；从备份恢复后附件可用；附件总量不再受 localStorage
       20MB 限制
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 附件上传 Drive 记 driveFileId，恢复合并元数据+按需取回；20MB 总限移除有单测；端到端待真机。
+      truncated: false
   - id: A5
     source: brief.md
     text: A5 OCR 模型切换：报告图片由多模态模型直接识别输出结构化 JSON；模型名、base URL、API key 全部为环境变量配置；后端不含
       PaddleOCR
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: vision_engine.py 图片直发多模态接口；VISION_LLM_* 环境变量；report-parser 无 paddle 引用。
+      truncated: false
   - id: A6
     source: brief.md
     text: A6 OCR 可靠性：正常网络下报告导入在 30 秒内返回；失败时前端给出明确失败状态与降级引导（手动录入/Excel
       导入/照片挂附件），不出现无限 loading
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 失败路径无无限 loading；30s 指标代码级验证，真机待实测。
+      truncated: false
   - id: A7
     source: brief.md
     text: A7 移动端可读：375px 宽度下 RecordTable/RecordChart
       数据可读（数值、参考范围箭头、颜色不重叠不截断）、就诊摘要可完整展示并复制；微信内置浏览器打开正常；发现的问题修复并留有验证记录
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 375px 走查报告+9 张截图齐全，复现通过；修复项为无。
+      truncated: false
   - id: A8
     source: specs/drive-backup/spec.md
     text: 首次连接 Google Drive 时走 OAuth 授权，请求参数包含 `access_type=offline` 与
       `prompt=consent`，授权后获得 refresh token
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: OAuth access_type=offline + prompt=consent 在位。
+      truncated: false
   - id: A9
     source: specs/drive-backup/spec.md
     text: refresh token 与用户隔离存储（沿用 `buildUserStorageKey` 体系）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: refreshToken 按用户隔离加密持久化。
+      truncated: false
   - id: A10
     source: specs/drive-backup/spec.md
     text: 已持有 refresh token 的用户再次打开应用时，自动用 refresh token 静默换取 access token，不弹出授权页；仅在
       token 失效或被撤销时才提示重新授权
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 静默续期无强制授权页，仅 invalid_grant 提示重授权。
+      truncated: false
   - id: A11
     source: specs/drive-backup/spec.md
     text: access token 过期时自动刷新，用户无感
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: isTokenExpiring+静默续期用户无感。
+      truncated: false
   - id: A12
     source: specs/drive-backup/spec.md
     text: 记录数据（健康记录、指标分类、变更日志）发生任何变更（增、删、改、Excel 导入、报告导入）后，防抖触发静默上传 Google Drive
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 触发点全覆盖，5s 防抖+拉取后 15s 抑制。
+      truncated: false
   - id: A13
     source: specs/drive-backup/spec.md
     text: 默认开启；设置中提供开关（沿用/扩展现有"导入后自动上传"开关），关闭后回退手动上传
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 默认开启，开关可关并持久化。
+      truncated: false
   - id: A14
     source: specs/drive-backup/spec.md
     text: 上传成功/失败在 UI 有轻量状态提示（不阻断操作）；失败不重试阻塞用户，下次变更再次尝试
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 上传任务轻量状态提示不阻断。
+      truncated: false
   - id: A15
     source: specs/drive-backup/spec.md
     text: 从云端拉取前对比云端备份与本地数据的更新时间
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 拉取前时间对比。
+      truncated: false
   - id: A16
     source: specs/drive-backup/spec.md
     text: 云端更新时弹窗提示并显示两侧时间，由用户确认后才覆盖本地；本地更新或相同时按现有逻辑处理
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: confirm 显示两侧时间，确认后覆盖。
+      truncated: false
   - id: A17
     source: specs/drive-backup/spec.md
     text: 不做自动合并
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 无未确认自动合并。
+      truncated: false
   - id: A18
     source: specs/drive-backup/spec.md
     text: 附件（报告照片/PDF）上传至 Google Drive 作为持久层；本地保留缓存用于离线查看与预览
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Drive 为附件持久层+4MB 本地缓存+按需取回。
+      truncated: false
   - id: A19
     source: specs/drive-backup/spec.md
     text: 附件总量不再受 localStorage 20MB 限制；单文件上限维持 10MB 起步（可配置常量）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 20MB 总限移除有单测；10MB 单文件常量保留。
+      truncated: false
   - id: A20
     source: specs/drive-backup/spec.md
     text: 从云端备份恢复后，附件完整可用（含预览）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 恢复后附件云端按需取回渲染/下载。
+      truncated: false
   - id: A21
     source: specs/drive-backup/spec.md
     text: 附件上传失败时记录状态并允许重试，不阻塞记录本身的上传
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 逐附件独立 try/catch 不阻塞，可重试。
+      truncated: false
   - id: A22
     source: specs/drive-backup/spec.md
     text: 健康数据与附件绝不写入任何数据库
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 无数据库写入路径。
+      truncated: false
   - id: A23
     source: specs/drive-backup/spec.md
     text: 凭据不进代码仓库；API 凭据仅在用户浏览器本地
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 凭据走 VITE_* 环境变量，无入库。
+      truncated: false
   - id: A24
     source: specs/drive-backup/spec.md
     text: 用户可见文案全部中文
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 新增文案全中文。
+      truncated: false
   - id: A25
     source: specs/mobile-reading/spec.md
     text: 以 375px 视口宽度为验收基准（覆盖 iPhone SE/mini 类机型），在移动浏览器（含微信内置浏览器）中：
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 375×812 @2x Chromium 走查；微信真机留待部署后。
+      truncated: false
   - id: A26
     source: specs/mobile-reading/spec.md
     text: "**RecordTable**：数值列、参考范围箭头、高低颜色标识完整可读，无重叠、无横向溢出截断；表格在窄屏下保持对齐"
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 数值列可读，其余列横滑可达，文档级零溢出。
+      truncated: false
   - id: A27
     source: specs/mobile-reading/spec.md
     text: "**RecordChart**：趋势图完整显示时间轴与指标图例；多指标场景下不挤压变形；详情表在窄屏可用"
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 三曲线/图例/时间轴完整，详情表可滚可用。
+      truncated: false
   - id: A28
     source: specs/mobile-reading/spec.md
     text: "**ConsultationBriefDialog（就诊摘要）**：摘要文本完整展示、可一键复制；复制结果与桌面端一致"
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 问诊简报完整展示，一键复制与桌面同路径。
+      truncated: false
   - id: A29
     source: specs/mobile-reading/spec.md
     text: "**附件预览**：图片/PDF 附件可在窄屏正常预览"
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 图片 m5+PDF m6 双证据齐全。
+      truncated: false
   - id: A30
     source: specs/mobile-reading/spec.md
     text: 上述走查中发现的问题按"针对性修复"原则处理，不引入全站响应式改造
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 零代码改动，无响应式改造。
+      truncated: false
   - id: A31
     source: specs/mobile-reading/spec.md
     text: 桌面端现有布局与交互不受影响（回归验证）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 桌面回归截图确认。
+      truncated: false
   - id: A32
     source: specs/mobile-reading/spec.md
     text: 用户可见文案全部中文
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 文案全中文，无新增。
+      truncated: false
   - id: A33
     source: specs/mobile-reading/spec.md
     text: 修复限定在
       RecordChart.tsx、RecordTable.tsx、ConsultationBriefDialog.tsx、AttachmentPreviewDialog.tsx
       及必要样式文件
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: src/ 零 diff，范围约束满足。
+      truncated: false
   - id: A34
     source: specs/ocr-multimodal-import/spec.md
     text: "`POST /api/parse` 接收报告文件（PDF/JPG/PNG），PDF 首先转为页面图片"
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: PDF→页面图（PyMuPDF，8 页上限 4 图分批）实跑验证。
+      truncated: false
   - id: A35
     source: specs/ocr-multimodal-import/spec.md
     text: 图片直接提交给多模态大模型（默认 GLM-4V-Flash），由模型输出结构化指标 JSON（指标名、数值、单位、参考范围）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 默认 glm-4v-flash，schema 化指标输出，请求体有单测。
+      truncated: false
   - id: A36
     source: specs/ocr-multimodal-import/spec.md
     text: 模型调用参数全部由环境变量配置：API base URL、模型名、API key、（可选）备选模型
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 全参数环境变量化，render.yaml 声明。
+      truncated: false
   - id: A37
     source: specs/ocr-multimodal-import/spec.md
     text: 不再包含 PaddleOCR 引擎、本地表格还原、本地规则解析 fallback；依赖列表相应精简
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 旧模块已删，依赖精简，零 paddle 引用。
+      truncated: false
   - id: A38
     source: specs/ocr-multimodal-import/spec.md
     text: 保留 `/api/health`、`/api/healthz`、`/api/ocr-readyz` 健康检查语义
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 三健康检查端点保留有单测。
+      truncated: false
   - id: A39
     source: specs/ocr-multimodal-import/spec.md
     text: 模型调用失败/超时返回明确错误码与中文可读错误信息
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 错误码+中文文案+备选模型切换。
+      truncated: false
   - id: A40
     source: specs/ocr-multimodal-import/spec.md
     text: 现有指标匹配（文本规范化 + 编辑距离 + 单位兼容打分）、三级置信度、未匹配"未命名"区、导入确认流程全部保留（medicalReport.ts）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: src/ 零改动，指标匹配/置信度/确认流程保留。
+      truncated: false
   - id: A41
     source: specs/ocr-multimodal-import/spec.md
     text: 现有多端点重试机制 `VITE_REPORT_PARSER_URLS`（云端优先、本地兜底）保留
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 多端点重试保留。
+      truncated: false
   - id: A42
     source: specs/ocr-multimodal-import/spec.md
     text: 正常网络下从提交到返回结果 ≤ 30 秒
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 无冷启动下载；≤30s 真机待实测。
+      truncated: false
   - id: A43
     source: specs/ocr-multimodal-import/spec.md
     text: 失败时显示明确失败状态与降级引导：手动录入 / Excel 导入 / 将报告照片挂到记录附件；不出现无限 loading
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 失败横幅+降级路径可达。
+      truncated: false
   - id: A44
     source: specs/ocr-multimodal-import/spec.md
     text: 文件选择与上传交互、支持格式（PDF/JPG/PNG）不变
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 文件交互与格式校验一致。
+      truncated: false
   - id: A45
     source: specs/ocr-multimodal-import/spec.md
     text: API key 只存在于后端环境变量，不进前端、不进代码仓库
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: API key 仅后端环境变量。
+      truncated: false
   - id: A46
     source: specs/ocr-multimodal-import/spec.md
     text: 报告照片直发第三方大模型 API 已获用户确认
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 父级决策 D7 用户已确认。
+      truncated: false
   - id: A47
     source: specs/ocr-multimodal-import/spec.md
     text: 用户可见文案全部中文
-    result: pending
-    reason: null
-builder_handoff: null
+    result: passed
+    reason:
+      text: 文案全中文。
+      truncated: false
+builder_handoff:
+  candidate_id: 3b27397b-1ead-4074-86b9-c18110079a01
+  identity_provider: skill-coordinated
+  builder_execution_ref: native-parent-integration:a17c82bb-64de-414a-91fd-97145045e66c
+  iteration: 2
+  summary:
+    text: iteration 2：实现与产物无任何改动；仅修正 Supervisor
+      验收检查脚本的产物路径（three-children-artifacts-v2 指向归档后的 verification-shots 位置）。请
+      Verify 使用修正后的检查计划。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+    - A47
+  checks: []
+  checks_truncated: false
+  known_limits: []
+  known_limits_truncated: false
+  submitted_at: 2026-08-29T08:03:02.629Z
 blockers: []
-verification: null
-history: []
+verification:
+  candidate_id: 3b27397b-1ead-4074-86b9-c18110079a01
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:2746c289-4735-4572-b9ed-8651b3f84bb7
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: integrated-tsc-baseline
+      name:
+        text: 集成分支 TypeScript 编译检查（基线对比，无新增错误类别）
+        truncated: false
+      argv_display:
+        - text: check-tsc-baseline.mjs
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 52
+    - id: integrated-pytest
+      name:
+        text: report-parser pytest 全量（集成分支上的 11 项）
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: pytest
+          truncated: false
+        - text: report-parser/tests/
+          truncated: false
+        - text: -q
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 460
+    - id: three-children-artifacts-v2
+      name:
+        text: 三个子 change 的验收产物与提升后的 specs 齐全
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: test -d docs/comet/archive/2026-08-29-drive-auto-backup && test -d
+            docs/comet/archive/2026-08-29-ocr-multimodal-import && test -d
+            docs/comet/archive/2026-08-29-mobile-reading && test -f
+            docs/comet/specs/drive-backup/spec.md && test -f
+            docs/comet/specs/ocr-multimodal-import/spec.md && test -f
+            docs/comet/specs/mobile-reading/spec.md && test -f
+            docs/comet/archive/2026-08-29-mobile-reading/verification-shots/m6-pdf-attachment.png
+            || exit 1
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 5
+  summary:
+    text: 47/47 passed。三个子 change 均独立验收通过并
+      merge（8eaedd6/d68d786/fe9f693），映射逐项核对无缺口无回归；集成
+      tsc/pytest/产物三项检查复跑全过。遗留风险均为真机/部署后待确认项。
+    truncated: false
+  risks:
+    - text: Drive 关键链路（授权持久化/附件取回/恢复预览）为代码级验证，真机端到端待人工确认
+      truncated: false
+    - text: GLM-4V-Flash 真机识别质量与时延待实测；Render 环境变量部署前须配置
+      truncated: false
+    - text: 微信真机验证待部署后；宽表右缘列需横滑可见
+      truncated: false
+    - text: clientSecret 进 SPA 打包产物为已知可接受；5s 防抖窗口内关页靠下次触发补偿
+      truncated: false
+    - text: PDF 超 8 页静默截断；超时上限大于 30s 字面目标
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-29T08:06:01.310Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: execution-error
+    unresolved_ids: []
+    summary:
+      text: "Native Verifier response was invalid: Native Verifier acceptance coverage
+        is invalid (duplicate: none; unknown: none; missing: A22, A23, A24, A25,
+        A26, A27, A28, A29, A30, A31, A32, A33, A34, A35, A36, A37, A38, A39,
+        A40, A41, A42, A43, A44, A45, A46, A47)"
+      truncated: false
+    completed_at: 2026-08-29T08:01:52.569Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Supervisor 验收的 three-children-artifacts 检查引用了归档前旧路径（产物实际已在
+        docs/comet/archive/2026-08-29-mobile-reading/verification-shots/，实测存在）。回
+        Build 仅修正检查脚本路径，实现与产物无任何改动，随后用修正计划重新验收。
+      truncated: false
+    completed_at: 2026-08-29T08:02:48.328Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 47/47 passed。三个子 change 均独立验收通过并
+        merge（8eaedd6/d68d786/fe9f693），映射逐项核对无缺口无回归；集成
+        tsc/pytest/产物三项检查复跑全过。遗留风险均为真机/部署后待确认项。
+      truncated: false
+    completed_at: 2026-08-29T08:06:01.310Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -290,7 +558,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: pending
-verification_report: null
+verification_result: pass
+verification_report: verification.md
 archived: false
 created_at: 2026-08-29T03:14:33.219Z
