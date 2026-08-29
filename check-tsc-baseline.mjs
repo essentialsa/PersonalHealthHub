@@ -17,5 +17,5 @@ if (newErrors.length > 0) {
   for (const l of newErrors) console.error("  " + l);
   process.exit(1);
 }
-console.log(`tsc OK: ${current.length} errors, all within pre-existing baseline (${baseline.size} signatures)`);
+console.log(`tsc OK: ${current.length} errors, all within baseline (${baseline.size} signatures)`);
 process.exit(0);
