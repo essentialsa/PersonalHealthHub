@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent, type ChangeEvent } from "react";
 import { AddRecordDialog, HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 import { RecordTable } from "@/app/components/RecordTable";
 import { RecordChart } from "@/app/components/RecordChart";
@@ -62,7 +62,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/app/components/ui/utils";
 import * as XLSX from "xlsx";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import { type HealthAttachment, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
+import {
+  type HealthAttachment,
+  type AttachmentMeta,
+  addAttachment as addAttachmentStorage,
+  deleteAttachment as deleteAttachmentStorage,
+  ATTACHMENTS_KEY,
+  ATTACHMENT_CACHE_BUDGET,
+  toAttachmentMeta,
+  mergeAttachmentMeta,
+  planAttachmentCacheEviction,
+  applyAttachmentCacheEviction,
+  bytesToDataUrl,
+} from "@/app/services/attachment";
+import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -130,6 +143,7 @@ interface CloudProviderAuth {
   expiresAt?: string;
   refreshToken?: string;
   rootFolderId?: string;
+  attachmentsFolderId?: string;
   dataFileId?: string;
   permissions: CloudProviderPermissions;
   lastVerified?: string;
@@ -1526,6 +1540,7 @@ interface CloudSyncPayloadState {
   categories: IndicatorCategory[];
   changeLogs: RecordChangeLogEntry[];
   indicatorChangeLogs: IndicatorChangeLogEntry[];
+  attachments: AttachmentMeta[];
 }
 
 interface CloudSyncSnapshot {
@@ -1554,6 +1569,7 @@ const cloneStatePayload = (payload: CloudSyncPayloadState): CloudSyncPayloadStat
   categories: [...payload.categories],
   changeLogs: [...payload.changeLogs],
   indicatorChangeLogs: [...payload.indicatorChangeLogs],
+  attachments: [...payload.attachments],
 });
 
 const buildStateUpdatedAt = (payload: CloudSyncPayloadState): string => {
@@ -1575,6 +1591,13 @@ const buildStateUpdatedAt = (payload: CloudSyncPayloadState): string => {
 
   payload.indicatorChangeLogs.forEach(log => {
     const candidate = parseTimeValue(log.timestamp);
+    if (candidate > maxTime) {
+      maxTime = candidate;
+    }
+  });
+
+  payload.attachments.forEach(attachment => {
+    const candidate = parseTimeValue(attachment.createdAt || attachment.date);
     if (candidate > maxTime) {
       maxTime = candidate;
     }
@@ -1606,6 +1629,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
         categories: [],
         changeLogs: [],
         indicatorChangeLogs: [],
+        attachments: [],
       },
       updatedAt: fallbackUpdatedAt || new Date(0).toISOString(),
     };
@@ -1623,6 +1647,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
     categories?: IndicatorCategory[];
     changeLogs?: RecordChangeLogEntry[];
     indicatorChangeLogs?: IndicatorChangeLogEntry[];
+    attachments?: AttachmentMeta[];
   };
 
   if (source.schemaVersion === CLOUD_SYNC_SCHEMA_VERSION && source.payload) {
@@ -1634,6 +1659,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
         indicatorChangeLogs: Array.isArray(source.payload.indicatorChangeLogs)
           ? source.payload.indicatorChangeLogs
           : [],
+        attachments: Array.isArray(source.payload.attachments) ? source.payload.attachments : [],
       },
       updatedAt: source.updatedAt || fallbackUpdatedAt || new Date(0).toISOString(),
     };
@@ -1655,6 +1681,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
       categories: Array.isArray(source.categories) ? source.categories : [],
       changeLogs: Array.isArray(source.changeLogs) ? source.changeLogs : [],
       indicatorChangeLogs: Array.isArray(source.indicatorChangeLogs) ? source.indicatorChangeLogs : [],
+      attachments: [],
     },
     updatedAt: source.updatedAt || fallbackUpdatedAt || new Date(0).toISOString(),
   };
@@ -1723,6 +1750,7 @@ const mergeCloudState = (
   const mergedIndicatorLogs = mergeById(local.indicatorChangeLogs, remote.indicatorChangeLogs).sort(
     (a, b) => parseTimeValue(a.timestamp) - parseTimeValue(b.timestamp),
   );
+  const mergedAttachments = mergeAttachmentMeta(local.attachments, remote.attachments);
 
   return {
     payload: {
@@ -1730,6 +1758,7 @@ const mergeCloudState = (
       categories: mergedCategories,
       changeLogs: mergedChangeLogs,
       indicatorChangeLogs: mergedIndicatorLogs,
+      attachments: mergedAttachments,
     },
     stats: {
       addedRecords,
@@ -1737,6 +1766,7 @@ const mergeCloudState = (
       touchedCategories: mergedCategoriesCount,
       addedChangeLogs: Math.max(mergedChangeLogs.length - local.changeLogs.length, 0),
       addedIndicatorLogs: Math.max(mergedIndicatorLogs.length - local.indicatorChangeLogs.length, 0),
+      addedAttachments: Math.max(mergedAttachments.length - local.attachments.length, 0),
     },
   };
 };
@@ -2349,7 +2379,7 @@ function CloudSyncDialog({
                     <CardTitle className="text-sm">同步策略</CardTitle>
                   </div>
                   <CardDescription className="text-xs mt-1">
-                    控制导入后的自动上传行为，建议在网络良好时开启。
+                    数据变更后自动备份到云盘，无需手动操作，建议保持开启。
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -2363,9 +2393,9 @@ function CloudSyncDialog({
                     }`}
                   >
                     <div className="flex flex-col items-start">
-                      <span>导入后自动上传</span>
+                      <span>自动备份</span>
                       <span className="text-[11px] text-gray-500 mt-0.5">
-                        解析成功的数据导入本地后，自动上传对应 JSON 文件到云端。
+                        记录、分类或附件发生变化后，自动静默上传备份到云端（约 5 秒内完成）。
                       </span>
                     </div>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-current">
@@ -2375,7 +2405,7 @@ function CloudSyncDialog({
                   <div className="text-[11px] text-gray-400 leading-relaxed">
                     当前配置：
                     <span className="ml-1 font-medium text-gray-700">{providerLabel}</span>
-                    {autoSync ? "，导入完成后将自动触发上传。" : "，导入完成后不会自动上传。"}
+                    {autoSync ? "，数据变更后将自动备份。" : "，仅手动点击同步时才上传。"}
                   </div>
                 </CardContent>
               </Card>
@@ -2762,7 +2792,7 @@ export default function App() {
   const [changeLogs, setChangeLogs] = useState<RecordChangeLogEntry[]>([]);
   const [indicatorChangeLogs, setIndicatorChangeLogs] = useState<IndicatorChangeLogEntry[]>([]);
   const [cloudProvider, setCloudProvider] = useState<CloudProvider>("none");
-  const [cloudAutoSync, setCloudAutoSync] = useState(false);
+  const [cloudAutoSync, setCloudAutoSync] = useState(true);
   const [cloudUploadTasks, setCloudUploadTasks] = useState<CloudUploadTask[]>([]);
   const [cloudAvailableStorageText, setCloudAvailableStorageText] = useState("");
   const [manualSyncing, setManualSyncing] = useState(false);
@@ -2770,8 +2800,22 @@ export default function App() {
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
   const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
+  const [previewAttachmentLoading, setPreviewAttachmentLoading] = useState(false);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
   const [maintenanceCategoryId, setMaintenanceCategoryId] = useState<string>("__all__");
+
+  // 自动备份：保存最新 state 的 ref，供防抖回调读取，避免闭包拿到过期数据
+  const cloudPayloadRef = useRef({ records, indicatorCategories, changeLogs, indicatorChangeLogs, attachments });
+  cloudPayloadRef.current = { records, indicatorCategories, changeLogs, indicatorChangeLogs, attachments };
+  const cloudAutoUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cloudAuthConfigRef = useRef(authConfig);
+  cloudAuthConfigRef.current = authConfig;
+  const cloudProviderRef = useRef(cloudProvider);
+  cloudProviderRef.current = cloudProvider;
+  const cloudAutoSyncRef = useRef(cloudAutoSync);
+  cloudAutoSyncRef.current = cloudAutoSync;
+  // 拉取云端数据合并进本地后短暂抑制自动上传，避免“拉取→自动上传”循环
+  const suppressAutoUploadUntilRef = useRef(0);
 
   useEffect(() => {
     if (indicatorCategories.length === 0) {
@@ -2877,7 +2921,7 @@ export default function App() {
         setChangeLogs([]);
         setIndicatorChangeLogs([]);
         setCloudProvider("none");
-        setCloudAutoSync(false);
+        setCloudAutoSync(true);
         setCloudUploadTasks([]);
         setCloudAvailableStorageText("");
         setCloudPulling(false);
@@ -2913,8 +2957,8 @@ export default function App() {
         if (savedProvider === "googleDrive" || savedProvider === "none") {
           setCloudProvider(savedProvider as CloudProvider);
         }
-        if (savedAutoSync === "true") {
-          setCloudAutoSync(true);
+        if (savedAutoSync === "false") {
+          setCloudAutoSync(false);
         }
 
         const savedAuthConfig = localStorage.getItem(scopedKey(AUTH_CONFIG_STORAGE_KEY));
@@ -3261,6 +3305,346 @@ export default function App() {
     : changeLogs;
   const createCloudUploadId = () => `cloud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+  /**
+   * 用 refresh token 静默续期 access token；成功后回写 authConfig。
+   * 返回可用（已刷新或仍然有效）的授权信息，无法解决时返回 null。
+   */
+  const ensureFreshGoogleDriveAuth = async (): Promise<CloudProviderAuth | null> => {
+    const current = cloudAuthConfigRef.current.googleDrive;
+    if (!current) {
+      return null;
+    }
+    if (current.accessToken && !current.tokenInvalid && !isTokenExpiring(current.expiresAt)) {
+      return current;
+    }
+    if (!current.refreshToken) {
+      return null;
+    }
+    const clientId = import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID;
+    if (!clientId) {
+      console.error("[CloudAuth] missing VITE_GOOGLE_DRIVE_CLIENT_ID for token refresh");
+      return null;
+    }
+    const result = await refreshGoogleDriveAccessToken({
+      refreshToken: current.refreshToken,
+      clientId,
+      clientSecret: import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_SECRET,
+    });
+    if ("errorMessage" in result) {
+      console.error("[CloudAuth] silent token refresh failed", result.errorMessage);
+      if (result.invalidRefreshToken) {
+        markGoogleDriveTokenInvalid({
+          status: 401,
+          operation: "refresh token",
+          apiMessage: result.errorMessage,
+        });
+      }
+      return null;
+    }
+    const next: CloudProviderAuth = {
+      ...current,
+      accessToken: result.tokenInfo.accessToken,
+      expiresAt: result.tokenInfo.expiresAt,
+      tokenInvalid: false,
+      lastErrorMessage: undefined,
+      refreshToken: result.tokenInfo.refreshToken || current.refreshToken,
+    };
+    console.log("[CloudAuth] silent token refresh succeeded", { expiresAt: next.expiresAt });
+    setAuthConfig(prev => ({ ...prev, googleDrive: next }));
+    cloudAuthConfigRef.current = { ...cloudAuthConfigRef.current, googleDrive: next };
+    return next;
+  };
+
+  /** 查找/创建「个人/附件」子文件夹，附件内容统一存放在这里 */
+  const ensureGoogleDriveAttachmentsFolder = async (
+    accessToken: string,
+    personalFolderId: string,
+  ): Promise<string | undefined> => {
+    try {
+      const query = `name='附件' and '${personalFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const url =
+        "https://www.googleapis.com/drive/v3/files?q=" +
+        encodeURIComponent(query) +
+        "&spaces=drive&fields=files(id,name)&pageSize=10";
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error("[CloudSync] list attachments folder failed", { status: resp.status, body: text });
+        return undefined;
+      }
+      const data = (await resp.json()) as { files?: { id: string; name: string }[] };
+      if (data.files && data.files.length > 0) {
+        return data.files[0].id;
+      }
+      const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "附件",
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [personalFolderId],
+        }),
+      });
+      if (!createResp.ok) {
+        const text = await createResp.text();
+        console.error("[CloudSync] create attachments folder failed", { status: createResp.status, body: text });
+        return undefined;
+      }
+      const created = (await createResp.json()) as { id?: string };
+      return created.id;
+    } catch (error) {
+      console.error("[CloudSync] ensure attachments folder error", error);
+      return undefined;
+    }
+  };
+
+  /** 上传单个附件内容到 Drive「个人/附件」目录，返回 Drive 文件 id */
+  const uploadGoogleDriveAttachmentContent = async (
+    accessToken: string,
+    attachmentsFolderId: string,
+    attachment: HealthAttachment,
+  ): Promise<string | undefined> => {
+    if (!attachment.data) {
+      return undefined;
+    }
+    const boundary = `-------314159265358979323846`;
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+    const metadata = {
+      name: `${attachment.id}__${attachment.fileName}`,
+      mimeType: attachment.fileType || "application/octet-stream",
+      parents: [attachmentsFolderId],
+    };
+    const body =
+      delimiter +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      JSON.stringify(metadata) +
+      delimiter +
+      `Content-Type: ${metadata.mimeType}\r\nContent-Transfer-Encoding: base64\r\n\r\n` +
+      (attachment.data.split(",")[1] || "") +
+      closeDelimiter;
+    const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    const created = (await response.json()) as { id?: string };
+    return created.id;
+  };
+
+  /**
+   * 把本地有内容但还没上传云盘的附件逐个上传（在快照上传前调用）。
+   * 单个附件失败不阻塞其余附件和快照上传；上传成功的附件记录 driveFileId，
+   * 并按本地缓存预算清理已同步附件的 data（云盘为持久层）。
+   */
+  const ensureAttachmentsUploaded = async (auth: CloudProviderAuth): Promise<boolean> => {
+    const accessToken = auth.accessToken;
+    if (!accessToken) {
+      return false;
+    }
+    const pending = cloudPayloadRef.current.attachments.filter(a => a.data && !a.driveFileId);
+    if (pending.length === 0) {
+      return true;
+    }
+    let folderId = auth.attachmentsFolderId;
+    if (!folderId) {
+      let personalFolderId = auth.rootFolderId;
+      if (!personalFolderId) {
+        personalFolderId = await ensureGoogleDrivePersonalFolder(accessToken);
+        if (personalFolderId) {
+          updateGoogleDriveRootFolderId(personalFolderId);
+        }
+      }
+      if (!personalFolderId) {
+        console.error("[CloudSync] cannot resolve personal folder for attachments upload");
+        return false;
+      }
+      folderId = await ensureGoogleDriveAttachmentsFolder(accessToken, personalFolderId);
+      if (folderId) {
+        const resolvedFolderId: string = folderId;
+        const applyAttachmentsFolder = (google: CloudProviderAuth | undefined): CloudProviderAuth | undefined =>
+          google ? { ...google, attachmentsFolderId: resolvedFolderId } : google;
+        setAuthConfig(prev => {
+          const nextGoogle = applyAttachmentsFolder(prev.googleDrive);
+          return nextGoogle ? { ...prev, googleDrive: nextGoogle } : prev;
+        });
+        cloudAuthConfigRef.current = {
+          ...cloudAuthConfigRef.current,
+          googleDrive: applyAttachmentsFolder(cloudAuthConfigRef.current.googleDrive),
+        };
+      }
+    }
+    if (!folderId) {
+      return false;
+    }
+    let allOk = true;
+    for (const attachment of pending) {
+      try {
+        const driveFileId = await uploadGoogleDriveAttachmentContent(accessToken, folderId, attachment);
+        if (!driveFileId) {
+          allOk = false;
+          continue;
+        }
+        console.log("[CloudSync] attachment uploaded", { id: attachment.id, driveFileId });
+        setAttachments(prev => {
+          const next = prev.map(a =>
+            a.id === attachment.id ? { ...a, driveFileId, data: a.data } : a,
+          );
+          const evictIds = planAttachmentCacheEviction(next, ATTACHMENT_CACHE_BUDGET);
+          const pruned = applyAttachmentCacheEviction(next, evictIds);
+          return evictIds.length > 0 ? pruned : next;
+        });
+        cloudPayloadRef.current = {
+          ...cloudPayloadRef.current,
+          attachments: cloudPayloadRef.current.attachments.map(a =>
+            a.id === attachment.id ? { ...a, driveFileId } : a,
+          ),
+        };
+      } catch (error) {
+        allOk = false;
+        console.error("[CloudSync] attachment upload failed", { id: attachment.id, error });
+      }
+    }
+    return allOk;
+  };
+
+  /** 从 Drive 按需下载附件内容（本地缓存已被清理时用于预览/下载），并尝试回填缓存 */
+  const fetchGoogleDriveAttachmentData = async (attachment: HealthAttachment): Promise<string | undefined> => {
+    const auth = await ensureFreshGoogleDriveAuth();
+    const accessToken = auth?.accessToken;
+    if (!accessToken || !attachment.driveFileId) {
+      return undefined;
+    }
+    try {
+      const resp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${attachment.driveFileId}?alt=media`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!resp.ok) {
+        console.error("[CloudSync] attachment download failed", { status: resp.status });
+        return undefined;
+      }
+      const buffer = await resp.arrayBuffer();
+      const dataUrl = bytesToDataUrl(new Uint8Array(buffer), attachment.fileType);
+      setAttachments(prev => {
+        const next = prev.map(a => (a.id === attachment.id ? { ...a, data: dataUrl } : a));
+        const evictIds = planAttachmentCacheEviction(next, ATTACHMENT_CACHE_BUDGET);
+        return evictIds.length > 0 ? applyAttachmentCacheEviction(next, evictIds) : next;
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error("[CloudSync] attachment download error", error);
+      return undefined;
+    }
+  };
+
+  /** 立即执行一次自动备份快照上传（附件先行）。返回上传状态。 */
+  const runAutoBackupNow = async (reason: string): Promise<CloudUploadStatus> => {
+    const provider = cloudProviderRef.current;
+    if (provider === "none") {
+      return "failed";
+    }
+    const snapshotPayload = cloudPayloadRef.current;
+    if (
+      snapshotPayload.records.length === 0 &&
+      snapshotPayload.attachments.length === 0 &&
+      snapshotPayload.indicatorChangeLogs.length === 0
+    ) {
+      console.log("[CloudSync] auto backup skipped: empty payload", { reason });
+      return "success";
+    }
+    const auth = await ensureFreshGoogleDriveAuth();
+    if (!auth) {
+      console.log("[CloudSync] auto backup waiting for auth", { reason });
+      setCloudUploadTasks(prev =>
+        [
+          {
+            id: createCloudUploadId(),
+            provider,
+            fileName: "自动备份（等待授权）",
+            createdAt: new Date().toISOString(),
+            progress: 0,
+            status: "waitingAuth" as const,
+            errorMessage: "授权过期或缺失，自动备份已暂停；重新授权后会自动恢复。",
+          },
+          ...prev,
+        ].slice(0, 20),
+      );
+      return "waitingAuth";
+    }
+    await ensureAttachmentsUploaded(auth);
+    const now = new Date();
+    const date = now.toISOString().split("T")[0];
+    const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
+    const snapshot = buildCloudSnapshot(
+      {
+        records: snapshotPayload.records,
+        categories: snapshotPayload.indicatorCategories,
+        changeLogs: snapshotPayload.changeLogs,
+        indicatorChangeLogs: snapshotPayload.indicatorChangeLogs,
+        attachments: snapshotPayload.attachments.map(toAttachmentMeta),
+      },
+      "web",
+    );
+    return enqueueCloudUpload(provider, {
+      fileName: `体检数据自动同步_${date}_${time}.json`,
+      json: JSON.stringify(snapshot),
+    });
+  };
+
+  /** 数据变更后防抖触发自动备份（默认开启，可在云同步面板关闭） */
+  const triggerAutoBackup = (reason: string) => {
+    if (cloudProviderRef.current === "none" || !cloudAutoSyncRef.current) {
+      return;
+    }
+    if (Date.now() < suppressAutoUploadUntilRef.current) {
+      return;
+    }
+    if (cloudAutoUploadTimerRef.current) {
+      clearTimeout(cloudAutoUploadTimerRef.current);
+    }
+    cloudAutoUploadTimerRef.current = setTimeout(() => {
+      cloudAutoUploadTimerRef.current = null;
+      void runAutoBackupNow(reason).catch(error => {
+        console.error("[CloudSync] auto backup error", { reason, error });
+      });
+    }, 5000);
+  };
+
+  // 预览附件时若本地缓存已被清理，从云端按需取回
+  useEffect(() => {
+    if (!previewAttachmentId) {
+      return;
+    }
+    const attachment = cloudPayloadRef.current.attachments.find(a => a.id === previewAttachmentId);
+    if (!attachment || attachment.data || !attachment.driveFileId) {
+      return;
+    }
+    let cancelled = false;
+    setPreviewAttachmentLoading(true);
+    void fetchGoogleDriveAttachmentData(attachment).finally(() => {
+      if (!cancelled) {
+        setPreviewAttachmentLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewAttachmentId, attachments]);
+
   const markGoogleDriveTokenInvalid = (info: {
     status: number;
     operation: string;
@@ -3404,10 +3788,17 @@ export default function App() {
       notify("请先在云同步中选择云存储平台。");
       return null;
     }
-    const currentAuth =
+    let currentAuth =
       cloudProvider === "googleDrive"
         ? authConfig.googleDrive
         : undefined;
+    if (!currentAuth || !currentAuth.accessToken || currentAuth.tokenInvalid || isTokenExpiring(currentAuth.expiresAt)) {
+      // 有 refresh token 时静默续期，用户无感；失败才提示重新授权
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
+      }
+    }
     if (!currentAuth || !currentAuth.accessToken) {
       notify("未检测到有效授权，请在云同步面板完成授权后重试。");
       return null;
@@ -3416,12 +3807,9 @@ export default function App() {
       notify("检测到最近一次访问云端返回权限错误或令牌无效，请在云同步面板中重新获取云盘 Token 后重试。");
       return null;
     }
-    if (currentAuth.expiresAt) {
-      const expiresAt = new Date(currentAuth.expiresAt);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
-        notify("授权信息已过期，请在云同步面板更新授权后重试。");
-        return null;
-      }
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      notify("授权信息已过期，请在云同步面板更新授权后重试。");
+      return null;
     }
     if (cloudProvider === "googleDrive") {
       const accessToken = currentAuth.accessToken;
@@ -3602,6 +3990,14 @@ export default function App() {
     }
 
     if (!currentAuth || !currentAuth.accessToken) {
+      // 有 refresh token 时无需人工重新授权，先尝试静默续期
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
+      }
+    }
+
+    if (!currentAuth || !currentAuth.accessToken) {
       console.log("[CloudSync] missing auth for provider", { provider });
       setCloudUploadTasks(prev =>
         prev.map(t =>
@@ -3613,22 +4009,36 @@ export default function App() {
       return "waitingAuth";
     }
 
-    if (currentAuth.expiresAt) {
-      const expiresAt = new Date(currentAuth.expiresAt);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
-        console.log("[CloudSync] auth expired for provider", {
-          provider,
-          expiresAt: currentAuth.expiresAt,
-        });
-        setCloudUploadTasks(prev =>
-          prev.map(t =>
-            t.id === id
-              ? { ...t, status: "waitingAuth", errorMessage: "授权信息已过期，请重新授权。" }
-              : t,
-          ),
-        );
-        return "waitingAuth";
+    // token 过期或临近过期时先用 refresh token 静默续期，失败才降级 waitingAuth
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
       }
+    }
+    if (!currentAuth.accessToken) {
+      setCloudUploadTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? { ...t, status: "waitingAuth", errorMessage: "未检测到有效访问令牌，请重新授权。" }
+            : t,
+        ),
+      );
+      return "waitingAuth";
+    }
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      console.log("[CloudSync] auth expired for provider", {
+        provider,
+        expiresAt: currentAuth.expiresAt,
+      });
+      setCloudUploadTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? { ...t, status: "waitingAuth", errorMessage: "授权信息已过期，请重新授权。" }
+            : t,
+        ),
+      );
+      return "waitingAuth";
     }
 
     const accessToken = currentAuth.accessToken;
@@ -3781,6 +4191,10 @@ export default function App() {
     });
     setManualSyncing(true);
     try {
+      const auth = await ensureFreshGoogleDriveAuth();
+      if (auth) {
+        await ensureAttachmentsUploaded(auth);
+      }
       const now = new Date();
       const date = now.toISOString().split("T")[0];
       const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
@@ -3790,6 +4204,7 @@ export default function App() {
           categories: effectiveCategories,
           changeLogs: effectiveChangeLogs,
           indicatorChangeLogs: effectiveIndicatorChangeLogs,
+          attachments: cloudPayloadRef.current.attachments.map(toAttachmentMeta),
         },
         "web",
       );
@@ -3839,6 +4254,7 @@ export default function App() {
         categories: indicatorCategories,
         changeLogs,
         indicatorChangeLogs,
+        attachments: attachments.map(toAttachmentMeta),
       };
 
       const localUpdatedAtMs = parseTimeValue(buildStateUpdatedAt(localPayload));
@@ -3848,16 +4264,46 @@ export default function App() {
         return;
       }
 
+      const formatTime = (ms: number) =>
+        ms > 0 ? new Date(ms).toLocaleString("zh-CN") : "无记录";
+      const confirmed = window.confirm(
+        `云端备份比本地新，是否同步？\n\n` +
+          `云端更新时间：${formatTime(remoteUpdatedAtMs)}\n` +
+          `本地更新时间：${formatTime(localUpdatedAtMs)}\n\n` +
+          `确认后云端数据将与本地合并（同一条记录以较新者为准），本地新增内容不会丢失。`,
+      );
+      if (!confirmed) {
+        console.log("[CloudSync] cloud pull cancelled by user");
+        return;
+      }
+
       const merged = mergeCloudState(localPayload, remoteSnapshot.payload);
       setRecords(merged.payload.records);
       setIndicatorCategories(merged.payload.categories);
       setChangeLogs(merged.payload.changeLogs);
       setIndicatorChangeLogs(merged.payload.indicatorChangeLogs);
+      setAttachments(prev => {
+        const mergedAttachments = mergeAttachmentMeta(
+          prev.map(toAttachmentMeta),
+          merged.payload.attachments,
+        );
+        const localById = new Map(prev.map(a => [a.id, a]));
+        return mergedAttachments.map(meta => {
+          const localAttachment = localById.get(meta.id);
+          return localAttachment ? { ...localAttachment, driveFileId: meta.driveFileId } : meta;
+        }) as HealthAttachment[];
+      });
       setHistoryStack([]);
       setFutureStack([]);
+      // 拉取产生的本地变更不再触发自动上传，避免拉取→上传循环
+      suppressAutoUploadUntilRef.current = Date.now() + 15_000;
+      if (cloudAutoUploadTimerRef.current) {
+        clearTimeout(cloudAutoUploadTimerRef.current);
+        cloudAutoUploadTimerRef.current = null;
+      }
 
       alert(
-        `已同步云端更新：新增记录 ${merged.stats.addedRecords} 条，更新记录 ${merged.stats.updatedRecords} 条，更新分类 ${merged.stats.touchedCategories} 项。`,
+        `已同步云端更新：新增记录 ${merged.stats.addedRecords} 条，更新记录 ${merged.stats.updatedRecords} 条，更新分类 ${merged.stats.touchedCategories} 项，同步附件 ${merged.stats.addedAttachments} 个。`,
       );
     } finally {
       setCloudPulling(false);
@@ -3891,6 +4337,8 @@ export default function App() {
       }
       return next;
     });
+    // 记录变更后防抖触发自动备份（拉取合并期间会被抑制）
+    triggerAutoBackup("records-updated");
   };
 
   const supabaseClientInstance = supabaseEnabled ? getSupabaseClient() : null;
@@ -4156,6 +4604,14 @@ export default function App() {
     const success = addAttachmentStorage(attachment);
     if (success) {
       setAttachments(prev => [...prev, attachment]);
+      // 新附件尽快上传云盘（Drive 为持久层），随后防抖同步快照元数据
+      void (async () => {
+        const auth = await ensureFreshGoogleDriveAuth();
+        if (auth) {
+          await ensureAttachmentsUploaded(auth);
+        }
+      })();
+      triggerAutoBackup("attachment-added");
     }
     return success;
   };
@@ -4163,6 +4619,7 @@ export default function App() {
   const handleDeleteAttachment = (attachmentId: string) => {
     deleteAttachmentStorage(attachmentId);
     setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+    triggerAutoBackup("attachment-deleted");
   };
 
   const handleImportRecords = (newRecords: HealthRecord[]) => {
@@ -4173,25 +4630,8 @@ export default function App() {
     const normalizedRecords = newRecords.map(record =>
       record.operationAt ? record : { ...record, operationAt: importTimestamp },
     );
-    if (cloudProvider !== "none" && cloudAutoSync) {
-      const date = new Date().toISOString().split("T")[0];
-      const snapshot = buildCloudSnapshot(
-        {
-          records: [...records, ...normalizedRecords],
-          categories: indicatorCategories,
-          changeLogs,
-          indicatorChangeLogs,
-        },
-        "web",
-      );
-      const payload = {
-        fileName: `体检数据导入_${date}.json`,
-        json: JSON.stringify(snapshot),
-      };
-      void (async () => {
-        await enqueueCloudUpload(cloudProvider, payload);
-      })();
-    }
+    // 导入后同样走统一的防抖自动备份（原“导入后自动上传”行为由 triggerAutoBackup 承接）
+    triggerAutoBackup("records-imported");
     applyRecordsUpdate(
       prev => [...prev, ...normalizedRecords],
       () => {
@@ -4738,10 +5178,16 @@ export default function App() {
               />
               <IndicatorMaintenanceDialog
                 categories={indicatorCategories}
-                onChangeCategories={setIndicatorCategories}
+                onChangeCategories={updater => {
+                  setIndicatorCategories(updater);
+                  triggerAutoBackup("categories-updated");
+                }}
                 usedIndicatorIds={new Set(records.map(r => r.indicatorType))}
                 indicatorChangeLogs={indicatorChangeLogs}
-                onChangeIndicatorLogs={setIndicatorChangeLogs}
+                onChangeIndicatorLogs={updater => {
+                  setIndicatorChangeLogs(updater);
+                  triggerAutoBackup("indicator-logs-updated");
+                }}
                 triggerClassName={actionTriggerClassName}
               />
               <MedicalReportImportDialog
@@ -5109,7 +5555,11 @@ export default function App() {
 
       <AttachmentPreviewDialog
         attachment={attachments.find(a => a.id === previewAttachmentId) || null}
-        onClose={() => setPreviewAttachmentId(null)}
+        loading={previewAttachmentLoading}
+        onClose={() => {
+          setPreviewAttachmentId(null);
+          setPreviewAttachmentLoading(false);
+        }}
       />
     </div>
   );
