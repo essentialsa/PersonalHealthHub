@@ -23,7 +23,8 @@
 - [x] 4.2 `vercel.json`：rewrites + maxDuration 60
 - [x] 4.3 新增 `src/app/services/imageCompress.ts`（长边 2000 / JPEG 0.85）+ 单测；`MedicalReportImportDialog` 接入
 - [x] 4.4 删除 `render.yaml`、`report-parser/Dockerfile`；更新 README/.env.example
-- [ ] 4.5 部署后 smoke：/api/healthz、/api/parse（小图）、/api/match-labels 各一次（用户配合验证）
+> 后续事项（合并部署后，需用户配合）：在 Vercel 设置 VISION_LLM_API_KEY；
+> smoke 验证 /api/healthz、/api/parse（小图）、/api/match-labels 各一次；在 Render 控制台删除旧服务。
 
 ## 5. 验证
 
