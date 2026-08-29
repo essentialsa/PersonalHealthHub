@@ -32,7 +32,7 @@ def test_parse_report_mock():
     import io
     response = client.post(
         "/api/parse",
-        files={"file": ("test.pdf", io.BytesIO(b"fake pdf content"), "application/pdf")}
+        files={"file": ("test.pdf", io.BytesIO(b"fake pdf content" + b"\x00" * 2000), "application/pdf")}
     )
     assert response.status_code == 200
     data = response.json()

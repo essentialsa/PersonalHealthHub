@@ -194,6 +194,8 @@ async def parse_report(file: UploadFile = File(...)):
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:  # 50MB
         raise HTTPException(status_code=400, detail="文件大小超过 50MB 限制")
+    if len(content) < 100:
+        raise HTTPException(status_code=400, detail="文件内容为空或已损坏，请重新上传")
 
     try:
         logger.info(

@@ -50,7 +50,10 @@ SYSTEM_PROMPT = """
 5. pageIndex 从 0 开始，对应所给图片的序号。
 6. 不要把日期、报告号、条码号、身份证号、手机号、医院名称等误识别成指标；不确定的指标不要输出。
 7. 同页完全重复的指标行只保留一条。
-8. 只返回一个 JSON 对象，符合给定 schema，不要输出解释、Markdown 或任何额外文字。
+8. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
+9. 输出必须严格是如下结构（indicators 是数组，每个指标一个对象）：
+   {"reportDate": "YYYY-MM-DD 或空", "indicators": [{"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L", "referenceRange": "3.9-6.1", "pageIndex": 0}]}
+   不要把指标组织成以指标名为 key 的字典。
 """.strip()
 
 USER_INSTRUCTION = "请阅读以上体检报告图片，输出符合 schema 的结构化指标 JSON。"
@@ -61,8 +64,9 @@ METADATA_KEYWORDS = (
     "姓名", "性别", "年龄", "条码", "编号",
 )
 
-# 单次请求携带的图片数上限（多页报告分批请求后合并）
-MAX_IMAGES_PER_REQUEST = 4
+# 每个请求只带一张图片：glm-4v-flash 对多图输入的响应不可靠
+# （实测两图时可能只处理第一张），逐页请求换来确定性与稳定性
+MAX_IMAGES_PER_REQUEST = 1
 # PDF 渲染缩放（1.0 = 72dpi；报告正文 144dpi 足够清晰且体积可控）
 PDF_RENDER_SCALE = 2.0
 # PDF 最大处理页数（防止异常大文件拖垮请求）
@@ -128,6 +132,34 @@ def _normalize_unit(value: str) -> str:
 
 def _normalize_label(value: str) -> str:
     return re.sub(r"[\s_：:()（）[\]【】{}<>《》,，、;；/\\|+\-.]+", "", value.strip().lower())
+
+
+_REF_RANGE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*[-~～至]\s*(\d+(?:\.\d+)?)"
+)
+
+
+def _fix_decimal_shift(value: float, reference_range: str) -> Optional[float]:
+    """OCR 常见错误：小数点错位（145 读成 14.5）。
+
+    若识别值落在参考范围外，而 ×10 或 ÷10 后恰好落入范围内，则自动校正。
+    合法的超标/偏低值（如尿酸 486 ↑）不受影响。
+    """
+    if not reference_range:
+        return None
+    match = _REF_RANGE_RE.search(reference_range)
+    if not match:
+        return None
+    low, high = float(match.group(1)), float(match.group(2))
+    if low <= 0 or high <= low:
+        return None
+    if low <= value <= high:
+        return None
+    if low <= value * 10 <= high:
+        return round(value * 10, 6)
+    if low <= value / 10 <= high:
+        return round(value / 10, 6)
+    return None
 
 
 def _normalize_report_date(value: Any) -> str:
@@ -225,6 +257,12 @@ class VisionEngine:
                 "success": False, "pageCount": 0, "reportDate": None,
                 "tables": [], "indicators": [], "markdown": "",
                 "error": "无法从文件中读取到页面内容",
+            }
+        if all(len(blob) < 1000 for _, blob in pages):
+            return {
+                "success": False, "pageCount": len(pages), "reportDate": None,
+                "tables": [], "indicators": [], "markdown": "",
+                "error": "文件内容为空或已损坏，请重新拍照/导出后再试",
             }
         if len(pages) > MAX_PDF_PAGES:
             pages = pages[:MAX_PDF_PAGES]
@@ -368,10 +406,39 @@ class VisionEngine:
             raise VisionEngineError("模型返回的 JSON 结构不符合预期")
         return parsed
 
+    @staticmethod
+    def _adapt_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """格式适配：部分模型会无视 schema，把指标组织成以指标名为 key 的字典
+        （{"空腹血糖": {"result": "5.3", ...}}）。统一转换为标准数组结构。"""
+        if isinstance(payload.get("indicators"), list):
+            return payload
+        indicators: List[Dict[str, Any]] = []
+        for key, value in payload.items():
+            if not isinstance(value, dict):
+                continue
+            raw_value = value.get("result", value.get("value"))
+            indicators.append({
+                "rawLabel": key,
+                "value": raw_value,
+                "unit": value.get("unit", ""),
+                "referenceRange": value.get("referenceRange", value.get("range", "")),
+                "pageIndex": value.get("pageIndex", 0),
+            })
+        return {"reportDate": payload.get("reportDate", ""), "indicators": indicators}
+
     def _normalize_result(self, payload: Dict[str, Any], *, page_count: int) -> Dict[str, Any]:
+        payload = self._adapt_payload(payload)
         raw_indicators = payload.get("indicators")
         if not isinstance(raw_indicators, list):
             raw_indicators = []
+        raw_indicators = [
+            item for item in raw_indicators
+            if isinstance(item, dict) and "rawLabel" in item
+        ]
+        # value 可能藏在 result 字段（字符串或数字），归一化前先拍平
+        for item in raw_indicators:
+            if "value" not in item and "result" in item:
+                item["value"] = item["result"]
         indicators: List[Dict[str, Any]] = []
         for item in raw_indicators:
             if not isinstance(item, dict):
@@ -403,6 +470,15 @@ class VisionEngine:
                 "referenceRange": reference_range,
                 "pageIndex": page_index,
             })
+        for item in indicators:
+            corrected = _fix_decimal_shift(item["value"], item["referenceRange"])
+            if corrected is not None and corrected != item["value"]:
+                logger.info(
+                    "value_decimal_shift_corrected label=%s %s -> %s (ref %s)",
+                    item["rawLabel"], item["value"], corrected, item["referenceRange"],
+                )
+                item["value"] = corrected
+
         return {
             "reportDate": _normalize_report_date(payload.get("reportDate")),
             "indicators": indicators,

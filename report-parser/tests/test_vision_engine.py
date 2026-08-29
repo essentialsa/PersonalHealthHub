@@ -23,7 +23,7 @@ def make_engine(monkeypatch=None, **env):
 def test_mock_mode_returns_structured_result():
     from parser.vision_engine import VisionEngine
     engine = VisionEngine(use_mock=True)
-    result = engine.parse_pdf(b"fake", "report.png")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert result["success"] is True
     assert result["pageCount"] == 1
     assert len(result["indicators"]) == 3
@@ -34,7 +34,7 @@ def test_mock_mode_returns_structured_result():
 def test_missing_api_key_raises_user_facing_error():
     engine = make_engine()
     with pytest.raises(Exception) as exc_info:
-        engine.parse_pdf(b"fake", "report.png")
+        engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert "API Key" in str(exc_info.value)
 
 
@@ -69,7 +69,7 @@ def test_request_construction_and_success(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key", VISION_LLM_MODEL="glm-4v-flash")
-    png = base64.b64encode(b"fakepng").decode("ascii")
+    png = base64.b64encode(b"fakepng" + b"\x00" * 2000).decode("ascii")
     result = engine.parse_pdf(png.encode(), "report.png")
 
     assert captured["url"].endswith("/chat/completions")
@@ -96,7 +96,7 @@ def test_timeout_maps_to_user_facing_error(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     with pytest.raises(Exception) as exc_info:
-        engine.parse_pdf(b"fake", "report.png")
+        engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert "超时" in str(exc_info.value)
 
 
@@ -112,7 +112,7 @@ def test_http_401_maps_to_api_key_error(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="bad-key")
     with pytest.raises(Exception) as exc_info:
-        engine.parse_pdf(b"fake", "report.png")
+        engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert "鉴权失败" in str(exc_info.value)
 
 
@@ -137,7 +137,7 @@ def test_fallback_model_used_on_primary_failure(monkeypatch):
         VISION_LLM_FALLBACK_MODEL="glm-4.1v-thinking-flash",
     )
     # 空指标结果同样被接受（主模型调用成功即不触发 fallback 触发路径中的人类可读错误）
-    result = engine.parse_pdf(b"fake", "report.png")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert calls == ["glm-4v-flash"]
     assert result["success"] is True
     assert result["indicators"] == []
@@ -158,5 +158,20 @@ def test_code_fence_json_extracted(monkeypatch):
 
     monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
-    result = engine.parse_pdf(b"fake", "report.png")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert result["indicators"][0]["rawLabel"] == "ALT"
+
+
+def test_decimal_shift_correction():
+    from parser.vision_engine import _fix_decimal_shift
+    # 145 读成 14.5，×10 落入参考范围 → 校正
+    assert _fix_decimal_shift(14.5, "130-175") == 145.0
+    # 合法超标值（尿酸 486 ↑）不受影响
+    assert _fix_decimal_shift(486, "208-428") is None
+    # 合法偏低值不受影响
+    assert _fix_decimal_shift(45, "130-175") is None
+    # ÷10 方向：0.5 读成 5.0，参考 0.51-1.09 → 0.5？不，5/10=0.5 略低于下限，不校正
+    assert _fix_decimal_shift(5.0, "0.51-1.09") is None
+    # 无参考范围/无法解析的范围不处理
+    assert _fix_decimal_shift(14.5, "") is None
+    assert _fix_decimal_shift(14.5, "升高") is None
