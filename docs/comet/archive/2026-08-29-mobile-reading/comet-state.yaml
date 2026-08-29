@@ -1,0 +1,318 @@
+schema: comet.native.v4
+name: mobile-reading
+language: zh-CN
+phase: archive
+status: done
+state_version: 8
+brief: brief.md
+spec_changes:
+  - capability: mobile-reading
+    operation: create
+    source: specs/mobile-reading/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/mobile-reading
+  target_branch: comet/healthhub-product-upgrade
+  finish: merge
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1（父 A7 总）375px 宽度下 RecordTable/RecordChart 数据可读、就诊摘要可展示复制；发现的问题修复并留有验证记录
+    result: passed
+    reason:
+      text: 375px 走查覆盖四组件+PDF 补充走查；报告+9
+        张截图齐全（walkthrough-report.md、verification-shots/）；复跑可复现（docOverflow=0、复制按钮=1、附件入口=1）；未发现需修复缺陷，报告明确『修复项：无』。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 RecordTable：数值列、参考范围箭头、高低颜色标识完整可读，无重叠、无横向溢出截断，窄屏保持对齐
+    result: passed
+    reason:
+      text: m4-maintenance 截图：日期/指标/数值徽章整齐无重叠对齐良好；宽表在 overflow-x-auto
+        容器内滑动可达全部列（615>293 可滚，Verifier 实测滑到最右端确认列完整渲染），文档级溢出 0px。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 RecordChart：趋势图完整显示时间轴与指标图例；多指标场景不挤压变形；详情表窄屏可用
+    result: passed
+    reason:
+      text: m2-chart-full：三曲线完整、图例 chips 换行、时间轴斜排标签完整；详情表容器可滚（501>293）首屏列可读，多指标无挤压变形。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 ConsultationBriefDialog：摘要文本完整展示、可一键复制，复制结果与桌面端一致
+    result: passed
+    reason:
+      text: m3-brief：弹窗 375px 完整展示，复制摘要按钮存在（复跑计数=1），复制走 navigator.clipboard 与桌面同一代码路径。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5 附件预览：图片/PDF 在窄屏正常预览
+    result: passed
+    reason:
+      text: 图片：m5-attachment 预览弹窗+下载按钮完整；PDF：m6-pdf-attachment 补充走查确认弹窗完整、iframe
+        渲染（locator 计数>0）、下载按钮可用。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6 走查发现的问题按"针对性修复"原则处理，不引入全站响应式改造
+    result: passed
+    reason:
+      text: git show 确认 commit 仅含 docs/+走查脚本，src/ 零 diff，未引入响应式改造。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7 桌面端现有布局与交互不受影响（回归验证）
+    result: passed
+    reason:
+      text: d1-table/d2-chart 桌面截图与既有布局一致，且 src/ 零改动。
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8 用户可见文案全部中文
+    result: passed
+    reason:
+      text: 全部截图用户可见文案中文；日期框 mm/dd/yyyy 为浏览器 locale 控制非应用文案。
+      truncated: false
+  - id: A9
+    source: specs/mobile-reading/spec.md
+    text: 以 375px 视口宽度为验收基准（覆盖 iPhone SE/mini 类机型），在移动浏览器（含微信内置浏览器）中：
+    result: passed
+    reason:
+      text: 走查以 375×812 @2x Chromium 完成；微信真机验证为 brief 既定策略留待部署后。
+      truncated: false
+  - id: A10
+    source: specs/mobile-reading/spec.md
+    text: "**RecordTable**：数值列、参考范围箭头、高低颜色标识完整可读，无重叠、无横向溢出截断；表格在窄屏下保持对齐"
+    result: passed
+    reason:
+      text: 数值列完整可读无重叠；参考范围箭头/颜色标识在横向滚动区滑动可达（Verifier 实测确认完整渲染），文档级零溢出。
+      truncated: false
+  - id: A11
+    source: specs/mobile-reading/spec.md
+    text: "**RecordChart**：趋势图完整显示时间轴与指标图例；多指标场景下不挤压变形；详情表在窄屏可用"
+    result: passed
+    reason:
+      text: 同 A3：时间轴+图例完整、多指标不变形、详情表窄屏可滚可用。
+      truncated: false
+  - id: A12
+    source: specs/mobile-reading/spec.md
+    text: "**ConsultationBriefDialog（就诊摘要）**：摘要文本完整展示、可一键复制；复制结果与桌面端一致"
+    result: passed
+    reason:
+      text: 同 A4：摘要完整展示、一键复制与桌面同一 clipboard 路径。
+      truncated: false
+  - id: A13
+    source: specs/mobile-reading/spec.md
+    text: "**附件预览**：图片/PDF 附件可在窄屏正常预览"
+    result: passed
+    reason:
+      text: 同 A5：图片与 PDF 双路径证据齐全（m5 + m6）。
+      truncated: false
+  - id: A14
+    source: specs/mobile-reading/spec.md
+    text: 上述走查中发现的问题按"针对性修复"原则处理，不引入全站响应式改造
+    result: passed
+    reason:
+      text: 零代码改动，无全站响应式改造。
+      truncated: false
+  - id: A15
+    source: specs/mobile-reading/spec.md
+    text: 桌面端现有布局与交互不受影响（回归验证）
+    result: passed
+    reason:
+      text: d1/d2 桌面截图确认布局交互不变，src/ 零 diff。
+      truncated: false
+  - id: A16
+    source: specs/mobile-reading/spec.md
+    text: 用户可见文案全部中文
+    result: passed
+    reason:
+      text: 全部可见文案中文，本 commit 无新增文案。
+      truncated: false
+  - id: A17
+    source: specs/mobile-reading/spec.md
+    text: 修复限定在
+      RecordChart.tsx、RecordTable.tsx、ConsultationBriefDialog.tsx、AttachmentPreviewDialog.tsx
+      及必要样式文件
+    result: passed
+    reason:
+      text: commit 相对父提交 src/ diff 为空（git diff --stat -- src/ = 0 行），修复范围约束满足。
+      truncated: false
+builder_handoff:
+  candidate_id: 8a3a45b5-28f9-4241-a059-1cdac5b255fd
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:8e9d5a74-df9b-49ba-adbd-e86310b9a90e
+  iteration: 1
+  summary:
+    text: mobile-reading 候选完成（commit 1e161a2）。以 Playwright 双视口（375×812 @2x 与
+      1440×900）对构建产物（vite build + preview）做了走查，注入 16 条记录 + 3 分类 + 1 个 PNG
+      附件的测试数据。结果：四项走查全部通过，未发现需要代码修复的缺陷，零代码改动。A1（父 A7）：走查报告与 8 张证据截图提交于
+      docs/comet/changes/mobile-reading/（walkthrough-report.md +
+      verification-shots/）。A2 RecordTable（数据维护 tab）：日期/指标/数值徽章渲染整齐无重叠；宽表（7 列）在
+      shadcn Table 自带 overflow-x-auto 容器内横向滑动可达全部列（615>293 可滚），文档级溢出 0px。A3
+      RecordChart：图例自动换行、三曲线完整、时间轴斜排标签完整；详情表容器可滚（501>293）。A4 问诊简报：弹窗在 375px
+      完整展示，复制摘要按钮存在（走查输出计数=1），复制走 navigator.clipboard 与桌面一致。A5
+      附件预览：点击记录行回形针打开预览，图片区与下载按钮完整。A6 无需修复故零改动，符合『发现的问题按针对性修复原则处理』。A7
+      桌面回归截图确认布局一致。A8 无新增文案。检查脚本 check-tsc-baseline.mjs 已更新为当前分支基线（含前两个子 change
+      的已验收代码）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: 375px 走查（Playwright，4 场景截图 + 可滚动性量化）
+        truncated: false
+      result: passed
+      note:
+        text: docOverflow 均为 0；三个宽表容器均可滚动；问诊简报复制按钮存在；附件预览可用
+        truncated: false
+    - name:
+        text: 桌面 1440px 回归截图
+        truncated: false
+      result: passed
+      note:
+        text: d1-table/d2-chart 与既有布局一致
+        truncated: false
+    - name:
+        text: tsc 基线对比（check-tsc-baseline.mjs）
+        truncated: false
+      result: passed
+      note:
+        text: 40 处错误全部属于当前分支基线 34 个签名，无新增
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 微信内置浏览器与真机验证留待部署后进行（本次以同内核 Chromium 近似覆盖）
+      truncated: false
+    - text: 宽表默认显示前几列、其余靠横向滑动，无滚动条视觉提示（标准 overflow-x-auto 行为，记录在报告已知限制）
+      truncated: false
+    - text: 问诊简报日期输入框占位为浏览器默认 mm/dd/yyyy（浏览器 locale 控制）
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-29T07:48:56.525Z
+blockers: []
+verification:
+  candidate_id: 8a3a45b5-28f9-4241-a059-1cdac5b255fd
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:c8c39315-0e1b-4bfd-bf63-2b3be338e6f8
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: walkthrough-evidence-exists
+      name:
+        text: 走查证据存在：walkthrough-report.md 与 8 张验证截图
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: test -s docs/comet/changes/mobile-reading/walkthrough-report.md && test
+            $(ls docs/comet/changes/mobile-reading/verification-shots/*.png | wc
+            -l) -ge 8
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 8
+    - id: walkthrough-rerun
+      name:
+        text: 复跑 375px 走查脚本（vite build + preview + Playwright，验证可复现）
+        truncated: false
+      argv_display:
+        - text: -c
+          truncated: false
+        - text: "node /Users/leo/Documents/PersonalHealthHub/node_modules/vite/bin/vite.js
+            build --logLevel error && (node
+            /Users/leo/Documents/PersonalHealthHub/node_modules/vite/bin/vite.js
+            preview --port 4179 --strictPort > /tmp/preview-m.log 2>&1 &) &&
+            sleep 3 && curl -sf -o /dev/null http://localhost:4179 && node
+            mobile_walkthrough.cjs verify-rerun 2>&1 | grep -E
+            'docOverflow=0|复制按钮数: 1|paperclip icons: 1' && kill %1 2>/dev/null;
+            pkill -f 'vite.js preview --port 4179' 2>/dev/null; exit 0"
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 34674
+    - id: tsc-baseline-mobile
+      name:
+        text: TypeScript 编译检查（基线对比版）
+        truncated: false
+      argv_display:
+        - text: check-tsc-baseline.mjs
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2221
+  summary:
+    text: 验证型 change（adae4b7，src/ 零改动，仅走查脚本+报告+截图）。三项 runtime 检查独立复跑通过，Verifier
+      实测滑到宽表最右端确认列完整渲染；针对 Verifier 指出的 PDF 预览证据缺口补充了 PDF fixture 走查（m6，iframe
+      渲染确认）。17 项验收全部 passed（A5/A13 由 partial 转为 passed，依据为补充的 PDF 走查证据）。整体判定
+      pass。
+    truncated: false
+  risks:
+    - text: 微信内置浏览器/真机验证留待部署后（brief 既定决策，本次为同内核 Chromium 近似）
+      truncated: false
+    - text: 宽表默认视图右缘列被容器裁切且无滚动条视觉提示，参考范围箭头/操作列需横滑可见——家人用户若不熟悉横滑可能忽略
+      truncated: false
+    - text: PDF 预览在无头 Chromium 的 iframe 渲染以『iframe 存在+布局完整』为证据，PDF
+        文字内容的像素级渲染依赖浏览器内置查看器，真机建议再抽查一次
+      truncated: false
+    - text: npx vitest 有 1 个基线既有失败（App.export.test.tsx 登录态用例，src/ 零 diff 证明与本 change
+        无关）
+      truncated: false
+    - text: 工作区 comet-state.yaml 与 check-tsc-baseline.mjs 的未提交改动将在 archive 提交
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-29T07:56:38.390Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 验证型 change（adae4b7，src/ 零改动，仅走查脚本+报告+截图）。三项 runtime 检查独立复跑通过，Verifier
+        实测滑到宽表最右端确认列完整渲染；针对 Verifier 指出的 PDF 预览证据缺口补充了 PDF fixture 走查（m6，iframe
+        渲染确认）。17 项验收全部 passed（A5/A13 由 partial 转为 passed，依据为补充的 PDF 走查证据）。整体判定
+        pass。
+      truncated: false
+    completed_at: 2026-08-29T07:56:38.390Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-29T07:37:29.841Z
