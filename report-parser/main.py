@@ -1,4 +1,4 @@
-"""体检报告解析服务 - FastAPI"""
+"""体检报告解析服务 - FastAPI 薄代理（多模态大模型直读）。"""
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,10 +8,9 @@ import os
 import time
 from threading import Lock
 
-from parser.paddle_engine import PaddleEngine, get_ocr_status
-from parser.llm_structurer import get_llm_structuring_status
+from parser.vision_engine import VisionEngine, VisionEngineError, get_vision_status
 
-app = FastAPI(title="Medical Report Parser", version="1.0.0")
+app = FastAPI(title="Medical Report Parser", version="2.0.0")
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger("medical-report-parser")
@@ -42,56 +41,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 初始化引擎
 USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
-OCR_WARMUP_ON_STARTUP = os.getenv("OCR_WARMUP_ON_STARTUP", "false").lower() == "true"
-engine: Optional[PaddleEngine] = None
+engine: Optional[VisionEngine] = None
 engine_lock = Lock()
 
 
-def get_engine() -> PaddleEngine:
+def get_engine() -> VisionEngine:
     global engine
     if engine is None:
         with engine_lock:
             if engine is None:
-                engine = PaddleEngine(use_mock=USE_MOCK)
+                engine = VisionEngine(use_mock=USE_MOCK)
     return engine
-
-
-@app.on_event("startup")
-async def warmup_ocr_engine():
-    """按需预热 OCR；线上默认关闭，避免健康检查阶段触发重型初始化。"""
-    if USE_MOCK:
-        logger.info("engine_warmup_skip mock_mode=true")
-        return
-    if not OCR_WARMUP_ON_STARTUP:
-        logger.info("engine_warmup_skip startup_warmup=false")
-        return
-
-    try:
-        warmup_started_at = time.perf_counter()
-        loaded_engine = get_engine()
-        logger.info(
-            "engine_warmup_done engine=%s elapsed_sec=%.2f config=%s",
-            loaded_engine.backend,
-            time.perf_counter() - warmup_started_at,
-            loaded_engine.runtime_config,
-        )
-    except Exception as exc:
-        logger.exception("engine_warmup_failed: %s", exc)
-        raise
-
-
-class TableCell(BaseModel):
-    row: int
-    col: int
-    text: str
-    bbox: list
-
-
-class ParsedTable(BaseModel):
-    pageIndex: int
-    cells: List[TableCell]
 
 
 class ExtractedIndicator(BaseModel):
@@ -106,7 +67,7 @@ class ParseResponse(BaseModel):
     success: bool
     pageCount: int
     reportDate: Optional[str] = None
-    tables: List[ParsedTable]
+    tables: List[dict]
     indicators: List[ExtractedIndicator]
     markdown: str
     error: Optional[str] = None
@@ -114,102 +75,106 @@ class ParseResponse(BaseModel):
 
 @app.get("/api/health")
 async def health_check():
-    ocr_status = get_ocr_status(USE_MOCK)
-    llm_status = get_llm_structuring_status()
-    ocr_ready = ocr_status["available"]
-    if not ocr_ready:
+    """深度检查：确认渲染依赖（PyMuPDF）可导入与模型配置状态。"""
+    status = get_vision_status()
+    pymupdf_ready = True
+    import_error: Optional[str] = None
+    try:
+        import pymupdf  # noqa: F401
+    except ImportError:
+        try:
+            import fitz  # noqa: F401
+        except Exception as exc:  # pragma: no cover
+            pymupdf_ready = False
+            import_error = str(exc)
+    if not pymupdf_ready:
         raise HTTPException(
             status_code=503,
             detail={
-                "message": "文档提取引擎未就绪：请检查依赖",
-                "engine": ocr_status["engine"],
-                "import_error": ocr_status["error"],
+                "message": "PDF 渲染依赖不可用：缺少 PyMuPDF",
+                "engine": status["engine"],
+                "import_error": import_error,
             },
         )
     return {
         "status": "ok",
-        "model": ocr_status["engine"],
+        "model": status["engine"],
         "mock_mode": USE_MOCK,
-        "ocr_ready": ocr_ready,
+        "ocr_ready": True,
         "engine_initialized": engine is not None,
-        "startup_warmup_enabled": OCR_WARMUP_ON_STARTUP,
-        "engine_config": engine.runtime_config if engine else {},
-        "llm_structuring": llm_status,
+        "vision_llm": {
+            "api_key_configured": status["api_key_configured"],
+            "base_url": status["base_url"],
+            "model": status["model"],
+            "fallback_model": status.get("fallback_model"),
+            "timeout_sec": status["timeout_sec"],
+        },
     }
 
 
 @app.get("/api/healthz")
 async def service_health_check():
-    """Render 健康检查只验证进程存活和 OCR 依赖可导入，不触发模型初始化。"""
-    ocr_status = get_ocr_status(USE_MOCK)
-    llm_status = get_llm_structuring_status()
-    if not ocr_status["available"]:
-        raise HTTPException(
+    """Render 健康检查：只验证进程存活与依赖可导入，不访问模型服务。"""
+    status = get_vision_status()
+    try:
+        import pymupdf  # noqa: F401
+    except ImportError:
+        try:
+            import fitz  # noqa: F401
+        except Exception as exc:  # pragma: no cover
+            raise HTTPException(
             status_code=503,
             detail={
-                "message": "文档提取引擎依赖不可用",
-                "engine": ocr_status["engine"],
-                "import_error": ocr_status["error"],
+                "message": "PDF 渲染依赖不可用",
+                "engine": status["engine"],
+                "import_error": str(exc),
             },
         )
     return {
         "status": "ok",
         "ocr_ready": True,
-        "model": ocr_status["engine"],
+        "model": status["engine"],
         "engine_initialized": engine is not None,
-        "startup_warmup_enabled": OCR_WARMUP_ON_STARTUP,
-        "llm_structuring": llm_status,
+        "mock_mode": USE_MOCK,
+        "vision_llm_api_key_configured": status["api_key_configured"],
     }
 
 
 @app.get("/api/ocr-readyz")
 async def ocr_ready_check():
-    """手动深度检查：显式初始化 OCR 引擎，仅用于排障，不给 Render 健康检查调用。"""
-    ocr_status = get_ocr_status(USE_MOCK)
-    llm_status = get_llm_structuring_status()
-    if not ocr_status["available"]:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "message": "文档提取引擎依赖不可用",
-                "engine": ocr_status["engine"],
-                "import_error": ocr_status["error"],
-            },
-        )
+    """手动深度检查：显式初始化引擎并校验模型配置，仅用于排障。"""
+    status = get_vision_status()
     try:
-        init_started_at = time.perf_counter()
         loaded_engine = get_engine()
+        loaded_engine.refresh_config()
     except Exception as exc:
         raise HTTPException(
             status_code=503,
             detail={
-                "message": "文档提取引擎初始化失败",
-                "engine": ocr_status["engine"],
+                "message": "解析引擎初始化失败",
+                "engine": status["engine"],
                 "error": str(exc),
             },
         ) from exc
     return {
         "status": "ok",
         "ocr_ready": True,
-        "model": ocr_status["engine"],
+        "model": status["engine"],
         "engine_initialized": True,
-        "init_elapsed_sec": round(time.perf_counter() - init_started_at, 2),
-        "engine_config": loaded_engine.runtime_config if loaded_engine else {},
-        "llm_structuring": llm_status,
+        "vision_llm": {
+            "api_key_configured": status["api_key_configured"],
+            "base_url": status["base_url"],
+            "model": status["model"],
+            "fallback_model": status.get("fallback_model"),
+        },
     }
 
 
 @app.post("/api/parse", response_model=ParseResponse)
 async def parse_report(file: UploadFile = File(...)):
-    """解析体检报告 PDF/图片"""
+    """解析体检报告 PDF/图片：图片直发多模态大模型。"""
     started_at = time.perf_counter()
-    allowed_types = [
-        "application/pdf",
-        "image/jpeg",
-        "image/png",
-        "image/jpg",
-    ]
-
+    allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
     filename = (file.filename or "").lower()
     content_type = (file.content_type or "").lower()
     allowed_ext = (".pdf", ".jpg", ".jpeg", ".png")
@@ -217,17 +182,15 @@ async def parse_report(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="不支持的文件类型")
 
     content = await file.read()
-
     if len(content) > 50 * 1024 * 1024:  # 50MB
         raise HTTPException(status_code=400, detail="文件大小超过 50MB 限制")
 
     try:
         logger.info(
-            "parse_start filename=%s content_type=%s size_bytes=%d engine=%s",
+            "parse_start filename=%s content_type=%s size_bytes=%d engine=multimodal-vision",
             file.filename or "unknown",
             content_type or "unknown",
             len(content),
-            get_ocr_status(USE_MOCK)["engine"],
         )
         result = get_engine().parse_pdf(content, file.filename or "unknown")
         logger.info(
@@ -239,6 +202,14 @@ async def parse_report(file: UploadFile = File(...)):
             len(result.get("indicators", [])),
         )
         return result
+    except VisionEngineError as e:
+        logger.error(
+            "parse_vision_error filename=%s elapsed_sec=%.2f error=%s",
+            file.filename or "unknown",
+            time.perf_counter() - started_at,
+            e,
+        )
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.exception(
             "parse_exception filename=%s elapsed_sec=%.2f",
