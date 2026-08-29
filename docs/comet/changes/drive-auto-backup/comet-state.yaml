@@ -1,0 +1,154 @@
+schema: comet.native.v4
+name: drive-auto-backup
+language: zh-CN
+phase: build
+status: active
+state_version: 2
+brief: brief.md
+spec_changes:
+  - capability: drive-backup
+    operation: create
+    source: specs/drive-backup/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/drive-auto-backup
+  target_branch: comet/healthhub-product-upgrade
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 1
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 授权持久化：首次 Google 授权后，refresh token 持久保存；此后重新打开应用，无需人工重新授权即可完成 Drive 上传/拉取
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2 自动备份：记录数据发生变更后（增删改、导入），自动静默上传 Google Drive；提供开关，默认开启；家人无需任何手动操作
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: A3 拉取保护：云端备份比本地新时，拉取前明确提示（显示两侧时间），不会静默覆盖本地
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4 附件同步：附件（报告照片/PDF）随备份上传 Google Drive；从备份恢复后附件可用；附件总量不再受 localStorage
+      20MB 限制
+    result: pending
+    reason: null
+  - id: A5
+    source: specs/drive-backup/spec.md
+    text: 首次连接 Google Drive 时走 OAuth 授权，请求参数包含 `access_type=offline` 与
+      `prompt=consent`，授权后获得 refresh token
+    result: pending
+    reason: null
+  - id: A6
+    source: specs/drive-backup/spec.md
+    text: refresh token 与用户隔离存储（沿用 `buildUserStorageKey` 体系）
+    result: pending
+    reason: null
+  - id: A7
+    source: specs/drive-backup/spec.md
+    text: 已持有 refresh token 的用户再次打开应用时，自动用 refresh token 静默换取 access token，不弹出授权页；仅在
+      token 失效或被撤销时才提示重新授权
+    result: pending
+    reason: null
+  - id: A8
+    source: specs/drive-backup/spec.md
+    text: access token 过期时自动刷新，用户无感
+    result: pending
+    reason: null
+  - id: A9
+    source: specs/drive-backup/spec.md
+    text: 记录数据（健康记录、指标分类、变更日志）发生任何变更（增、删、改、Excel 导入、报告导入）后，防抖触发静默上传 Google Drive
+    result: pending
+    reason: null
+  - id: A10
+    source: specs/drive-backup/spec.md
+    text: 默认开启；设置中提供开关（沿用/扩展现有"导入后自动上传"开关），关闭后回退手动上传
+    result: pending
+    reason: null
+  - id: A11
+    source: specs/drive-backup/spec.md
+    text: 上传成功/失败在 UI 有轻量状态提示（不阻断操作）；失败不重试阻塞用户，下次变更再次尝试
+    result: pending
+    reason: null
+  - id: A12
+    source: specs/drive-backup/spec.md
+    text: 从云端拉取前对比云端备份与本地数据的更新时间
+    result: pending
+    reason: null
+  - id: A13
+    source: specs/drive-backup/spec.md
+    text: 云端更新时弹窗提示并显示两侧时间，由用户确认后才覆盖本地；本地更新或相同时按现有逻辑处理
+    result: pending
+    reason: null
+  - id: A14
+    source: specs/drive-backup/spec.md
+    text: 不做自动合并
+    result: pending
+    reason: null
+  - id: A15
+    source: specs/drive-backup/spec.md
+    text: 附件（报告照片/PDF）上传至 Google Drive 作为持久层；本地保留缓存用于离线查看与预览
+    result: pending
+    reason: null
+  - id: A16
+    source: specs/drive-backup/spec.md
+    text: 附件总量不再受 localStorage 20MB 限制；单文件上限维持 10MB 起步（可配置常量）
+    result: pending
+    reason: null
+  - id: A17
+    source: specs/drive-backup/spec.md
+    text: 从云端备份恢复后，附件完整可用（含预览）
+    result: pending
+    reason: null
+  - id: A18
+    source: specs/drive-backup/spec.md
+    text: 附件上传失败时记录状态并允许重试，不阻塞记录本身的上传
+    result: pending
+    reason: null
+  - id: A19
+    source: specs/drive-backup/spec.md
+    text: 健康数据与附件绝不写入任何数据库
+    result: pending
+    reason: null
+  - id: A20
+    source: specs/drive-backup/spec.md
+    text: 凭据不进代码仓库；API 凭据仅在用户浏览器本地
+    result: pending
+    reason: null
+  - id: A21
+    source: specs/drive-backup/spec.md
+    text: 用户可见文案全部中文
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-08-29T03:30:58.088Z
