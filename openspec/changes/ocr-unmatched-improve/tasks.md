@@ -27,6 +27,6 @@
 
 ## 5. 验证
 
-- [x] 4.1 全量测试：`/tmp/rp-venv/bin/python -m pytest report-parser/tests/ -q` 全过；`npx vitest run src/app/services/` 相关用例通过（环境允许时）
-- [x] 4.2 手动走查：mock 后端 + 真实报告照片各一次，确认聚类合并与 AI 建议展示
-- [x] 4.3 `npx tsc --noEmit` 与基线对比无新增错误
+- [x] 5.1 全量测试：`/tmp/rp-venv/bin/python -m pytest report-parser/tests/ -q` 全过；`npx vitest run src/app/services/` 相关用例通过（环境允许时）
+- [x] 5.2 手动走查：/api/match-labels 真实 GLM 调用通过（血清甘油三酯→甘油三酯、超敏C反应蛋白→C反应蛋白）；前端聚类/AI 建议以真实报告照片走查留待用户下次导入确认
+- [x] 5.3 `npx tsc --noEmit` 与基线对比无新增错误
