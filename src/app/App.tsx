@@ -2091,7 +2091,11 @@ function CloudSyncDialog({
 
   const handleTestConnection = async () => {
     if (!editingAuth.accessToken) {
-      alert("请先填写访问令牌");
+      if (editingAuth.refreshToken || authConfig.googleDrive?.refreshToken) {
+        alert("检测到已有授权凭据：请点击「获取/更新云盘Token」完成授权后，系统会自动续期令牌，无需手动填写。");
+      } else {
+        alert("请先填写访问令牌，或点击「获取/更新云盘Token」完成 Google 授权。");
+      }
       return;
     }
     console.log("[CloudAuth] start testConnection", {
@@ -2106,6 +2110,7 @@ function CloudSyncDialog({
             headers: {
               Authorization: `Bearer ${editingAuth.accessToken}`,
             },
+            signal: AbortSignal.timeout(15000),
           },
         );
         if (!response.ok) {

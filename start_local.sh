@@ -34,7 +34,7 @@ lsof -ti :8000 | xargs kill -9 2>/dev/null
 lsof -ti :5173 | xargs kill -9 2>/dev/null
 
 echo "▶️  启动 OCR 后端: http://localhost:8000 （API 文档 /docs）"
-(cd "$SCRIPT_DIR/report-parser" && "$PYBIN" -m uvicorn main:app --port 8000 > /tmp/ph-ocr.log 2>&1) &
+(cd "$SCRIPT_DIR/report-parser" && ALLOWED_ORIGINS='*' CORS_ALLOW_CREDENTIALS=false "$PYBIN" -m uvicorn main:app --port 8000 > /tmp/ph-ocr.log 2>&1) &
 
 for i in $(seq 1 20); do
   curl -sf -o /dev/null http://localhost:8000/api/healthz && break

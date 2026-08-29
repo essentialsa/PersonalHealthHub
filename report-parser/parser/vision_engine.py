@@ -100,9 +100,17 @@ def get_vision_status() -> Dict[str, Any]:
         "model": model,
         "fallback_model": fallback_model,
         "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "60")))),
-        "max_output_tokens": max(400, int(os.getenv("VISION_LLM_MAX_OUTPUT_TOKENS", os.getenv("OCR_LLM_MAX_OUTPUT_TOKENS", "2000")))),
+        "max_output_tokens": _resolve_max_output_tokens(model),
         "max_pdf_pages": MAX_PDF_PAGES,
     }
+
+
+def _resolve_max_output_tokens(model: str) -> int:
+    """按模型取默认 max_tokens：GLM-4V-Flash 上限 1024，其他模型 2000。"""
+    value = int(os.getenv("VISION_LLM_MAX_OUTPUT_TOKENS", os.getenv("OCR_LLM_MAX_OUTPUT_TOKENS", "0")))
+    if value > 0:
+        return max(400, value)
+    return 1024 if "glm-4v-flash" in model.lower() else 2000
 
 
 def _normalize_unit(value: str) -> str:
