@@ -3,7 +3,7 @@ name: mobile-reading
 language: zh-CN
 phase: archive
 status: active
-state_version: 6
+state_version: 7
 brief: brief.md
 spec_changes:
   - capability: mobile-reading
@@ -13,7 +13,7 @@ workspace:
   isolation: worktree
   change_branch: comet/mobile-reading
   target_branch: comet/healthhub-product-upgrade
-  finish: null
+  finish: merge
 loop:
   stage: archive-ready
   goal_cycle: 1
