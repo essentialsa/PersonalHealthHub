@@ -1,0 +1,296 @@
+schema: comet.native.v4
+name: healthhub-product-upgrade
+language: zh-CN
+phase: build
+status: active
+state_version: 2
+brief: brief.md
+children_contract_hash: d37c9c296b1de2bc835c4c88d984827353042414e54e4fc3cf58c4fe56dce6e1
+spec_changes:
+  - capability: drive-backup
+    operation: create
+    source: specs/drive-backup/spec.md
+  - capability: mobile-reading
+    operation: create
+    source: specs/mobile-reading/spec.md
+  - capability: ocr-multimodal-import
+    operation: create
+    source: specs/ocr-multimodal-import/spec.md
+workspace:
+  isolation: branch
+  change_branch: comet/healthhub-product-upgrade
+  target_branch: main
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 1
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 授权持久化：首次 Google 授权后，refresh token 持久保存；此后重新打开应用，无需人工重新授权即可完成 Drive 上传/拉取
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2 自动备份：记录数据发生变更后（增删改、导入），自动静默上传 Google Drive；提供开关，默认开启；家人无需任何手动操作
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: A3 拉取保护：云端备份比本地新时，拉取前明确提示（显示两侧时间），不会静默覆盖本地
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4 附件同步：附件（报告照片/PDF）随备份上传 Google Drive；从备份恢复后附件可用；附件总量不再受 localStorage
+      20MB 限制
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: A5 OCR 模型切换：报告图片由多模态模型直接识别输出结构化 JSON；模型名、base URL、API key 全部为环境变量配置；后端不含
+      PaddleOCR
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: A6 OCR 可靠性：正常网络下报告导入在 30 秒内返回；失败时前端给出明确失败状态与降级引导（手动录入/Excel
+      导入/照片挂附件），不出现无限 loading
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: A7 移动端可读：375px 宽度下 RecordTable/RecordChart
+      数据可读（数值、参考范围箭头、颜色不重叠不截断）、就诊摘要可完整展示并复制；微信内置浏览器打开正常；发现的问题修复并留有验证记录
+    result: pending
+    reason: null
+  - id: A8
+    source: specs/drive-backup/spec.md
+    text: 首次连接 Google Drive 时走 OAuth 授权，请求参数包含 `access_type=offline` 与
+      `prompt=consent`，授权后获得 refresh token
+    result: pending
+    reason: null
+  - id: A9
+    source: specs/drive-backup/spec.md
+    text: refresh token 与用户隔离存储（沿用 `buildUserStorageKey` 体系）
+    result: pending
+    reason: null
+  - id: A10
+    source: specs/drive-backup/spec.md
+    text: 已持有 refresh token 的用户再次打开应用时，自动用 refresh token 静默换取 access token，不弹出授权页；仅在
+      token 失效或被撤销时才提示重新授权
+    result: pending
+    reason: null
+  - id: A11
+    source: specs/drive-backup/spec.md
+    text: access token 过期时自动刷新，用户无感
+    result: pending
+    reason: null
+  - id: A12
+    source: specs/drive-backup/spec.md
+    text: 记录数据（健康记录、指标分类、变更日志）发生任何变更（增、删、改、Excel 导入、报告导入）后，防抖触发静默上传 Google Drive
+    result: pending
+    reason: null
+  - id: A13
+    source: specs/drive-backup/spec.md
+    text: 默认开启；设置中提供开关（沿用/扩展现有"导入后自动上传"开关），关闭后回退手动上传
+    result: pending
+    reason: null
+  - id: A14
+    source: specs/drive-backup/spec.md
+    text: 上传成功/失败在 UI 有轻量状态提示（不阻断操作）；失败不重试阻塞用户，下次变更再次尝试
+    result: pending
+    reason: null
+  - id: A15
+    source: specs/drive-backup/spec.md
+    text: 从云端拉取前对比云端备份与本地数据的更新时间
+    result: pending
+    reason: null
+  - id: A16
+    source: specs/drive-backup/spec.md
+    text: 云端更新时弹窗提示并显示两侧时间，由用户确认后才覆盖本地；本地更新或相同时按现有逻辑处理
+    result: pending
+    reason: null
+  - id: A17
+    source: specs/drive-backup/spec.md
+    text: 不做自动合并
+    result: pending
+    reason: null
+  - id: A18
+    source: specs/drive-backup/spec.md
+    text: 附件（报告照片/PDF）上传至 Google Drive 作为持久层；本地保留缓存用于离线查看与预览
+    result: pending
+    reason: null
+  - id: A19
+    source: specs/drive-backup/spec.md
+    text: 附件总量不再受 localStorage 20MB 限制；单文件上限维持 10MB 起步（可配置常量）
+    result: pending
+    reason: null
+  - id: A20
+    source: specs/drive-backup/spec.md
+    text: 从云端备份恢复后，附件完整可用（含预览）
+    result: pending
+    reason: null
+  - id: A21
+    source: specs/drive-backup/spec.md
+    text: 附件上传失败时记录状态并允许重试，不阻塞记录本身的上传
+    result: pending
+    reason: null
+  - id: A22
+    source: specs/drive-backup/spec.md
+    text: 健康数据与附件绝不写入任何数据库
+    result: pending
+    reason: null
+  - id: A23
+    source: specs/drive-backup/spec.md
+    text: 凭据不进代码仓库；API 凭据仅在用户浏览器本地
+    result: pending
+    reason: null
+  - id: A24
+    source: specs/drive-backup/spec.md
+    text: 用户可见文案全部中文
+    result: pending
+    reason: null
+  - id: A25
+    source: specs/mobile-reading/spec.md
+    text: 以 375px 视口宽度为验收基准（覆盖 iPhone SE/mini 类机型），在移动浏览器（含微信内置浏览器）中：
+    result: pending
+    reason: null
+  - id: A26
+    source: specs/mobile-reading/spec.md
+    text: "**RecordTable**：数值列、参考范围箭头、高低颜色标识完整可读，无重叠、无横向溢出截断；表格在窄屏下保持对齐"
+    result: pending
+    reason: null
+  - id: A27
+    source: specs/mobile-reading/spec.md
+    text: "**RecordChart**：趋势图完整显示时间轴与指标图例；多指标场景下不挤压变形；详情表在窄屏可用"
+    result: pending
+    reason: null
+  - id: A28
+    source: specs/mobile-reading/spec.md
+    text: "**ConsultationBriefDialog（就诊摘要）**：摘要文本完整展示、可一键复制；复制结果与桌面端一致"
+    result: pending
+    reason: null
+  - id: A29
+    source: specs/mobile-reading/spec.md
+    text: "**附件预览**：图片/PDF 附件可在窄屏正常预览"
+    result: pending
+    reason: null
+  - id: A30
+    source: specs/mobile-reading/spec.md
+    text: 上述走查中发现的问题按"针对性修复"原则处理，不引入全站响应式改造
+    result: pending
+    reason: null
+  - id: A31
+    source: specs/mobile-reading/spec.md
+    text: 桌面端现有布局与交互不受影响（回归验证）
+    result: pending
+    reason: null
+  - id: A32
+    source: specs/mobile-reading/spec.md
+    text: 用户可见文案全部中文
+    result: pending
+    reason: null
+  - id: A33
+    source: specs/mobile-reading/spec.md
+    text: 修复限定在
+      RecordChart.tsx、RecordTable.tsx、ConsultationBriefDialog.tsx、AttachmentPreviewDialog.tsx
+      及必要样式文件
+    result: pending
+    reason: null
+  - id: A34
+    source: specs/ocr-multimodal-import/spec.md
+    text: "`POST /api/parse` 接收报告文件（PDF/JPG/PNG），PDF 首先转为页面图片"
+    result: pending
+    reason: null
+  - id: A35
+    source: specs/ocr-multimodal-import/spec.md
+    text: 图片直接提交给多模态大模型（默认 GLM-4V-Flash），由模型输出结构化指标 JSON（指标名、数值、单位、参考范围）
+    result: pending
+    reason: null
+  - id: A36
+    source: specs/ocr-multimodal-import/spec.md
+    text: 模型调用参数全部由环境变量配置：API base URL、模型名、API key、（可选）备选模型
+    result: pending
+    reason: null
+  - id: A37
+    source: specs/ocr-multimodal-import/spec.md
+    text: 不再包含 PaddleOCR 引擎、本地表格还原、本地规则解析 fallback；依赖列表相应精简
+    result: pending
+    reason: null
+  - id: A38
+    source: specs/ocr-multimodal-import/spec.md
+    text: 保留 `/api/health`、`/api/healthz`、`/api/ocr-readyz` 健康检查语义
+    result: pending
+    reason: null
+  - id: A39
+    source: specs/ocr-multimodal-import/spec.md
+    text: 模型调用失败/超时返回明确错误码与中文可读错误信息
+    result: pending
+    reason: null
+  - id: A40
+    source: specs/ocr-multimodal-import/spec.md
+    text: 现有指标匹配（文本规范化 + 编辑距离 + 单位兼容打分）、三级置信度、未匹配"未命名"区、导入确认流程全部保留（medicalReport.ts）
+    result: pending
+    reason: null
+  - id: A41
+    source: specs/ocr-multimodal-import/spec.md
+    text: 现有多端点重试机制 `VITE_REPORT_PARSER_URLS`（云端优先、本地兜底）保留
+    result: pending
+    reason: null
+  - id: A42
+    source: specs/ocr-multimodal-import/spec.md
+    text: 正常网络下从提交到返回结果 ≤ 30 秒
+    result: pending
+    reason: null
+  - id: A43
+    source: specs/ocr-multimodal-import/spec.md
+    text: 失败时显示明确失败状态与降级引导：手动录入 / Excel 导入 / 将报告照片挂到记录附件；不出现无限 loading
+    result: pending
+    reason: null
+  - id: A44
+    source: specs/ocr-multimodal-import/spec.md
+    text: 文件选择与上传交互、支持格式（PDF/JPG/PNG）不变
+    result: pending
+    reason: null
+  - id: A45
+    source: specs/ocr-multimodal-import/spec.md
+    text: API key 只存在于后端环境变量，不进前端、不进代码仓库
+    result: pending
+    reason: null
+  - id: A46
+    source: specs/ocr-multimodal-import/spec.md
+    text: 报告照片直发第三方大模型 API 已获用户确认
+    result: pending
+    reason: null
+  - id: A47
+    source: specs/ocr-multimodal-import/spec.md
+    text: 用户可见文案全部中文
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-08-29T03:14:33.219Z
