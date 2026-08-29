@@ -2,8 +2,8 @@ schema: comet.native.v4
 name: healthhub-product-upgrade
 language: zh-CN
 phase: archive
-status: active
-state_version: 11
+status: done
+state_version: 12
 brief: brief.md
 children_contract_hash: d37c9c296b1de2bc835c4c88d984827353042414e54e4fc3cf58c4fe56dce6e1
 spec_changes:
@@ -22,7 +22,7 @@ workspace:
   target_branch: main
   finish: pull-request
 loop:
-  stage: archive-ready
+  stage: done
   goal_cycle: 1
   iteration: 2
   attempt: 1
@@ -31,7 +31,7 @@ loop:
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: archive
+  next_action: null
 acceptance:
   - id: A1
     source: brief.md
@@ -560,5 +560,5 @@ history_overflow:
     recovery: 0
 verification_result: pass
 verification_report: verification.md
-archived: false
+archived: true
 created_at: 2026-08-29T03:14:33.219Z
