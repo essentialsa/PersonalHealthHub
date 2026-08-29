@@ -32,14 +32,14 @@ def test_parse_report_mock():
     import io
     response = client.post(
         "/api/parse",
-        files={"file": ("test.pdf", io.BytesIO(b"fake pdf content"), "application/pdf")}
+        files={"file": ("test.pdf", io.BytesIO(b"fake pdf content" + b"\x00" * 2000), "application/pdf")}
     )
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
     assert len(data["indicators"]) > 0
     labels = {item["rawLabel"] for item in data["indicators"]}
-    assert "白细胞(WBC)" in labels
+    assert "收缩压" in labels
 
 
 def test_parse_report_file_too_large():

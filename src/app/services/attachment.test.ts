@@ -3,11 +3,17 @@ import {
   ATTACHMENTS_KEY,
   ALLOWED_TYPES,
   MAX_FILE_SIZE,
-  MAX_TOTAL_SIZE,
+  ATTACHMENT_CACHE_BUDGET,
   loadAttachments,
   saveAttachments,
   addAttachment,
   deleteAttachment,
+  planAttachmentCacheEviction,
+  applyAttachmentCacheEviction,
+  mergeAttachmentMeta,
+  dataUrlToBytes,
+  bytesToDataUrl,
+  type AttachmentMeta,
   type HealthAttachment,
 } from "@/app/services/attachment";
 
@@ -29,12 +35,8 @@ describe("HealthAttachment constants", () => {
     expect(MAX_FILE_SIZE).toBe(10 * 1024 * 1024);
   });
 
-  it("MAX_TOTAL_SIZE is 20MB", () => {
-    expect(MAX_TOTAL_SIZE).toBe(20 * 1024 * 1024);
-  });
-
-  it("MAX_TOTAL_SIZE is twice MAX_FILE_SIZE", () => {
-    expect(MAX_TOTAL_SIZE).toBe(MAX_FILE_SIZE * 2);
+  it("ATTACHMENT_CACHE_BUDGET is 4MB", () => {
+    expect(ATTACHMENT_CACHE_BUDGET).toBe(4 * 1024 * 1024);
   });
 });
 
@@ -120,12 +122,12 @@ describe('attachment storage', () => {
     expect(loadAttachments()).toHaveLength(0);
   });
 
-  it('addAttachment fails when total size exceeds 20MB', () => {
+  it('addAttachment no longer enforces a total size limit (Drive is the persistence layer)', () => {
     const a1 = makeAttachment({ id: '1', fileSize: 9.5 * 1024 * 1024 });
-    const a2 = makeAttachment({ id: '2', fileSize: 10.6 * 1024 * 1024 });
+    const a2 = makeAttachment({ id: '2', fileSize: 10 * 1024 * 1024 });
     addAttachment(a1);
-    expect(addAttachment(a2)).toBe(false);
-    expect(loadAttachments()).toHaveLength(1);
+    expect(addAttachment(a2)).toBe(true);
+    expect(loadAttachments()).toHaveLength(2);
   });
 
   it('deleteAttachment removes attachment and clears referencing records', () => {
@@ -143,5 +145,56 @@ describe('attachment storage', () => {
     const updatedRecords = JSON.parse(localStorage.getItem('health_records_v1') || '[]');
     expect(updatedRecords[0].attachmentId).toBeUndefined();
     expect(updatedRecords[1].attachmentId).toBeUndefined();
+  });
+});
+
+describe("Drive 持久层与本地缓存策略", () => {
+  const makeMeta = (overrides: Partial<HealthAttachment> = {}): HealthAttachment =>
+    makeAttachment({ createdAt: "2026-01-01T00:00:00.000Z", ...overrides });
+
+  it("planAttachmentCacheEviction only evicts synced attachments, oldest first", () => {
+    const a1 = makeMeta({ id: "a1", data: "x".repeat(3000), driveFileId: "d1", createdAt: "2026-01-01T00:00:00.000Z" });
+    const a2 = makeMeta({ id: "a2", data: "x".repeat(3000), driveFileId: "d2", createdAt: "2026-01-02T00:00:00.000Z" });
+    const a3 = makeMeta({ id: "a3", data: "x".repeat(3000), createdAt: "2026-01-03T00:00:00.000Z" }); // 未上传云盘
+    const evictIds = planAttachmentCacheEviction([a1, a2, a3], 5000);
+    // 总缓存 9000 超预算 5000：清掉 a1(3000) 后仍超 2000，需再清 a2(3000) 才回到预算内
+    expect(evictIds).toEqual(["a1", "a2"]);
+  });
+
+  it("planAttachmentCacheEviction returns empty when under budget", () => {
+    const a1 = makeMeta({ id: "a1", data: "x".repeat(100), driveFileId: "d1" });
+    expect(planAttachmentCacheEviction([a1], 4000)).toEqual([]);
+  });
+
+  it("applyAttachmentCacheEviction clears data of evicted attachments only", () => {
+    const a1 = makeMeta({ id: "a1", data: "x" });
+    const a2 = makeMeta({ id: "a2", data: "y" });
+    const next = applyAttachmentCacheEviction([a1, a2], ["a1"]);
+    expect(next[0].data).toBeUndefined();
+    expect(next[1].data).toBe("y");
+    expect(next[0].driveFileId).toBeUndefined();
+  });
+
+  it("mergeAttachmentMeta prefers cloud entries with driveFileId", () => {
+    const local: AttachmentMeta[] = [
+      { id: "1", fileName: "a.pdf", fileType: "application/pdf", fileSize: 1, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "2", fileName: "b.png", fileType: "image/png", fileSize: 2, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const remote: AttachmentMeta[] = [
+      { id: "1", fileName: "a.pdf", fileType: "application/pdf", fileSize: 1, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z", driveFileId: "drive-1" },
+      { id: "3", fileName: "c.pdf", fileType: "application/pdf", fileSize: 3, date: "2026-01-02", createdAt: "2026-01-02T00:00:00.000Z", driveFileId: "drive-3" },
+    ];
+    const merged = mergeAttachmentMeta(local, remote);
+    expect(merged).toHaveLength(3);
+    expect(merged.find(a => a.id === "1")?.driveFileId).toBe("drive-1");
+    expect(merged.find(a => a.id === "2")?.driveFileId).toBeUndefined();
+  });
+
+  it("data url <-> bytes round-trip", () => {
+    const dataUrl = "data:application/pdf;base64," + btoa("hello health hub");
+    const bytes = dataUrlToBytes(dataUrl);
+    expect(Array.from(bytes)).toEqual(Array.from(new TextEncoder().encode("hello health hub")));
+    const restored = bytesToDataUrl(bytes, "application/pdf");
+    expect(restored).toBe(dataUrl);
   });
 });
