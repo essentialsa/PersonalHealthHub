@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/app/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/app/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
@@ -7,7 +7,7 @@ import { Badge } from "@/app/components/ui/badge";
 import { Progress } from "@/app/components/ui/progress";
 import { Input } from "@/app/components/ui/input";
 import { cn } from "@/app/components/ui/utils";
-import { UploadCloud, FileText, AlertCircle, CheckCircle, Loader2, X, RefreshCw } from "lucide-react";
+import { UploadCloud, FileText, AlertCircle, CheckCircle, Loader2, X, RefreshCw, Sparkles } from "lucide-react";
 import type { HealthRecord } from "@/app/components/AddRecordDialog";
 import type { HealthAttachment } from "@/app/services/attachment";
 import { Checkbox } from "@/app/components/ui/checkbox";
@@ -18,12 +18,16 @@ import {
   resolveIndicators,
   groupByAction,
   getCategoriesToCreate,
+  clusterUnnamedIndicators,
+  matchUnnamedLabels,
+  normalizeIndicatorText,
   type ParseResult,
   type ParserServiceStatus,
   type ResolvedIndicator,
   type UserIndicatorCategory,
 } from "@/app/services/medicalReport";
 import { CategorySelectDialog } from "./CategorySelectDialog";
+import { compressImageFile } from "@/app/services/imageCompress";
 
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -52,6 +56,51 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [retainReport, setRetainReport] = useState(true);
   const serviceOnline = serviceStatus?.online ?? null;
 
+  // ── 未命名指标：聚类 + 免费模型二次匹配 ──
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, string>>({});
+  const [adoptedLabels, setAdoptedLabels] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiRequestedRef = useRef("");
+
+  const unnamedClusters = useMemo(
+    () => clusterUnnamedIndicators(matched.filter(m => m.matchType === "none")),
+    [matched],
+  );
+  const clusterSignature = unnamedClusters.map(c => c.key).join("|");
+
+  useEffect(() => {
+    if (unnamedClusters.length === 0) {
+      aiRequestedRef.current = "";
+      return;
+    }
+    if (aiRequestedRef.current === clusterSignature) {
+      return;
+    }
+    aiRequestedRef.current = clusterSignature;
+    const catalog = existingCategories.flatMap(category =>
+      (category.items || []).map(item => ({ id: `${category.id}::${item.id}`, label: item.label })),
+    );
+    const labels = unnamedClusters.map(cluster => cluster.canonicalLabel);
+    setAiLoading(true);
+    void matchUnnamedLabels(labels, catalog)
+      .then(suggestions => {
+        if (!suggestions) return;
+        const next: Record<string, string> = {};
+        for (const cluster of unnamedClusters) {
+          const hit = suggestions.find(s =>
+            normalizeIndicatorText(s.label) === cluster.key ||
+            cluster.keys.some(key => key === normalizeIndicatorText(s.label)),
+          );
+          if (hit?.catalogLabel) {
+            next[cluster.key] = hit.catalogLabel;
+          }
+        }
+        setAiSuggestions(prev => ({ ...prev, ...next }));
+      })
+      .finally(() => setAiLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterSignature]);
+
   const checkService = useCallback(async () => {
     setServiceChecking(true);
     try {
@@ -73,8 +122,14 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const handleFile = async (f: File) => {
     if (!ALLOWED.includes(f.type)) { setError("仅支持 PDF、JPG、PNG 格式"); return; }
     if (f.size > MAX_SIZE) { setError("文件不能超过 50MB"); return; }
-    setFile(f);
     setError(null);
+    // 大图先压缩：控制请求体体积（Serverless 上限），对识别也更友好
+    try {
+      const { file: compressed } = await compressImageFile(f);
+      setFile(compressed);
+    } catch {
+      setFile(f);
+    }
   };
 
   const handleParse = async () => {
@@ -94,6 +149,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           : extractIndicatorsFromTables(r.tables);
       const resolved = resolveIndicators(extracted, existingCategories);
       setMatched(resolved);
+      setAiSuggestions({});
+      setAdoptedLabels({});
+      aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
 
       clearInterval(timer);
@@ -385,27 +443,60 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   <div className="mt-4 border rounded-lg p-4 bg-amber-50/50">
                     <div className="flex items-center gap-2 mb-3">
                       <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项）</h4>
+                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedClusters.length} 组）</h4>
                     </div>
                     <div className="space-y-2">
-                      {matched.filter(m => m.matchType === "none").map((m, i) => (
-                        <div key={`unnamed-${i}`} className="flex items-center gap-2 bg-white rounded-md p-2">
-                          <Input
-                            defaultValue={m.rawLabel}
-                            className="h-8 text-sm flex-1"
-                            onChange={e => {
-                              const updated = [...matched];
-                              updated[matched.indexOf(m)] = { ...updated[matched.indexOf(m)], rawLabel: e.target.value };
-                              setMatched(updated);
-                            }}
-                          />
-                          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => {
-                            setMatched(matched.filter((_, idx) => idx !== matched.indexOf(m)));
-                          }}>跳过</Button>
-                        </div>
-                      ))}
+                      {unnamedClusters.map(cluster => {
+                        const suggestion = aiSuggestions[cluster.key];
+                        const adopted = adoptedLabels[cluster.key];
+                        const inputKey = `${cluster.key}::${adopted ?? ""}`;
+                        return (
+                          <div key={cluster.key} className="bg-white rounded-md p-2 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                key={inputKey}
+                                defaultValue={adopted ?? cluster.canonicalLabel}
+                                className="h-8 text-sm flex-1"
+                                onChange={e => {
+                                  const label = e.target.value;
+                                  const indices = matched
+                                    .map((m, idx) => (cluster.items.includes(m) ? idx : -1))
+                                    .filter(idx => idx >= 0);
+                                  setMatched(prev => prev.map((m, idx) => (indices.includes(idx) ? { ...m, rawLabel: label } : m)));
+                                }}
+                              />
+                              <span className="text-[11px] text-muted-foreground whitespace-nowrap">{cluster.items.length} 条记录</span>
+                              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => {
+                                setMatched(matched.filter(m => !cluster.items.includes(m)));
+                              }}>跳过</Button>
+                            </div>
+                            {suggestion && suggestion !== (adopted ?? cluster.canonicalLabel) && (
+                              <div className="flex items-center gap-2 pl-1">
+                                <Sparkles className="w-3 h-3 text-violet-500" />
+                                <span className="text-xs text-violet-600">AI 建议命名为「{suggestion}」</span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-xs px-2 border-violet-200 text-violet-600"
+                                  onClick={() => {
+                                    const indices = matched
+                                      .map((m, idx) => (cluster.items.includes(m) ? idx : -1))
+                                      .filter(idx => idx >= 0);
+                                    setMatched(prev => prev.map((m, idx) => (indices.includes(idx) ? { ...m, rawLabel: suggestion } : m)));
+                                    setAdoptedLabels(prev => ({ ...prev, [cluster.key]: suggestion }));
+                                  }}
+                                >
+                                  采用
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">💡 可直接修改指标名称，或点击"跳过"忽略</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      💦 {aiLoading ? "AI 正在生成命名建议…" : "写法相近的指标已自动归为一组，命名一次即可应用到整组；可直接修改或点击「跳过」忽略"}
+                    </p>
                   </div>
                 )}
 

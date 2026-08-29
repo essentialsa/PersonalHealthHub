@@ -9,6 +9,7 @@ import time
 from threading import Lock
 
 from parser.vision_engine import VisionEngine, VisionEngineError, get_vision_status
+from parser.label_matcher import LabelMatcherError, match_labels
 
 app = FastAPI(title="Medical Report Parser", version="2.0.0")
 
@@ -61,6 +62,15 @@ class ExtractedIndicator(BaseModel):
     unit: str
     referenceRange: Optional[str] = None
     pageIndex: int
+
+
+class LabelMatchRequest(BaseModel):
+    labels: List[str]
+    catalog: List[dict]
+
+
+class LabelMatchResponse(BaseModel):
+    matches: List[dict]
 
 
 class ParseResponse(BaseModel):
@@ -217,6 +227,38 @@ async def parse_report(file: UploadFile = File(...)):
             time.perf_counter() - started_at,
         )
         raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
+
+
+@app.post("/api/match-labels", response_model=LabelMatchResponse)
+async def match_indicator_labels(request: LabelMatchRequest):
+    """未匹配指标的免费模型语义匹配：返回建议映射，前端仍需人工确认。"""
+    labels = [label.strip() for label in request.labels if isinstance(label, str) and label.strip()]
+    if not labels:
+        raise HTTPException(status_code=400, detail="labels 不能为空")
+    if len(labels) > 100:
+        raise HTTPException(status_code=400, detail="labels 数量超过上限（100）")
+    catalog = [
+        {"id": str(entry.get("id", "")).strip(), "label": str(entry.get("label", "")).strip()}
+        for entry in request.catalog
+        if isinstance(entry, dict) and entry.get("id") and entry.get("label")
+    ]
+    if not catalog:
+        raise HTTPException(status_code=400, detail="catalog 不能为空")
+
+    started_at = time.perf_counter()
+    try:
+        matches = match_labels(labels, catalog, use_mock=USE_MOCK)
+        logger.info(
+            "match_labels_done labels=%d catalog=%d matches=%d elapsed_sec=%.2f",
+            len(labels), len(catalog), len(matches), time.perf_counter() - started_at,
+        )
+        return {"matches": matches}
+    except LabelMatcherError as e:
+        logger.error("match_labels_error elapsed_sec=%.2f error=%s", time.perf_counter() - started_at, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.exception("match_labels_exception elapsed_sec=%.2f", time.perf_counter() - started_at)
+        raise HTTPException(status_code=500, detail=f"匹配失败: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ import {
   extractDate,
   resolveIndicators,
   groupByAction,
+  clusterUnnamedIndicators,
+  type ResolvedIndicator,
   type ParsedTable,
   type ExtractedIndicator,
 } from "@/app/services/medicalReport";
@@ -215,5 +217,53 @@ describe("groupByAction", () => {
     const grouped = groupByAction(resolved);
     expect(grouped.import).toHaveLength(1);
     expect(grouped.unnamed).toHaveLength(1);
+  });
+});
+
+
+describe("clusterUnnamedIndicators（未命名指标聚类）", () => {
+  const makeUnnamed = (rawLabel: string, value = 5): ResolvedIndicator[] =>
+    rawLabel.split(",").map((label, i) => ({
+      rawLabel: label,
+      value: value + i,
+      unit: "mmol/L",
+      pageIndex: 0,
+      matchType: "none" as const,
+      confidence: { level: "low" as const, score: 0, reasons: [] },
+      userItemFound: false,
+      action: "unnamed" as const,
+    }));
+
+  it("归一化后相同名称聚为一簇（空格等格式差异）", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("血糖,血糖 ,血糖"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].items).toHaveLength(3);
+  });
+
+  it("编辑距离相似度 ≥0.85 的写法变体并入同簇", () => {
+    // 8 字 vs 9 字仅差一个"1"，相似度 8/9 ≈ 0.89
+    const clusters = clusterUnnamedIndicators(makeUnnamed("乳酸脱氢酶同工酶,乳酸脱氢酶同工酶1"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].items).toHaveLength(2);
+  });
+
+  it("不同指标不误并（白细胞 vs 白细胞酯酶，相似度仅 0.6）", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("白细胞,白细胞酯酶"));
+    expect(clusters).toHaveLength(2);
+  });
+
+  it("簇内保留各自数值，canonicalLabel 取首条原始写法", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("血清甘油三酯,血清甘油三酯"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].canonicalLabel).toBe("血清甘油三酯");
+    const values = clusters[0].items.map(item => item.value).sort((a, b) => a - b);
+    expect(values).toEqual([5, 6]);
+  });
+
+  it("空数组返回空簇；单条返回单簇", () => {
+    expect(clusterUnnamedIndicators([])).toEqual([]);
+    const single = clusterUnnamedIndicators(makeUnnamed("肌钙蛋白I"));
+    expect(single).toHaveLength(1);
+    expect(single[0].items).toHaveLength(1);
   });
 });
