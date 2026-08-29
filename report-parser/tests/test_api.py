@@ -39,7 +39,7 @@ def test_parse_report_mock():
     assert data["success"] is True
     assert len(data["indicators"]) > 0
     labels = {item["rawLabel"] for item in data["indicators"]}
-    assert "白细胞(WBC)" in labels
+    assert "收缩压" in labels
 
 
 def test_parse_report_file_too_large():

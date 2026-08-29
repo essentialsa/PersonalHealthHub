@@ -15,49 +15,22 @@ services:
     envVars:
       - key: USE_MOCK
         value: "false"
-      - key: OCR_WARMUP_ON_STARTUP
-        value: "false"
-      - key: OCR_ENGINE
-        value: paddle
-      - key: PADDLE_IR_OPTIM
-        value: "false"
-      - key: PADDLE_ENABLE_MKLDNN
-        value: "false"
-      - key: PADDLE_CPU_THREADS
-        value: "1"
-      - key: PADDLE_USE_ANGLE_CLS
-        value: "false"
-      - key: PADDLE_OCR_VERSION
-        value: PP-OCRv2
-      - key: PADDLE_REC_ALGORITHM
-        value: CRNN
-      - key: PADDLE_REC_IMAGE_SHAPE
-        value: 3,32,320
-      - key: PADDLE_DET_LIMIT_SIDE_LEN
-        value: "736"
-      - key: PADDLE_REC_BATCH_NUM
-        value: "1"
-      - key: PADDLE_CLS_BATCH_NUM
-        value: "1"
-      - key: OCR_MAX_IMAGE_SIDE
-        value: "960"
-      - key: OCR_PDF_RENDER_SCALE
-        value: "1.0"
-      - key: OCR_LLM_ENABLED
-        value: "true"
-      - key: OCR_LLM_BASE_URL
-        value: "PLEASE_SET_IN_RENDER"
-      - key: OCR_LLM_API_KEY
-        value: "PLEASE_SET_IN_RENDER"
-      - key: OCR_LLM_MODEL
-        value: gpt-4o-mini
-      - key: OCR_LLM_TIMEOUT_SEC
-        value: "45"
-      - key: OCR_LLM_MAX_OUTPUT_TOKENS
-        value: "1600"
       - key: LOG_LEVEL
         value: INFO
       - key: ALLOWED_ORIGINS
         value: "*"
       - key: CORS_ALLOW_CREDENTIALS
         value: "false"
+      # 多模态模型配置（值需在 Render 控制台设置）
+      - key: VISION_LLM_BASE_URL
+        value: "PLEASE_SET_IN_RENDER"
+      - key: VISION_LLM_API_KEY
+        sync: false
+      - key: VISION_LLM_MODEL
+        value: glm-4v-flash
+      - key: VISION_LLM_FALLBACK_MODEL
+        value: ""
+      - key: VISION_LLM_TIMEOUT_SEC
+        value: "60"
+      - key: VISION_LLM_MAX_OUTPUT_TOKENS
+        value: "2000"
