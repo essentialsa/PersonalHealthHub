@@ -16,7 +16,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { HealthRecord, IndicatorCategory } from "@/app/components/AddRecordDialog";
+import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 const CHART_LINE_COLORS = [
@@ -44,6 +44,8 @@ const TIME_RANGES: { value: TimeRange; label: string }[] = [
 const CHART_TYPES = ["line", "area", "bar"] as const;
 type ChartType = (typeof CHART_TYPES)[number];
 
+type ChartViewMode = "cards" | "overlay";
+
 const formatNumber = (value: number) => {
   if (!Number.isFinite(value)) {
     return "-";
@@ -61,6 +63,48 @@ const shortDateLabel = (date: string) => {
   }
   return `${parsed.getMonth() + 1}/${parsed.getDate()}`;
 };
+
+interface OverlaySeries {
+  item: IndicatorItem;
+  color: string;
+}
+
+/** 叠加图 tooltip：按日期列出各可见指标的原始值+单位 */
+function OverlayTooltip({
+  active,
+  payload,
+  visibleSeries,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: Record<string, unknown> }>;
+  visibleSeries: OverlaySeries[];
+}) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  const row = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-violet-100 bg-white/95 px-3 py-2 text-xs shadow-lg">
+      <div className="text-gray-500 mb-1">{String(row.rawDate)}</div>
+      {visibleSeries.map(series => {
+        const raw = row[`raw_${series.item.id}`];
+        if (raw === undefined) {
+          return null;
+        }
+        return (
+          <div key={series.item.id} className="flex items-center gap-1.5 text-gray-700">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: series.color }} />
+            <span>{series.item.label}：</span>
+            <span className="font-semibold text-gray-800">
+              {formatNumber(Number(raw))}
+              {series.item.unit || ""}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function readStoredView(): { categoryId?: string; timeRange?: TimeRange } {
   try {
@@ -85,6 +129,10 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
   const storedView = useMemo(readStoredView, []);
   const [categoryId, setCategoryId] = useState<string>(storedView.categoryId ?? "");
   const [timeRange, setTimeRange] = useState<TimeRange>(storedView.timeRange ?? "all");
+  const [viewMode, setViewMode] = useState<ChartViewMode>(
+    storedView.viewMode === "overlay" ? "overlay" : "cards",
+  );
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (categories.length === 0) {
@@ -99,12 +147,17 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
     try {
       window.localStorage.setItem(
         CHART_VIEW_STORAGE_KEY,
-        JSON.stringify({ categoryId, timeRange, indicators: [] }),
+        JSON.stringify({ categoryId, timeRange, viewMode, indicators: [] }),
       );
     } catch {
       // 忽略持久化失败（隐私模式等场景）
     }
-  }, [categoryId, timeRange]);
+  }, [categoryId, timeRange, viewMode]);
+
+  // 切换分类时重置图例显隐（旧分类的指标 id 不再适用）
+  useEffect(() => {
+    setHiddenIds(new Set());
+  }, [categoryId]);
 
   const category = categories.find(item => item.id === categoryId) ?? categories[0] ?? null;
 
@@ -164,6 +217,35 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
       worst: worst.label,
     };
   }, [indicatorSeries]);
+
+  /** 叠加视图：可见线、是否归一化、按日期合并的数据行 */
+  const overlayVisibleSeries = indicatorSeries.filter(series => !hiddenIds.has(series.item.id));
+  const useNormalization = indicatorSeries.length > 1;
+  const overlayRows = useMemo(() => {
+    const byDate = new Map<string, Record<string, unknown>>();
+    for (const series of indicatorSeries) {
+      const values = series.points.map(point => point.value);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      for (const point of series.points) {
+        let row = byDate.get(point.rawDate);
+        if (!row) {
+          row = { rawDate: point.rawDate, label: point.label };
+          byDate.set(point.rawDate, row);
+        }
+        row[`raw_${series.item.id}`] = point.value;
+        row[series.item.id] =
+          useNormalization && max !== min
+            ? Number((((point.value - min) / (max - min)) * 100).toFixed(1))
+            : useNormalization
+              ? 50
+              : point.value;
+      }
+    }
+    return Array.from(byDate.values()).sort(
+      (a, b) => new Date(String(a.rawDate)).getTime() - new Date(String(b.rawDate)).getTime(),
+    );
+  }, [indicatorSeries, useNormalization]);
 
   const renderChart = (type: ChartType, series: (typeof indicatorSeries)[number]) => {
     const axisProps = {
@@ -245,6 +327,28 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
           <p className="text-[13px] text-gray-500 mt-0.5">查看各项指标的历史变化趋势</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex bg-violet-50 border border-violet-100 rounded-full p-1 gap-1" role="group" aria-label="图表展示模式">
+            {(
+              [
+                ["cards", "分指标卡片"],
+                ["overlay", "多指标对比"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={viewMode === value}
+                onClick={() => setViewMode(value)}
+                className={`px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                  viewMode === value
+                    ? "bg-white text-violet-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="inline-flex bg-violet-50 border border-violet-100 rounded-full p-1 gap-1">
             {TIME_RANGES.map(range => (
               <button

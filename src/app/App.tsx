@@ -2608,11 +2608,10 @@ function CloudSyncDialog({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>授权有效期至</Label>
+                        <Label>访问令牌有效期至（只读，过期后自动用长期凭证静默续期）</Label>
                         <Input
-                          type="date"
-                          value={editingAuth.expiresAt?.split("T")[0] || ""}
-                          onChange={e => setEditingAuth({ ...editingAuth, expiresAt: e.target.value })}
+                          readOnly
+                          value={editingAuth.expiresAt ? new Date(editingAuth.expiresAt).toLocaleString("zh-CN") : "未授权"}
                         />
                       </div>
                     </div>
@@ -3188,7 +3187,7 @@ export default function App() {
           ...(prevGoogle || {}),
           permissions: basePermissions,
           accessToken: tokenInfo.accessToken,
-          refreshToken: tokenInfo.refreshToken,
+          refreshToken: tokenInfo.refreshToken ?? prevGoogle?.refreshToken,
           expiresAt: tokenInfo.expiresAt,
           lastVerified: new Date().toISOString(),
           tokenInvalid: false,
