@@ -220,7 +220,8 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
 
   /** 叠加视图：可见线、是否归一化、按日期合并的数据行 */
   const overlayVisibleSeries = indicatorSeries.filter(series => !hiddenIds.has(series.item.id));
-  const useNormalization = indicatorSeries.length > 1;
+  // 仅剩一条可见线时退回原始值坐标轴；多条时各指标按自身 min-max 归一化
+  const useNormalization = overlayVisibleSeries.length > 1;
   const overlayRows = useMemo(() => {
     const byDate = new Map<string, Record<string, unknown>>();
     for (const series of indicatorSeries) {

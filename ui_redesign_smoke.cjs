@@ -205,13 +205,27 @@ async function runDesktop(browser) {
   check('归一化提示可见', await page.getByText('纵轴为归一化值').isVisible().catch(() => false));
   const linesBefore = await page.locator('.recharts-line').count();
   check('叠加图 4 条指标线', linesBefore === 4, `lines: ${linesBefore}`);
-  await page.locator('button', { hasText: '总胆固醇' }).first().click();
-  await page.waitForTimeout(500);
-  const linesAfter = await page.locator('.recharts-line').count();
-  check('图例点击隐藏指标线', linesAfter === 3, `lines: ${linesAfter}`);
+  // 逐个隐藏到仅剩 1 条线 → Y 轴退回原始值范围
   await page.locator('button', { hasText: '总胆固醇' }).first().click();
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(OUT, '19-chart-overlay.png') });
+  await page.locator('button', { hasText: '甘油三酯' }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('button', { hasText: '低密度脂蛋白' }).first().click();
+  await page.waitForTimeout(600);
+  const linesSingle = await page.locator('.recharts-line').count();
+  check('图例隐藏到仅剩 1 条线', linesSingle === 1, `lines: ${linesSingle}`);
+  check('单线时 Y 轴为原始值', await page.getByText('纵轴为原始值').isVisible().catch(() => false));
+  await page.screenshot({ path: path.join(OUT, '19-chart-overlay-single.png') });
+  // 恢复全部指标线
+  await page.locator('button', { hasText: '总胆固醇' }).first().click();
+  await page.waitForTimeout(300);
+  await page.locator('button', { hasText: '甘油三酯' }).first().click();
+  await page.waitForTimeout(300);
+  await page.locator('button', { hasText: '低密度脂蛋白' }).first().click();
+  await page.waitForTimeout(600);
+  const linesRestored = await page.locator('.recharts-line').count();
+  const normCaptionBack = await page.getByText('纵轴为归一化值').isVisible().catch(() => false);
+  check('恢复后回到归一化坐标', linesRestored === 4 && normCaptionBack, `lines:${linesRestored} 归一化提示:${normCaptionBack}`);
   // 刷新后模式持久化
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(2000);
