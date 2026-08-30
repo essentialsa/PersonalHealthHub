@@ -214,7 +214,9 @@ async function runDesktop(browser) {
   await page.waitForTimeout(600);
   const linesSingle = await page.locator('.recharts-line').count();
   check('图例隐藏到仅剩 1 条线', linesSingle === 1, `lines: ${linesSingle}`);
-  check('单线时 Y 轴为原始值', await page.getByText('纵轴为原始值').isVisible().catch(() => false));
+  check('单线时 Y 轴为原始值', await page.getByText(/纵轴为原始值（单位：mmol\/L）/).isVisible().catch(() => false));
+  const yAxisUnitCount = await page.locator('.recharts-wrapper').getByText('mmol/L', { exact: true }).count();
+  check('单线时 Y 轴标注单位', yAxisUnitCount >= 1, `轴上单位文本: ${yAxisUnitCount}`);
   await page.screenshot({ path: path.join(OUT, '19-chart-overlay-single.png') });
   // 恢复全部指标线
   await page.locator('button', { hasText: '总胆固醇' }).first().click();

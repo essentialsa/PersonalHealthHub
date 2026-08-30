@@ -222,6 +222,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
   const overlayVisibleSeries = indicatorSeries.filter(series => !hiddenIds.has(series.item.id));
   // 仅剩一条可见线时退回原始值坐标轴；多条时各指标按自身 min-max 归一化
   const useNormalization = overlayVisibleSeries.length > 1;
+  const overlayUnit = !useNormalization && overlayVisibleSeries.length === 1 ? overlayVisibleSeries[0].item.unit || "" : "";
   const overlayRows = useMemo(() => {
     const byDate = new Map<string, Record<string, unknown>>();
     for (const series of indicatorSeries) {
@@ -396,7 +397,9 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
             <div className="text-sm font-semibold text-gray-800">
               {`${category?.name ?? ""} · 多指标对比`}
               <span className="ml-2 text-[11px] font-normal text-gray-400">
-                {useNormalization ? "纵轴为归一化值（0-100），悬停查看原始值" : "纵轴为原始值"}
+                {useNormalization
+                  ? "纵轴为归一化值（0-100），悬停查看原始值"
+                  : `纵轴为原始值${overlayUnit ? `（单位：${overlayUnit}）` : ""}`}
               </span>
             </div>
             <div className="h-[320px] mt-3">
@@ -414,6 +417,16 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                     tick={{ fontSize: 11, fill: TICK_COLOR }}
                     tickLine={false}
                     axisLine={{ stroke: GRID_COLOR }}
+                    {...(overlayUnit
+                      ? {
+                          label: {
+                            value: overlayUnit,
+                            angle: -90,
+                            position: "insideLeft",
+                            style: { fontSize: 11, fill: TICK_COLOR, textAnchor: "middle" },
+                          },
+                        }
+                      : {})}
                   />
                   <Tooltip content={<OverlayTooltip visibleSeries={overlayVisibleSeries} />} />
                   {overlayVisibleSeries.map(series => (
