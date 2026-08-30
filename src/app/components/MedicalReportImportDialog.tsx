@@ -37,9 +37,10 @@ interface Props {
   onAddAttachment?: (attachment: HealthAttachment) => boolean;
   existingCategories?: UserIndicatorCategory[];
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], triggerClassName }: Props) {
+export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], triggerClassName, triggerLabel }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"upload" | "preview">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -266,7 +267,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           )}
         >
           <FileText className="w-4 h-4" />
-          报告导入
+          {triggerLabel ?? "报告导入"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">

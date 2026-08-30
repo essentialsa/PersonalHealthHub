@@ -12,6 +12,7 @@ vi.mock("@/app/services/medicalReport", () => ({
   resolveIndicators: vi.fn(),
   groupByAction: vi.fn(),
   getCategoriesToCreate: vi.fn(),
+  clusterUnnamedIndicators: vi.fn(() => []),
 }));
 
 const mockParseResult = {
@@ -69,14 +70,14 @@ describe("MedicalReportImportDialog E2E", () => {
     expect(screen.getByText("预览确认")).toBeInTheDocument();
   });
 
-  it("选择有效文件后不显示错误", () => {
+  it("选择有效文件后不显示错误", async () => {
     render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
     fireEvent.click(screen.getByText("报告导入"));
     const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(input, "files", { value: [file], writable: false });
     fireEvent.change(input);
-    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("report.pdf")).toBeInTheDocument());
     expect(screen.queryByText("仅支持")).not.toBeInTheDocument();
   });
 

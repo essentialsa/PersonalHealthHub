@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人健康中心</title>
+    <style id="theme-vars">
+/* ============================================
+   个人健康中心 - 设计令牌
+   主题：清新医疗风 · 青绿色系
+   ============================================ */
+
+:root {
+  /* Brand - 青绿医疗色系 */
+  --hc-primary: #0d9488;
+  --hc-primary-light: #14b8a6;
+  --hc-primary-dark: #0f766e;
+  --hc-primary-foreground: #ffffff;
+
+  /* Background & Surface */
+  --hc-background: #f0fdfa;
+  --hc-foreground: #0f172a;
+  --hc-card: #ffffff;
+  --hc-card-foreground: #0f172a;
+  --hc-muted: #f1f5f9;
+  --hc-muted-foreground: #64748b;
+
+  /* Border & Input */
+  --hc-border: #e2e8f0;
+  --hc-input: #e2e8f0;
+  --hc-ring: #0d9488;
+
+  /* Popover */
+  --hc-popover: #ffffff;
+  --hc-popover-foreground: #0f172a;
+
+  /* Accent support hues */
+  --hc-accent-blue: #3b82f6;
+  --hc-accent-purple: #8b5cf6;
+  --hc-accent-rose: #f43f5e;
+  --hc-accent-amber: #f59e0b;
+
+  /* State colors */
+  --hc-success: #10b981;
+  --hc-warning: #f59e0b;
+  --hc-error: #ef4444;
+  --hc-info: #3b82f6;
+
+  /* Sidebar */
+  --hc-sidebar-bg: #ffffff;
+  --hc-sidebar-border: #e2e8f0;
+  --hc-sidebar-hover: #f0fdfa;
+  --hc-sidebar-active: #ccfbf1;
+
+  /* Radius scale */
+  --hc-radius-sm: 6px;
+  --hc-radius-md: 10px;
+  --hc-radius-lg: 14px;
+  --hc-radius-xl: 20px;
+
+  /* Shadow scale - subtle */
+  --hc-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hc-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --hc-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.08);
+
+  /* Typography */
+  --hc-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* Tailwind semantic aliases */
+@theme inline {
+  --color-background: var(--hc-background);
+  --color-foreground: var(--hc-foreground);
+  --color-card: var(--hc-card);
+  --color-card-foreground: var(--hc-card-foreground);
+  --color-popover: var(--hc-popover);
+  --color-popover-foreground: var(--hc-popover-foreground);
+  --color-primary: var(--hc-primary);
+  --color-primary-foreground: var(--hc-primary-foreground);
+  --color-muted: var(--hc-muted);
+  --color-muted-foreground: var(--hc-muted-foreground);
+  --color-border: var(--hc-border);
+  --color-input: var(--hc-input);
+  --color-ring: var(--hc-ring);
+  --radius-sm: var(--hc-radius-sm);
+  --radius-md: var(--hc-radius-md);
+  --radius-lg: var(--hc-radius-lg);
+  --radius-xl: var(--hc-radius-xl);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--hc-background);
+    --color-foreground: var(--hc-foreground);
+    --color-card: var(--hc-card);
+    --color-card-foreground: var(--hc-card-foreground);
+    --color-popover: var(--hc-popover);
+    --color-popover-foreground: var(--hc-popover-foreground);
+    --color-primary: var(--hc-primary);
+    --color-primary-foreground: var(--hc-primary-foreground);
+    --color-muted: var(--hc-muted);
+    --color-muted-foreground: var(--hc-muted-foreground);
+    --color-border: var(--hc-border);
+    --color-input: var(--hc-input);
+    --color-ring: var(--hc-ring);
+    --radius-sm: var(--hc-radius-sm);
+    --radius-md: var(--hc-radius-md);
+    --radius-lg: var(--hc-radius-lg);
+    --radius-xl: var(--hc-radius-xl);
+  }
+  @layer base {
+    body { background: var(--hc-background); color: var(--hc-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--hc-background); }
+      .text-background { color: var(--hc-background); }
+      .border-background { border-color: var(--hc-background); }
+      .ring-background { --tw-ring-color: var(--hc-background); }
+      .bg-foreground { background-color: var(--hc-foreground); }
+      .text-foreground { color: var(--hc-foreground); }
+      .border-foreground { border-color: var(--hc-foreground); }
+      .ring-foreground { --tw-ring-color: var(--hc-foreground); }
+      .bg-card { background-color: var(--hc-card); }
+      .text-card { color: var(--hc-card); }
+      .border-card { border-color: var(--hc-card); }
+      .ring-card { --tw-ring-color: var(--hc-card); }
+      .bg-card-foreground { background-color: var(--hc-card-foreground); }
+      .text-card-foreground { color: var(--hc-card-foreground); }
+      .border-card-foreground { border-color: var(--hc-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--hc-card-foreground); }
+      .bg-popover { background-color: var(--hc-popover); }
+      .text-popover { color: var(--hc-popover); }
+      .border-popover { border-color: var(--hc-popover); }
+      .ring-popover { --tw-ring-color: var(--hc-popover); }
+      .bg-popover-foreground { background-color: var(--hc-popover-foreground); }
+      .text-popover-foreground { color: var(--hc-popover-foreground); }
+      .border-popover-foreground { border-color: var(--hc-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--hc-popover-foreground); }
+      .bg-primary { background-color: var(--hc-primary); }
+      .text-primary { color: var(--hc-primary); }
+      .border-primary { border-color: var(--hc-primary); }
+      .ring-primary { --tw-ring-color: var(--hc-primary); }
+      .bg-primary-foreground { background-color: var(--hc-primary-foreground); }
+      .text-primary-foreground { color: var(--hc-primary-foreground); }
+      .border-primary-foreground { border-color: var(--hc-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--hc-primary-foreground); }
+      .bg-muted { background-color: var(--hc-muted); }
+      .text-muted { color: var(--hc-muted); }
+      .border-muted { border-color: var(--hc-muted); }
+      .ring-muted { --tw-ring-color: var(--hc-muted); }
+      .bg-muted-foreground { background-color: var(--hc-muted-foreground); }
+      .text-muted-foreground { color: var(--hc-muted-foreground); }
+      .border-muted-foreground { border-color: var(--hc-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--hc-muted-foreground); }
+      .bg-border { background-color: var(--hc-border); }
+      .text-border { color: var(--hc-border); }
+      .border-border { border-color: var(--hc-border); }
+      .ring-border { --tw-ring-color: var(--hc-border); }
+      .bg-input { background-color: var(--hc-input); }
+      .text-input { color: var(--hc-input); }
+      .border-input { border-color: var(--hc-input); }
+      .ring-input { --tw-ring-color: var(--hc-input); }
+      .bg-ring { background-color: var(--hc-ring); }
+      .text-ring { color: var(--hc-ring); }
+      .border-ring { border-color: var(--hc-ring); }
+      .ring-ring { --tw-ring-color: var(--hc-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="critical-layout">
+      /* ===== Critical Layout ===== */
+      .app-layout {
+        display: flex;
+        min-height: 100vh;
+      }
+      .sidebar {
+        width: 260px;
+        flex-shrink: 0;
+        background: var(--hc-sidebar-bg);
+        border-right: 1px solid var(--hc-sidebar-border);
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 20;
+      }
+      .main-wrapper {
+        flex: 1;
+        margin-left: 260px;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .topbar {
+        background: var(--hc-card);
+        border-bottom: 1px solid var(--hc-border);
+        padding: 20px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .main-content {
+        padding: 32px;
+        flex: 1;
+      }
+      /* Stats cards grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        margin-bottom: 32px;
+      }
+      .stat-card {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        padding: 24px;
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .stat-card:hover {
+        box-shadow: var(--hc-shadow-md);
+        transform: translateY(-2px);
+      }
+      /* Tabs */
+      .tabs-wrapper {
+        margin-bottom: 24px;
+      }
+      .tab-group {
+        display: inline-flex;
+        background: var(--hc-muted);
+        border-radius: 999px;
+        padding: 4px;
+        gap: 2px;
+      }
+      .tab-btn {
+        padding: 10px 24px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        background: transparent;
+      }
+      .tab-btn:hover {
+        color: var(--hc-foreground);
+      }
+      .tab-btn.active {
+        background: var(--hc-primary);
+        color: var(--hc-primary-foreground);
+        box-shadow: var(--hc-shadow-sm);
+      }
+      /* Table section */
+      .table-section {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        overflow: hidden;
+      }
+      .table-header {
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .data-table th {
+        text-align: left;
+        padding: 14px 24px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--hc-muted-foreground);
+        background: var(--hc-muted);
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .data-table td {
+        padding: 16px 24px;
+        font-size: 14px;
+        color: var(--hc-foreground);
+        border-bottom: 1px solid var(--hc-border);
+        transition: background 0.2s ease;
+      }
+      .data-table tbody tr:hover td {
+        background: var(--hc-sidebar-hover);
+      }
+      .data-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+      /* Sidebar nav */
+      .sidebar-logo {
+        padding: 24px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--hc-sidebar-border);
+      }
+      .sidebar-nav {
+        flex: 1;
+        padding: 16px 12px;
+        overflow-y: auto;
+      }
+      .nav-group {
+        margin-bottom: 20px;
+      }
+      .nav-group-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--hc-muted-foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 8px 12px;
+        margin-bottom: 4px;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        color: var(--hc-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+      }
+      .nav-item:hover {
+        background: var(--hc-sidebar-hover);
+        color: var(--hc-primary);
+      }
+      .nav-item.active {
+        background: var(--hc-sidebar-active);
+        color: var(--hc-primary-dark);
+        font-weight: 500;
+      }
+      .nav-item.danger {
+        color: var(--hc-error);
+      }
+      .nav-item.danger:hover {
+        background: #fef2f2;
+      }
+      .sidebar-footer {
+        padding: 16px 20px;
+        border-top: 1px solid var(--hc-sidebar-border);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      /* Topbar right */
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .search-box {
+        position: relative;
+      }
+      .search-box input {
+        width: 280px;
+        padding: 10px 16px 10px 40px;
+        border: 1px solid var(--hc-input);
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        background: var(--hc-background);
+        transition: all 0.2s ease;
+        outline: none;
+      }
+      .search-box input:focus {
+        border-color: var(--hc-ring);
+        box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+        background: var(--hc-card);
+      }
+      .search-box .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--hc-muted-foreground);
+      }
+      .icon-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--hc-radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+      }
+      .icon-btn:hover {
+        background: var(--hc-muted);
+        color: var(--hc-foreground);
+      }
+      .notification-dot {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        background: var(--hc-error);
+        border-radius: 50%;
+        border: 2px solid var(--hc-card);
+      }
+      .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--hc-primary), var(--hc-primary-light));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .user-avatar:hover {
+        transform: scale(1.05);
+      }
+      /* Stat card icon wrapper */
+      .stat-icon-wrap {
+        width: 48px;
+        height: 48px;
+        border-radius: var(--hc-radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stat-icon-wrap.teal {
+        background: rgba(13, 148, 136, 0.1);
+        color: var(--hc-primary);
+      }
+      .stat-icon-wrap.blue {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--hc-accent-blue);
+      }
+      .stat-icon-wrap.rose {
+        background: rgba(244, 63, 94, 0.1);
+        color: var(--hc-accent-rose);
+      }
+      .stat-label {
+        font-size: 14px;
+        color: var(--hc-muted-foreground);
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+        line-height: 1.2;
+      }
+      .stat-trend {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 4px 10px;
+        border-radius: 999px;
+      }
+      .stat-trend.up {
+        color: var(--hc-success);
+        background: rgba(16, 185, 129, 0.1);
+      }
+      .stat-trend.info {
+        color: var(--hc-info);
+        background: rgba(59, 130, 246, 0.1);
+      }
+      /* Pagination */
+      .table-footer {
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-top: 1px solid var(--hc-border);
+      }
+      .pagination {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .page-btn {
+        min-width: 36px;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: var(--hc-radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid transparent;
+      }
+      .page-btn:hover {
+        background: var(--hc-muted);
+        color: var(--hc-foreground);
+      }
+      .page-btn.active {
+        background: var(--hc-primary);
+        color: var(--hc-primary-foreground);
+        border-color: var(--hc-primary);
+      }
+      /* Select dropdown */
+      .category-select {
+        padding: 8px 36px 8px 14px;
+        border: 1px solid var(--hc-input);
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        color: var(--hc-foreground);
+        background: var(--hc-card);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+      }
+      .category-select:hover {
+        border-color: var(--hc-primary);
+      }
+      .category-select:focus {
+        outline: none;
+        border-color: var(--hc-ring);
+        box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+      }
+      /* Table title */
+      .table-title h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .table-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Topbar title */
+      .topbar-title h1 {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .topbar-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Logo */
+      .logo-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--hc-radius-md);
+        background: linear-gradient(135deg, var(--hc-primary), var(--hc-primary-light));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+      }
+      .logo-text {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+      }
+      /* Page info text */
+      .page-info {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Chart section */
+      .chart-section {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        overflow: hidden;
+      }
+      .chart-section-header {
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .chart-section-title h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .chart-section-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      .chart-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .time-range-group {
+        display: inline-flex;
+        background: var(--hc-muted);
+        border-radius: var(--hc-radius-md);
+        padding: 3px;
+        gap: 2px;
+      }
+      .time-range-btn {
+        padding: 6px 14px;
+        border-radius: var(--hc-radius-sm);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        background: transparent;
+      }
+      .time-range-btn:hover {
+        color: var(--hc-foreground);
+      }
+      .time-range-btn.active {
+        background: var(--hc-card);
+        color: var(--hc-primary);
+        box-shadow: var(--hc-shadow-sm);
+      }
+      /* Chart grid */
+      .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 24px;
+        padding: 24px;
+      }
+      .chart-card {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-md);
+        border: 1px solid var(--hc-border);
+        padding: 20px;
+        transition: all 0.2s ease;
+      }
+      .chart-card:hover {
+        box-shadow: var(--hc-shadow-md);
+        transform: translateY(-2px);
+      }
+      .chart-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .chart-card-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+      }
+      .chart-card-badge {
+        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(13, 148, 136, 0.1);
+        color: var(--hc-primary);
+        font-weight: 500;
+      }
+      .chart-card-body {
+        position: relative;
+        height: 220px;
+      }
+      .chart-svg {
+        width: 100%;
+        height: 100%;
+      }
+      /* Chart footer data labels */
+      .chart-footer {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--hc-border);
+      }
+      .chart-footer-item {
+        text-align: center;
+        flex: 1;
+      }
+      .chart-footer-label {
+        font-size: 11px;
+        color: var(--hc-muted-foreground);
+        margin-bottom: 2px;
+      }
+      .chart-footer-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+  <div class="app-layout">
+    <!-- ===== Sidebar ===== -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">
+          <i data-lucide="heart-pulse" width="20" height="20"></i>
+        </div>
+        <span class="logo-text">个人健康中心</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <!-- 数据管理组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">数据管理</div>
+          <a href="#" class="nav-item active">
+            <i data-lucide="plus-circle" width="18" height="18"></i>
+            <span>添加检验记录</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="list-checks" width="18" height="18"></i>
+            <span>检验指标维护</span>
+          </a>
+        </div>
+
+        <!-- 报告组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">报告</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="file-upload" width="18" height="18"></i>
+            <span>报告导入</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="file-text" width="18" height="18"></i>
+            <span>问诊简报</span>
+          </a>
+        </div>
+
+        <!-- 工具组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">工具</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="sheet" width="18" height="18"></i>
+            <span>Excel导入</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="download" width="18" height="18"></i>
+            <span>导出Excel</span>
+          </a>
+        </div>
+
+        <!-- 同步组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">同步</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="cloud" width="18" height="18"></i>
+            <span>云同步</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="refresh-cw" width="18" height="18"></i>
+            <span>立即同步</span>
+          </a>
+        </div>
+
+        <!-- 危险操作 -->
+        <div class="nav-group">
+          <div class="nav-group-title">危险操作</div>
+          <a href="#" class="nav-item danger">
+            <i data-lucide="trash-2" width="18" height="18"></i>
+            <span>删除全部</span>
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar" style="width: 36px; height: 36px; font-size: 13px;">
+          ZS
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 500; color: var(--hc-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">张三</div>
+          <div style="font-size: 12px; color: var(--hc-muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">zhangsan@example.com</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== Main Wrapper ===== -->
+    <div class="main-wrapper">
+      <!-- ===== Topbar ===== -->
+      <header id="topbar" class="topbar">
+        <div class="topbar-title">
+          <h1>数据概览</h1>
+          <p>智能记录，轻松管理您的健康数据</p>
+        </div>
+        <div class="topbar-right">
+          <div class="search-box">
+            <i data-lucide="search" width="18" height="18" class="search-icon"></i>
+            <input type="text" placeholder="搜索记录、指标...">
+          </div>
+          <div class="icon-btn">
+            <i data-lucide="bell" width="20" height="20"></i>
+            <span class="notification-dot"></span>
+          </div>
+          <div class="user-avatar">ZS</div>
+        </div>
+      </header>
+
+      <!-- ===== Main Content ===== -->
+      <main id="main-content" class="main-content">
+        <!-- ===== Stats Cards ===== -->
+        <section id="stats-cards" class="stats-grid">
+          <!-- Card 1: 总记录数 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap teal">
+              <i data-lucide="database" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">总记录数</div>
+            <div class="stat-value">49</div>
+            <div>
+              <span class="stat-trend up">
+                <i data-lucide="trending-up" width="14" height="14"></i>
+                +2 本月新增
+              </span>
+            </div>
+          </div>
+
+          <!-- Card 2: 检验指标种类 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap blue">
+              <i data-lucide="bar-chart-3" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">检验指标种类</div>
+            <div class="stat-value">10</div>
+            <div>
+              <span class="stat-trend info">
+                <i data-lucide="layers" width="14" height="14"></i>
+                覆盖 5 大类别
+              </span>
+            </div>
+          </div>
+
+          <!-- Card 3: 最后更新 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap rose">
+              <i data-lucide="calendar" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">最后更新</div>
+            <div class="stat-value">2026/4/24</div>
+            <div>
+              <span class="stat-trend info">
+                <i data-lucide="clock" width="14" height="14"></i>
+                3 天前
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Tabs ===== -->
+        <section id="tabs-section" class="tabs-wrapper">
+          <div class="tab-group">
+            <button class="tab-btn" data-dom-id="nav-tab-list">数据列表</button>
+            <button class="tab-btn active">图表分析</button>
+            <button class="tab-btn" data-dom-id="nav-tab-maintain">数据维护</button>
+          </div>
+        </section>
+
+        <!-- ===== Chart Section ===== -->
+        <section id="chart-section" class="chart-section">
+          <div class="chart-section-header">
+            <div class="chart-section-title">
+              <h3>趋势分析</h3>
+              <p>查看各项指标的历史变化趋势</p>
+            </div>
+            <div class="chart-controls">
+              <div class="time-range-group">
+                <button class="time-range-btn">7天</button>
+                <button class="time-range-btn">30天</button>
+                <button class="time-range-btn active">90天</button>
+                <button class="time-range-btn">全部</button>
+              </div>
+              <select class="category-select">
+                <option>全部指标</option>
+                <option>体重</option>
+                <option>BMI</option>
+                <option>体脂率</option>
+                <option>肌肉量</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="chart-grid">
+            <!-- Chart 1: 体重变化趋势 (折线图) -->
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">体重变化趋势</span>
+                <span class="chart-card-badge">-4.5kg</span>
+              </div>
+              <div class="chart-card-body">
+                <svg class="chart-svg" viewBox="0 0 400 220" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="weightLineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" style="stop-color:var(--hc-primary-light);stop-opacity:1" />
+                      <stop offset="100%" style="stop-color:var(--hc-primary);stop-opacity:1" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Grid lines -->
+                  <line x1="40" y1="30" x2="380" y2="30" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="67.5" x2="380" y2="67.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="105" x2="380" y2="105" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="142.5" x2="380" y2="142.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <!-- Y-axis labels: 76, 74.5, 73, 71.5, 70 -->
+                  <text x="35" y="34" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">76</text>
+                  <text x="35" y="71.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">74.5</text>
+                  <text x="35" y="109" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">73</text>
+                  <text x="35" y="146.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">71.5</text>
+                  <text x="35" y="184" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">70</text>
+                  <!-- X-axis labels -->
+                  <text x="68" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">11月</text>
+                  <text x="130" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">12月</text>
+                  <text x="192" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">1月</text>
+                  <text x="254" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">2月</text>
+                  <text x="316" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">3月</text>
+                  <text x="370" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">4月</text>
+                  <!-- Axes -->
+                  <line x1="40" y1="30" x2="40" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <!-- Line: 76.0, 75.2, 74.5, 73.0, 72.2, 71.5 -->
+                  <!-- y = 180 - (val-70)/6 * 150 -->
+                  <!-- 76.0 -> 30, 75.2 -> 50, 74.5 -> 67.5, 73.0 -> 105, 72.2 -> 125, 71.5 -> 142.5 -->
+                  <path d="M68,30 L130,50 L192,67.5 L254,105 L316,125 L370,142.5" fill="none" stroke="url(#weightLineGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <!-- Data points -->
+                  <circle cx="68" cy="30" r="4" fill="var(--hc-card)" stroke="var(--hc-primary)" stroke-width="2"/>
+                  <circle cx="130" cy="50" r="4" fill="var(--hc-card)" stroke="var(--hc-primary)" stroke-width="2"/>
+                  <circle cx="192" cy="67.5" r="4" fill="var(--hc-card)" stroke="var(--hc-primary)" stroke-width="2"/>
+                  <circle cx="254" cy="105" r="4" fill="var(--hc-card)" stroke="var(--hc-primary)" stroke-width="2"/>
+                  <circle cx="316" cy="125" r="4" fill="var(--hc-card)" stroke="var(--hc-primary)" stroke-width="2"/>
+                  <circle cx="370" cy="142.5" r="5" fill="var(--hc-primary)" stroke="var(--hc-card)" stroke-width="2"/>
+                  <!-- Value label for last point -->
+                  <text x="370" y="133" text-anchor="middle" font-size="11" font-weight="600" fill="var(--hc-primary)">71.5</text>
+                </svg>
+              </div>
+              <div class="chart-footer">
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">最高</div>
+                  <div class="chart-footer-value">76.0 kg</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">最低</div>
+                  <div class="chart-footer-value">71.5 kg</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">平均</div>
+                  <div class="chart-footer-value">73.7 kg</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chart 2: BMI变化趋势 (柱状图) -->
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">BMI变化趋势</span>
+                <span class="chart-card-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--hc-accent-blue);">-1.5</span>
+              </div>
+              <div class="chart-card-body">
+                <svg class="chart-svg" viewBox="0 0 400 220" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="bmiBarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
+                      <stop offset="100%" style="stop-color:var(--hc-accent-blue);stop-opacity:1" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Grid lines -->
+                  <line x1="40" y1="30" x2="380" y2="30" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="67.5" x2="380" y2="67.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="105" x2="380" y2="105" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="142.5" x2="380" y2="142.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <!-- Y-axis labels: 25, 23.5, 22, 20.5, 19 -->
+                  <text x="35" y="34" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">25</text>
+                  <text x="35" y="71.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">23.5</text>
+                  <text x="35" y="109" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">22</text>
+                  <text x="35" y="146.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">20.5</text>
+                  <text x="35" y="184" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">19</text>
+                  <!-- X-axis labels -->
+                  <text x="68" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">11月</text>
+                  <text x="130" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">12月</text>
+                  <text x="192" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">1月</text>
+                  <text x="254" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">2月</text>
+                  <text x="316" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">3月</text>
+                  <text x="370" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">4月</text>
+                  <!-- Axes -->
+                  <line x1="40" y1="30" x2="40" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <!-- Normal range reference line (18.5-24) -->
+                  <!-- 24 corresponds to y = 180 - (24-19)/6 * 150 = 180 - 125 = 55 -->
+                  <!-- 18.5 is below 19, so we draw a shaded area for "normal" up to 24 -->
+                  <rect x="40" y="55" width="340" height="125" fill="var(--hc-success)" fill-opacity="0.05"/>
+                  <line x1="40" y1="55" x2="380" y2="55" stroke="var(--hc-success)" stroke-width="1" stroke-dasharray="5,3"/>
+                  <text x="375" y="50" text-anchor="end" font-size="9" fill="var(--hc-success)">正常上限 24</text>
+                  <!-- Bars: 24.3, 24.0, 23.8, 23.3, 23.0, 22.8 -->
+                  <!-- y = 180 - (val-19)/6 * 150, height = (val-19)/6 * 150 -->
+                  <!-- 24.3 -> h=132.5, y=47.5 | 24.0 -> h=125, y=55 | 23.8 -> h=120, y=60 -->
+                  <!-- 23.3 -> h=107.5, y=72.5 | 23.0 -> h=100, y=80 | 22.8 -> h=95, y=85 -->
+                  <rect x="53" y="47.5" width="30" height="132.5" rx="4" fill="url(#bmiBarGrad)"/>
+                  <rect x="115" y="55" width="30" height="125" rx="4" fill="url(#bmiBarGrad)"/>
+                  <rect x="177" y="60" width="30" height="120" rx="4" fill="url(#bmiBarGrad)"/>
+                  <rect x="239" y="72.5" width="30" height="107.5" rx="4" fill="url(#bmiBarGrad)"/>
+                  <rect x="301" y="80" width="30" height="100" rx="4" fill="url(#bmiBarGrad)"/>
+                  <rect x="355" y="85" width="30" height="95" rx="4" fill="url(#bmiBarGrad)"/>
+                  <!-- Value labels on top of bars -->
+                  <text x="68" y="42.5" text-anchor="middle" font-size="10" font-weight="600" fill="var(--hc-accent-blue)">24.3</text>
+                  <text x="130" y="50" text-anchor="middle" font-size="10" font-weight="600" fill="var(--hc-accent-blue)">24.0</text>
+                  <text x="192" y="55" text-anchor="middle" font-size="10" font-weight="600" fill="var(--hc-accent-blue)">23.8</text>
+                  <text x="254" y="67.5" text-anchor="middle" font-size="10" font-weight="600" fill="var(--hc-accent-blue)">23.3</text>
+                  <text x="316" y="75" text-anchor="middle" font-size="10" font-weight="600" fill="var(--hc-accent-blue)">23.0</text>
+                  <text x="370" y="80" text-anchor="middle" font-size="11" font-weight="700" fill="var(--hc-accent-blue)">22.8</text>
+                </svg>
+              </div>
+              <div class="chart-footer">
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">最高</div>
+                  <div class="chart-footer-value">24.3</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">当前</div>
+                  <div class="chart-footer-value" style="color: var(--hc-accent-blue);">22.8</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">正常范围</div>
+                  <div class="chart-footer-value">18.5-24</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chart 3: 体脂率趋势 (面积图) -->
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">体脂率趋势</span>
+                <span class="chart-card-badge" style="background: rgba(244, 63, 94, 0.1); color: var(--hc-accent-rose);">-2.6%</span>
+              </div>
+              <div class="chart-card-body">
+                <svg class="chart-svg" viewBox="0 0 400 220" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="fatAreaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" style="stop-color:var(--hc-accent-rose);stop-opacity:0.3" />
+                      <stop offset="100%" style="stop-color:var(--hc-accent-rose);stop-opacity:0.02" />
+                    </linearGradient>
+                    <linearGradient id="fatLineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" style="stop-color:#fb7185;stop-opacity:1" />
+                      <stop offset="100%" style="stop-color:var(--hc-accent-rose);stop-opacity:1" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Grid lines -->
+                  <line x1="40" y1="30" x2="380" y2="30" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="67.5" x2="380" y2="67.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="105" x2="380" y2="105" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="142.5" x2="380" y2="142.5" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="3,3"/>
+                  <!-- Y-axis labels: 21, 20, 19, 18, 17 -->
+                  <text x="35" y="34" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">21</text>
+                  <text x="35" y="71.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">20</text>
+                  <text x="35" y="109" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">19</text>
+                  <text x="35" y="146.5" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">18</text>
+                  <text x="35" y="184" text-anchor="end" font-size="10" fill="var(--hc-muted-foreground)">17</text>
+                  <!-- X-axis labels -->
+                  <text x="68" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">11月</text>
+                  <text x="130" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">12月</text>
+                  <text x="192" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">1月</text>
+                  <text x="254" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">2月</text>
+                  <text x="316" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">3月</text>
+                  <text x="370" y="200" text-anchor="middle" font-size="10" fill="var(--hc-muted-foreground)">4月</text>
+                  <!-- Axes -->
+                  <line x1="40" y1="30" x2="40" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="40" y1="180" x2="380" y2="180" stroke="var(--hc-border)" stroke-width="1"/>
+                  <!-- Area fill: 20.1, 19.8, 19.2, 18.6, 18.0, 17.5 -->
+                  <!-- y = 180 - (val-17)/4 * 150 -->
+                  <!-- 20.1 -> 63.75 | 19.8 -> 75 | 19.2 -> 97.5 | 18.6 -> 120 | 18.0 -> 142.5 | 17.5 -> 161.25 -->
+                  <path d="M68,63.75 L130,75 L192,97.5 L254,120 L316,142.5 L370,161.25 L370,180 L68,180 Z" fill="url(#fatAreaGrad)"/>
+                  <!-- Line -->
+                  <path d="M68,63.75 L130,75 L192,97.5 L254,120 L316,142.5 L370,161.25" fill="none" stroke="url(#fatLineGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <!-- Data points -->
+                  <circle cx="68" cy="63.75" r="4" fill="var(--hc-card)" stroke="var(--hc-accent-rose)" stroke-width="2"/>
+                  <circle cx="130" cy="75" r="4" fill="var(--hc-card)" stroke="var(--hc-accent-rose)" stroke-width="2"/>
+                  <circle cx="192" cy="97.5" r="4" fill="var(--hc-card)" stroke="var(--hc-accent-rose)" stroke-width="2"/>
+                  <circle cx="254" cy="120" r="4" fill="var(--hc-card)" stroke="var(--hc-accent-rose)" stroke-width="2"/>
+                  <circle cx="316" cy="142.5" r="4" fill="var(--hc-card)" stroke="var(--hc-accent-rose)" stroke-width="2"/>
+                  <circle cx="370" cy="161.25" r="5" fill="var(--hc-accent-rose)" stroke="var(--hc-card)" stroke-width="2"/>
+                  <!-- Value label for last point -->
+                  <text x="370" y="152" text-anchor="middle" font-size="11" font-weight="600" fill="var(--hc-accent-rose)">17.5%</text>
+                </svg>
+              </div>
+              <div class="chart-footer">
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">最高</div>
+                  <div class="chart-footer-value">20.1%</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">当前</div>
+                  <div class="chart-footer-value" style="color: var(--hc-accent-rose);">17.5%</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">目标</div>
+                  <div class="chart-footer-value">17.0%</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chart 4: 健康指标雷达 (雷达图) -->
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">健康指标雷达</span>
+                <span class="chart-card-badge">良好</span>
+              </div>
+              <div class="chart-card-body">
+                <svg class="chart-svg" viewBox="0 0 400 220" preserveAspectRatio="xMidYMid meet">
+                  <defs>
+                    <radialGradient id="radarFillGrad" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" style="stop-color:var(--hc-primary-light);stop-opacity:0.4" />
+                      <stop offset="100%" style="stop-color:var(--hc-primary);stop-opacity:0.15" />
+                    </radialGradient>
+                  </defs>
+                  <!-- Center at (200, 110), max radius 80 -->
+                  <!-- 5 axes: 体重(0deg), 体脂率(72deg), 肌肉量(144deg), 基础代谢(216deg), 内脏脂肪(288deg) -->
+                  <!-- Radar grid - 4 levels -->
+                  <polygon points="200,30 276.1,85.5 247.2,184.5 152.8,184.5 123.9,85.5" fill="none" stroke="var(--hc-border)" stroke-width="1"/>
+                  <polygon points="200,50 257.1,89.1 235.4,165.9 164.6,165.9 142.9,89.1" fill="none" stroke="var(--hc-border)" stroke-width="1"/>
+                  <polygon points="200,70 238.0,92.8 223.6,147.2 176.4,147.2 162.0,92.8" fill="none" stroke="var(--hc-border)" stroke-width="1"/>
+                  <polygon points="200,90 219.0,96.4 211.8,128.6 188.2,128.6 181.0,96.4" fill="none" stroke="var(--hc-border)" stroke-width="1" stroke-dasharray="2,2"/>
+                  <!-- Axes lines -->
+                  <line x1="200" y1="110" x2="200" y2="30" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="200" y1="110" x2="276.1" y2="85.5" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="200" y1="110" x2="247.2" y2="184.5" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="200" y1="110" x2="152.8" y2="184.5" stroke="var(--hc-border)" stroke-width="1"/>
+                  <line x1="200" y1="110" x2="123.9" y2="85.5" stroke="var(--hc-border)" stroke-width="1"/>
+                  <!-- Data polygon: values at 80%, 75%, 85%, 70%, 90% of max radius -->
+                  <!-- 体重(0deg): 80% -> r=64 -> (200, 46) -->
+                  <!-- 体脂率(72deg): 75% -> r=60 -> x=200+60*sin(72)=257.1, y=110-60*cos(72)=91.5 -->
+                  <!-- 肌肉量(144deg): 85% -> r=68 -> x=200+68*sin(36)=240.0, y=110+68*cos(36)=165.0 -->
+                  <!-- 基础代谢(216deg): 70% -> r=56 -> x=200-56*sin(36)=167.1, y=110+56*cos(36)=155.3 -->
+                  <!-- 内脏脂肪(288deg): 90% -> r=72 -> x=200-72*sin(72)=131.5, y=110-72*cos(72)=87.8 -->
+                  <polygon points="200,46 257.1,91.5 240.0,165.0 167.1,155.3 131.5,87.8" fill="url(#radarFillGrad)" stroke="var(--hc-primary)" stroke-width="2" stroke-linejoin="round"/>
+                  <!-- Data points -->
+                  <circle cx="200" cy="46" r="4" fill="var(--hc-primary)"/>
+                  <circle cx="257.1" cy="91.5" r="4" fill="var(--hc-primary)"/>
+                  <circle cx="240.0" cy="165.0" r="4" fill="var(--hc-primary)"/>
+                  <circle cx="167.1" cy="155.3" r="4" fill="var(--hc-primary)"/>
+                  <circle cx="131.5" cy="87.8" r="4" fill="var(--hc-primary)"/>
+                  <!-- Labels -->
+                  <text x="200" y="20" text-anchor="middle" font-size="11" font-weight="500" fill="var(--hc-foreground)">体重</text>
+                  <text x="295" y="82" text-anchor="start" font-size="11" font-weight="500" fill="var(--hc-foreground)">体脂率</text>
+                  <text x="260" y="200" text-anchor="middle" font-size="11" font-weight="500" fill="var(--hc-foreground)">肌肉量</text>
+                  <text x="140" y="200" text-anchor="middle" font-size="11" font-weight="500" fill="var(--hc-foreground)">基础代谢</text>
+                  <text x="105" y="82" text-anchor="end" font-size="11" font-weight="500" fill="var(--hc-foreground)">内脏脂肪</text>
+                  <!-- Center dot -->
+                  <circle cx="200" cy="110" r="3" fill="var(--hc-border)"/>
+                </svg>
+              </div>
+              <div class="chart-footer">
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">综合评分</div>
+                  <div class="chart-footer-value" style="color: var(--hc-primary);">80分</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">最佳指标</div>
+                  <div class="chart-footer-value">内脏脂肪</div>
+                </div>
+                <div class="chart-footer-item">
+                  <div class="chart-footer-label">待改善</div>
+                  <div class="chart-footer-value">基础代谢</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>lucide.createIcons();</script>
+</body>
+</html>

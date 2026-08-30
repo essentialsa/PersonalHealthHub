@@ -11,9 +11,10 @@ interface ExportDialogProps {
   categories: IndicatorCategory[];
   onExport: (indicatorIds: string[] | null, format: "xlsx" | "csv", onProgress?: (value: number) => void) => void;
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-export function ExportDialog({ categories, onExport, triggerClassName }: ExportDialogProps) {
+export function ExportDialog({ categories, onExport, triggerClassName, triggerLabel }: ExportDialogProps) {
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const allCategoryIds = categories.map(c => c.id);
@@ -105,7 +106,7 @@ export function ExportDialog({ categories, onExport, triggerClassName }: ExportD
           )}
         >
           <Download className="w-4 h-4" />
-          导出Excel
+          {triggerLabel ?? "导出Excel"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
