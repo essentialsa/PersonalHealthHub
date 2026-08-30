@@ -196,6 +196,34 @@ async function runDesktop(browser) {
   const chartCount = await page.locator('.recharts-wrapper').count();
   check('图表卡片渲染 (血脂4指标+雷达=5图)', chartCount >= 5, `recharts 数量: ${chartCount}`);
   check('雷达卡可见', await page.getByText('健康指标雷达').isVisible().catch(() => false));
+
+  // ===== 视图模式切换 =====
+  await page.getByRole('button', { name: '多指标对比' }).click();
+  await page.waitForTimeout(800);
+  const overlayWrappers = await page.locator('.recharts-wrapper').count();
+  check('叠加模式单图', overlayWrappers === 1, `wrapper: ${overlayWrappers}`);
+  check('归一化提示可见', await page.getByText('纵轴为归一化值').isVisible().catch(() => false));
+  const linesBefore = await page.locator('.recharts-line').count();
+  check('叠加图 4 条指标线', linesBefore === 4, `lines: ${linesBefore}`);
+  await page.locator('button', { hasText: '总胆固醇' }).first().click();
+  await page.waitForTimeout(500);
+  const linesAfter = await page.locator('.recharts-line').count();
+  check('图例点击隐藏指标线', linesAfter === 3, `lines: ${linesAfter}`);
+  await page.locator('button', { hasText: '总胆固醇' }).first().click();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(OUT, '19-chart-overlay.png') });
+  // 刷新后模式持久化
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(2000);
+  await page.getByRole('tab', { name: '图表分析' }).click();
+  await page.waitForTimeout(800);
+  const overlayAfterReload = await page.locator('.recharts-wrapper').count();
+  const bpPressed = await page.getByRole('button', { name: '多指标对比' }).getAttribute('aria-pressed');
+  check('刷新后保持叠加模式', overlayAfterReload === 1 && bpPressed === 'true', `wrapper:${overlayAfterReload} pressed:${bpPressed}`);
+  check('刷新后分类持久化(血脂)', await page.getByText('总胆固醇').first().isVisible().catch(() => false));
+  await page.getByRole('button', { name: '分指标卡片' }).click();
+  await page.waitForTimeout(600);
+  check('切回卡片模式雷达恢复', await page.getByText('健康指标雷达').isVisible().catch(() => false));
   check('时间范围筛选', await page.getByRole('button', { name: '90天' }).isVisible());
   await page.getByRole('button', { name: '90天' }).click();
   await page.waitForTimeout(800);

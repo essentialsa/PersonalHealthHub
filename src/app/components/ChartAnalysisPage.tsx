@@ -106,7 +106,7 @@ function OverlayTooltip({
   );
 }
 
-function readStoredView(): { categoryId?: string; timeRange?: TimeRange } {
+function readStoredView(): { categoryId?: string; timeRange?: TimeRange; viewMode?: string } {
   try {
     const raw = window.localStorage.getItem(CHART_VIEW_STORAGE_KEY);
     if (!raw) {
@@ -389,6 +389,81 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
           <div className="border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm gap-1">
             <span>{query ? "没有匹配搜索关键词的指标" : "当前时间范围内暂无数据"}</span>
             {query && <span className="text-xs">清空搜索框可查看全部指标</span>}
+          </div>
+        ) : viewMode === "overlay" ? (
+          <div className="bg-white/80 border border-violet-100 rounded-xl p-5">
+            <div className="text-sm font-semibold text-gray-800">
+              {`${category?.name ?? ""} · 多指标对比`}
+              <span className="ml-2 text-[11px] font-normal text-gray-400">
+                {useNormalization ? "纵轴为归一化值（0-100），悬停查看原始值" : "纵轴为原始值"}
+              </span>
+            </div>
+            <div className="h-[320px] mt-3">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={overlayRows} margin={{ top: 12, right: 16, bottom: 0, left: -18 }}>
+                  <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: TICK_COLOR }}
+                    tickLine={false}
+                    axisLine={{ stroke: GRID_COLOR }}
+                  />
+                  <YAxis
+                    domain={useNormalization ? [0, 100] : ["auto", "auto"]}
+                    tick={{ fontSize: 11, fill: TICK_COLOR }}
+                    tickLine={false}
+                    axisLine={{ stroke: GRID_COLOR }}
+                  />
+                  <Tooltip content={<OverlayTooltip visibleSeries={overlayVisibleSeries} />} />
+                  {overlayVisibleSeries.map(series => (
+                    <Line
+                      key={series.item.id}
+                      type="monotone"
+                      dataKey={series.item.id}
+                      stroke={series.color}
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-3 pt-3 border-t border-violet-100 flex flex-wrap gap-2">
+              {indicatorSeries.map(series => {
+                const hidden = hiddenIds.has(series.item.id);
+                return (
+                  <button
+                    key={series.item.id}
+                    type="button"
+                    aria-pressed={!hidden}
+                    onClick={() =>
+                      setHiddenIds(prev => {
+                        const next = new Set(prev);
+                        if (next.has(series.item.id)) {
+                          next.delete(series.item.id);
+                        } else {
+                          next.add(series.item.id);
+                        }
+                        return next;
+                      })
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
+                      hidden
+                        ? "border-gray-200 bg-gray-50 text-gray-400 line-through"
+                        : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: hidden ? "#c4b5fd" : series.color }}
+                    />
+                    {series.item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
