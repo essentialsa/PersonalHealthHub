@@ -33,9 +33,10 @@ interface ImportRecordsDialogProps {
   categories: IndicatorCategory[];
   onImportRecords: (records: HealthRecord[]) => void;
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-export function ImportRecordsDialog({ categories, onImportRecords, triggerClassName }: ImportRecordsDialogProps) {
+export function ImportRecordsDialog({ categories, onImportRecords, triggerClassName, triggerLabel }: ImportRecordsDialogProps) {
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
@@ -490,7 +491,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
           )}
         >
           <UploadCloud className="w-4 h-4" />
-          Excel 导入
+          {triggerLabel ?? "Excel 导入"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[760px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
