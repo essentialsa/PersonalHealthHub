@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -56,7 +57,7 @@ SYSTEM_PROMPT = """
    不要把指标组织成以指标名为 key 的字典。
 """.strip()
 
-USER_INSTRUCTION = "请阅读以上体检报告图片，输出符合 schema 的结构化指标 JSON。"
+USER_INSTRUCTION = "请阅读以上体检报告图片，输出符合 schema 的结构化指标 json（JSON object）。"
 
 METADATA_KEYWORDS = (
     "report date", "sample date", "test date", "collection date",
@@ -71,6 +72,8 @@ MAX_IMAGES_PER_REQUEST = 1
 PDF_RENDER_SCALE = 2.0
 # PDF 最大处理页数（防止异常大文件拖垮请求）
 MAX_PDF_PAGES = 8
+# 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页
+PARSE_DEADLINE_SEC = 55.0
 
 MOCK_INDICATORS = [
     {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "pageIndex": 0},
@@ -93,9 +96,15 @@ def get_vision_status() -> Dict[str, Any]:
     api_key = _first_env("VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY")
     base_url = _first_env(
         "VISION_LLM_BASE_URL", "OCR_LLM_BASE_URL", "OPENAI_BASE_URL", "LLM_BASE_URL",
-    ) or "https://open.bigmodel.cn/api/paas/v4"
-    model = _first_env("VISION_LLM_MODEL", "OCR_LLM_MODEL", "OPENAI_MODEL", "LLM_MODEL") or "glm-4v-flash"
-    fallback_model = _first_env("VISION_LLM_FALLBACK_MODEL")
+    ) or "https://api.deepseek.com/v1"
+    model = _first_env("VISION_LLM_MODEL", "OCR_LLM_MODEL", "OPENAI_MODEL", "LLM_MODEL") or "deepseek-flash"
+    fallback_model = _first_env("VISION_LLM_FALLBACK_MODEL") or "glm-4.6v-flash"
+    fallback_base_url = (
+        _first_env("VISION_LLM_FALLBACK_BASE_URL")
+        or "https://open.bigmodel.cn/api/paas/v4"
+    )
+    # fallback 凭证缺省回落主凭证：兼容单 provider 双模型场景（如本地只用智谱 key）
+    fallback_api_key = _first_env("VISION_LLM_FALLBACK_API_KEY") or api_key
     return {
         "engine": "multimodal-vision",
         "available": True,  # 引擎为纯 HTTP 调用，依赖即 fastapi/httpx/pymupdf，可导入即可用
@@ -103,18 +112,21 @@ def get_vision_status() -> Dict[str, Any]:
         "base_url": base_url.rstrip("/"),
         "model": model,
         "fallback_model": fallback_model,
-        "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "60")))),
+        "fallback_base_url": fallback_base_url.rstrip("/"),
+        "fallback_api_key_configured": bool(fallback_api_key),
+        "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "15")))),
         "max_output_tokens": _resolve_max_output_tokens(model),
         "max_pdf_pages": MAX_PDF_PAGES,
+        "parse_deadline_sec": PARSE_DEADLINE_SEC,
     }
 
 
 def _resolve_max_output_tokens(model: str) -> int:
-    """按模型取默认 max_tokens：GLM-4V-Flash 上限 1024，其他模型 2000。"""
+    """按模型取默认 max_tokens：GLM-4V-Flash 上限 1024，其他模型 8192。"""
     value = int(os.getenv("VISION_LLM_MAX_OUTPUT_TOKENS", os.getenv("OCR_LLM_MAX_OUTPUT_TOKENS", "0")))
     if value > 0:
         return max(400, value)
-    return 1024 if "glm-4v-flash" in model.lower() else 2000
+    return 1024 if "glm-4v-flash" in model.lower() else 8192
 
 
 def _normalize_unit(value: str) -> str:
@@ -235,6 +247,10 @@ class VisionEngine:
         self.base_url = str(status["base_url"])
         self.model = str(status["model"])
         self.fallback_model = status.get("fallback_model")
+        self.fallback_base_url = str(status.get("fallback_base_url") or self.base_url)
+        self.fallback_api_key = _first_env("VISION_LLM_FALLBACK_API_KEY") or _first_env(
+            "VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"
+        ) or ""
         self.timeout_sec = int(status["timeout_sec"])
         self.max_output_tokens = int(status["max_output_tokens"])
         self.api_key = _first_env("VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY") or ""
@@ -270,11 +286,26 @@ class VisionEngine:
         indicators: List[Dict[str, Any]] = []
         report_date = ""
         chunk_size = MAX_IMAGES_PER_REQUEST
+        started = time.monotonic()
+        skipped_pages = 0
         try:
             for start in range(0, len(pages), chunk_size):
+                # 软性总预算：接近平台 60s 硬限时放弃剩余页，保住已解析的部分结果
+                elapsed = time.monotonic() - started
+                if elapsed > PARSE_DEADLINE_SEC:
+                    skipped_pages = len(pages) - start
+                    logger.warning(
+                        "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
+                        elapsed, PARSE_DEADLINE_SEC, skipped_pages,
+                    )
+                    break
                 chunk = pages[start:start + chunk_size]
                 payload = self._request_structured_json(chunk, page_offset=start)
                 normalized = self._normalize_result(payload, page_count=len(pages))
+                if not normalized["indicators"]:
+                    logger.warning(
+                        "vision_page_empty_indicators page=%d of %d", start, len(pages),
+                    )
                 indicators.extend(normalized["indicators"])
                 report_date = report_date or normalized["reportDate"]
         except VisionEngineError:
@@ -284,6 +315,9 @@ class VisionEngine:
             raise VisionEngineError(f"报告解析失败：{exc}") from exc
 
         deduped = self._dedupe(indicators, page_count=len(pages))
+        if not deduped:
+            # 模型调用成功但一个指标都没识别出来：显式失败，禁止静默返回空结果
+            raise VisionEngineError("未识别到任何指标，请检查图片清晰度或重试")
         markdown_lines = [f"- {item['rawLabel']}：{item['value']} {item['unit']}（参考 {item['referenceRange'] or '无'}）" for item in deduped]
         return {
             "success": True,
@@ -312,7 +346,7 @@ class VisionEngine:
         return pages
 
     def _request_structured_json(self, images: List[tuple], *, page_offset: int) -> Dict[str, Any]:
-        if not self.api_key:
+        if not self.api_key and not self.fallback_api_key:
             raise VisionEngineError(
                 "模型服务未配置 API Key：请设置 VISION_LLM_API_KEY 环境变量后重试"
             )
@@ -325,25 +359,49 @@ class VisionEngine:
             "text": f"{USER_INSTRUCTION}\n（本次提供第 {page_offset + 1} 至 {page_offset + len(images)} 张图片，pageIndex 请以本次第一张为 {page_offset} 计）",
         })
 
-        models = [self.model]
-        if self.fallback_model and self.fallback_model != self.model:
-            models.append(self.fallback_model)
+        # 主备模型可属不同 provider：各自携带独立的 base_url 与凭证
+        model_configs: List[Dict[str, str]] = []
+        if self.api_key:
+            model_configs.append({
+                "model": self.model, "base_url": self.base_url, "api_key": self.api_key,
+            })
+        if (
+            self.fallback_model
+            and self.fallback_model != self.model
+            and self.fallback_api_key
+        ):
+            model_configs.append({
+                "model": self.fallback_model,
+                "base_url": self.fallback_base_url,
+                "api_key": self.fallback_api_key,
+            })
 
         last_error: Optional[str] = None
-        for model in models:
+        for config in model_configs:
             try:
-                return self._call_chat_completions(model, content)
+                return self._call_chat_completions(
+                    config["model"], config["base_url"], config["api_key"], content,
+                )
             except VisionEngineError as exc:
                 last_error = str(exc)
-                logger.warning("vision_model_call_failed model=%s error=%s", model, exc)
+                logger.warning(
+                    "vision_model_call_failed model=%s base_url=%s error=%s",
+                    config["model"], config["base_url"], exc,
+                )
         raise VisionEngineError(last_error or "模型服务调用失败")
 
-    def _call_chat_completions(self, model: str, content: List[Dict[str, Any]]) -> Dict[str, Any]:
-        url = f"{self.base_url}/chat/completions"
+    def _call_chat_completions(
+        self,
+        model: str,
+        base_url: str,
+        api_key: str,
+        content: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        url = f"{base_url.rstrip('/')}/chat/completions"
         body: Dict[str, Any] = {
             "model": model,
             "temperature": 0,
-            "max_tokens": self.max_output_tokens,
+            "max_tokens": _resolve_max_output_tokens(model),
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -354,7 +412,7 @@ class VisionEngine:
             response = httpx.post(
                 url,
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=body,
@@ -368,12 +426,14 @@ class VisionEngine:
             raise VisionEngineError("无法连接模型服务，请检查网络后重试") from exc
 
         if response.status_code == 401:
-            raise VisionEngineError("模型服务鉴权失败：请检查 VISION_LLM_API_KEY 是否正确")
+            raise VisionEngineError(
+                f"模型服务鉴权失败（model={model}）：请检查对应 API Key 是否正确"
+            )
         if response.status_code == 429:
-            raise VisionEngineError("模型服务限流或额度不足，请稍后重试")
+            raise VisionEngineError(f"模型服务限流或额度不足（model={model}），请稍后重试")
         if response.status_code >= 400:
             text = response.text[:500]
-            logger.error("vision_api_error status=%s body=%s", response.status_code, text)
+            logger.error("vision_api_error model=%s status=%s body=%s", model, response.status_code, text)
             raise VisionEngineError(f"模型服务返回错误（HTTP {response.status_code}），请稍后重试")
 
         payload = response.json()

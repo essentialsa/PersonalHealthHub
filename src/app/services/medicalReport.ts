@@ -6,7 +6,8 @@
 // Render 独立后端已下线。
 const REMOTE_PARSER_ENDPOINTS = ["https://health-data-mgmt.vercel.app"];
 const LOCAL_PARSER_ENDPOINTS = ["http://127.0.0.1:8000", "http://localhost:8000"];
-const PARSE_TIMEOUT_MS = 240000;
+// 与 Vercel Serverless maxDuration=60s 对齐（60s 平台硬限 + 5s 余量）
+const PARSE_TIMEOUT_MS = 65000;
 const HEALTH_CHECK_TIMEOUT_MS = 45000;
 
 const isLocalBrowserPage = (): boolean => {
@@ -74,8 +75,16 @@ type EndpointAttemptError = {
 
 const createTimeoutError = () => new DOMException("请求超时", "AbortError");
 
-const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number, externalSignal?: AbortSignal): Promise<Response> => {
   const controller = new AbortController();
+  const onExternalAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort);
+    }
+  }
   const timer = setTimeout(() => {
     controller.abort(createTimeoutError());
   }, timeoutMs);
@@ -86,6 +95,9 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
     });
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 };
 
@@ -102,15 +114,8 @@ const readErrorMessage = async (resp: Response): Promise<string> => {
   }
 };
 
-const isRetryableStatus = (status: number): boolean => {
-  if (status === 511) {
-    return true;
-  }
-  if (status === 408 || status === 425 || status === 429) {
-    return true;
-  }
-  return status >= 500;
-};
+// 仅参数校验错误（422 类）重试无意义，短路降级链；其余状态码（含 400/401/403/429/5xx）继续下一端点
+const isParameterValidationError = (status: number): boolean => status === 422;
 
 const summarizeAttemptErrors = (errors: EndpointAttemptError[]): string => {
   if (errors.length === 0) {
@@ -125,7 +130,7 @@ const summarizeAttemptErrors = (errors: EndpointAttemptError[]): string => {
 
 const describeFetchError = (error: unknown, timeoutMs: number): string => {
   if (error instanceof DOMException && error.name === "AbortError") {
-    return `请求超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，Render 免费实例冷启动或多页/高清报告会更慢）`;
+    return `请求超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，多页或高清报告解析较慢，请稍后重试）`;
   }
   if (error instanceof Error) {
     return error.message;
@@ -188,8 +193,14 @@ export interface MatchedIndicator extends ExtractedIndicator {
 
 /* ── API 调用 ── */
 
-export async function parseMedicalReport(file: File): Promise<ParseResult> {
+export interface ParseRequestOptions {
+  /** 对话框等调用方的取消信号：abort 后在途请求立即取消 */
+  signal?: AbortSignal;
+}
+
+export async function parseMedicalReport(file: File, options: ParseRequestOptions = {}): Promise<ParseResult> {
   const errors: EndpointAttemptError[] = [];
+  let parameterError: Error | null = null;
 
   for (const endpoint of PARSER_ENDPOINTS) {
     try {
@@ -197,6 +208,7 @@ export async function parseMedicalReport(file: File): Promise<ParseResult> {
         `${endpoint}/api/parse`,
         { method: "POST", body: createUploadFormData(file) },
         PARSE_TIMEOUT_MS,
+        options.signal,
       );
 
       if (resp.ok) {
@@ -212,15 +224,23 @@ export async function parseMedicalReport(file: File): Promise<ParseResult> {
       const message = await readErrorMessage(resp);
       errors.push({ endpoint, status: resp.status, message });
 
-      if (!isRetryableStatus(resp.status)) {
-        throw new Error(`解析失败 (${resp.status})：${message}`);
+      // 参数校验错误重试无意义：记录后立即短路整个降级链
+      if (isParameterValidationError(resp.status)) {
+        parameterError = new Error(`解析失败 (${resp.status})：${message}`);
+        break;
       }
     } catch (error) {
+      if (options.signal?.aborted) {
+        throw new DOMException("请求已取消", "AbortError");
+      }
       const message = describeFetchError(error, PARSE_TIMEOUT_MS);
       errors.push({ endpoint, message });
     }
   }
 
+  if (parameterError) {
+    throw parameterError;
+  }
   throw new Error(summarizeAttemptErrors(errors));
 }
 
@@ -822,6 +842,7 @@ export interface LabelMatchSuggestion {
 export async function matchUnnamedLabels(
   labels: string[],
   catalog: LabelMatchCatalogEntry[],
+  options: ParseRequestOptions = {},
 ): Promise<LabelMatchSuggestion[] | null> {
   if (labels.length === 0 || catalog.length === 0 || PARSER_ENDPOINTS.length === 0) {
     return null;
@@ -840,6 +861,7 @@ export async function matchUnnamedLabels(
           }),
         },
         45000,
+        options.signal,
       );
       if (!resp.ok) {
         errors.push({ endpoint, status: resp.status, message: await readErrorMessage(resp) });

@@ -67,6 +67,7 @@ import {
   type AttachmentMeta,
   addAttachment as addAttachmentStorage,
   deleteAttachment as deleteAttachmentStorage,
+  type AttachmentStorageScope,
   ATTACHMENTS_KEY,
   ATTACHMENT_CACHE_BUDGET,
   toAttachmentMeta,
@@ -444,6 +445,17 @@ const createGoogleOAuthState = () => {
 
 const createGooglePkceVerifier = () => {
   return generateRandomString(64);
+};
+
+// PKCE S256：challenge = base64url(SHA-256(verifier ASCII))，无填充
+const createGooglePkceChallenge = async (verifier: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
 
 // Old keys for migration
@@ -2283,6 +2295,8 @@ function CloudSyncDialog({
       }
       const state = createGoogleOAuthState();
       const verifier = createGooglePkceVerifier();
+      // PKCE S256：发送 SHA-256 摘要作为 challenge（原 plain 已弃用）
+      const codeChallenge = await createGooglePkceChallenge(verifier);
       const stored = {
         state,
         verifier,
@@ -2301,8 +2315,8 @@ function CloudSyncDialog({
         access_type: "offline",
         include_granted_scopes: "true",
         state,
-        code_challenge: verifier,
-        code_challenge_method: "plain",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
         prompt: "consent",
       });
       const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -4717,8 +4731,14 @@ export default function App() {
     );
   };
 
+  // 附件存取键作用域：登录态下与健康记录一致按用户后缀隔离，避免误读写基础键
+  const attachmentStorageScope: AttachmentStorageScope = {
+    attachmentsKey: buildUserStorageKey(ATTACHMENTS_KEY, activeUserId),
+    recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
+  };
+
   const handleAddAttachment = (attachment: HealthAttachment): boolean => {
-    const success = addAttachmentStorage(attachment);
+    const success = addAttachmentStorage(attachment, attachmentStorageScope);
     if (success) {
       setAttachments(prev => [...prev, attachment]);
       // 新附件尽快上传云盘（Drive 为持久层），随后防抖同步快照元数据
@@ -4734,7 +4754,7 @@ export default function App() {
   };
 
   const handleDeleteAttachment = (attachmentId: string) => {
-    deleteAttachmentStorage(attachmentId);
+    deleteAttachmentStorage(attachmentId, attachmentStorageScope);
     setAttachments(prev => prev.filter(a => a.id !== attachmentId));
     triggerAutoBackup("attachment-deleted");
   };
@@ -5305,6 +5325,7 @@ export default function App() {
           key="report-import"
           onImportRecords={handleImportRecords}
           onAddAttachment={handleAddAttachment}
+          existingRecords={records}
           existingCategories={indicatorCategories.map(category => ({
             id: category.id,
             name: category.name,
@@ -5335,6 +5356,7 @@ export default function App() {
           key="excel-import"
           categories={indicatorCategories}
           onImportRecords={handleImportRecords}
+          existingRecords={records}
           triggerClassName={sidebarItemClass}
         />,
         <ExportDialog
@@ -5418,6 +5440,7 @@ export default function App() {
       <ImportRecordsDialog
         categories={indicatorCategories}
         onImportRecords={handleImportRecords}
+        existingRecords={records}
         triggerClassName={cardBtnSecondary}
         triggerLabel="导入Excel"
       />
@@ -5434,6 +5457,7 @@ export default function App() {
       <MedicalReportImportDialog
         onImportRecords={handleImportRecords}
         onAddAttachment={handleAddAttachment}
+        existingRecords={records}
         existingCategories={indicatorCategories.map(category => ({
           id: category.id,
           name: category.name,

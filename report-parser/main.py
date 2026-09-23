@@ -117,6 +117,8 @@ async def health_check():
             "base_url": status["base_url"],
             "model": status["model"],
             "fallback_model": status.get("fallback_model"),
+            "fallback_base_url": status.get("fallback_base_url"),
+            "fallback_api_key_configured": status.get("fallback_api_key_configured"),
             "timeout_sec": status["timeout_sec"],
         },
     }
@@ -176,6 +178,8 @@ async def ocr_ready_check():
             "base_url": status["base_url"],
             "model": status["model"],
             "fallback_model": status.get("fallback_model"),
+            "fallback_base_url": status.get("fallback_base_url"),
+            "fallback_api_key_configured": status.get("fallback_api_key_configured"),
         },
     }
 

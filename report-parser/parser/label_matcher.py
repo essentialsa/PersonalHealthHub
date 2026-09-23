@@ -40,8 +40,8 @@ def get_label_matcher_status() -> Dict[str, Any]:
     api_key = _first_env("VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY")
     base_url = _first_env(
         "VISION_LLM_BASE_URL", "OCR_LLM_BASE_URL", "OPENAI_BASE_URL", "LLM_BASE_URL",
-    ) or "https://open.bigmodel.cn/api/paas/v4"
-    model = _first_env("VISION_LLM_MODEL", "OCR_LLM_MODEL", "OPENAI_MODEL", "LLM_MODEL") or "glm-4v-flash"
+    ) or "https://api.deepseek.com/v1"
+    model = _first_env("VISION_LLM_MODEL", "OCR_LLM_MODEL", "OPENAI_MODEL", "LLM_MODEL") or "deepseek-flash"
     return {
         "api_key_configured": bool(api_key),
         "base_url": base_url.rstrip("/"),
@@ -88,7 +88,7 @@ def match_labels(
     user_message = (
         f"指标库清单（id: 名称）：\n{catalog_text}\n\n"
         f"未匹配指标名称：\n{labels_text}\n\n"
-        "请输出匹配结果 JSON。"
+        "请输出匹配结果 json（JSON object）。"
     )
 
     body: Dict[str, Any] = {

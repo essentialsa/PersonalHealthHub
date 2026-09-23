@@ -11,7 +11,10 @@ import pytest
 
 def make_engine(monkeypatch=None, **env):
     os.environ["USE_MOCK"] = "false"
-    for key in ("VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY"):
+    for key in (
+        "VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY",
+        "VISION_LLM_FALLBACK_API_KEY",
+    ):
         os.environ.pop(key, None)
     if monkeypatch:
         for key, value in env.items():
@@ -119,28 +122,191 @@ def test_http_401_maps_to_api_key_error(monkeypatch):
 def test_fallback_model_used_on_primary_failure(monkeypatch):
     calls = []
 
-    class FakeResponse:
+    class RateLimitedResponse:
+        status_code = 429
+        text = "rate limited"
+        def json(self):
+            return {}
+
+    class SuccessResponse:
         status_code = 200
         def json(self):
-            return {"choices": [{"message": {"content": json.dumps({"reportDate": "", "indicators": []})}}]}
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "pageIndex": 0},
+                ],
+            })}}]}
 
     def fake_post(url, headers=None, json=None, timeout=None):
-        calls.append(json["model"])
-        return FakeResponse()
+        calls.append({"url": url, "auth": headers["Authorization"], "model": json["model"]})
+        if "deepseek" in url:
+            return RateLimitedResponse()
+        return SuccessResponse()
 
     import parser.vision_engine as ve
     monkeypatch.setattr(ve.httpx, "post", fake_post)
     engine = make_engine(
         monkeypatch,
-        VISION_LLM_API_KEY="test-key",
-        VISION_LLM_MODEL="glm-4v-flash",
-        VISION_LLM_FALLBACK_MODEL="glm-4.1v-thinking-flash",
+        VISION_LLM_API_KEY="deepseek-key",
+        VISION_LLM_FALLBACK_API_KEY="zhipu-key",
     )
-    # 空指标结果同样被接受（主模型调用成功即不触发 fallback 触发路径中的人类可读错误）
     result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
-    assert calls == ["glm-4v-flash"]
+
+    # 主模型（DeepSeek）失败后自动切换备用（智谱），各自携带独立端点与凭证
+    assert len(calls) == 2
+    assert calls[0]["url"].startswith("https://api.deepseek.com/v1")
+    assert calls[0]["auth"] == "Bearer deepseek-key"
+    assert calls[1]["url"].startswith("https://open.bigmodel.cn/api/paas/v4")
+    assert calls[1]["auth"] == "Bearer zhipu-key"
+    assert calls[1]["model"] == "glm-4.6v-flash"
+
     assert result["success"] is True
-    assert result["indicators"] == []
+    assert result["indicators"][0]["rawLabel"] == "空腹血糖"
+
+
+def test_fallback_api_key_falls_back_to_primary(monkeypatch):
+    import parser.vision_engine as ve
+    for key in (
+        "VISION_LLM_MODEL", "VISION_LLM_BASE_URL", "VISION_LLM_FALLBACK_MODEL",
+        "VISION_LLM_FALLBACK_BASE_URL", "VISION_LLM_FALLBACK_API_KEY",
+        "VISION_LLM_MAX_OUTPUT_TOKENS", "VISION_LLM_TIMEOUT_SEC",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("VISION_LLM_API_KEY", "primary-key")
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="primary-key")
+    # 未设置 VISION_LLM_FALLBACK_API_KEY 时回落主凭证（单 provider 双模型场景）
+    assert engine.fallback_api_key == "primary-key"
+    assert engine.fallback_model == "glm-4.6v-flash"
+    assert engine.fallback_base_url == "https://open.bigmodel.cn/api/paas/v4"
+    assert engine.model == "deepseek-flash"
+    assert engine.base_url == "https://api.deepseek.com/v1"
+
+
+def test_dual_provider_default_and_env_override(monkeypatch):
+    from parser.vision_engine import get_vision_status, _resolve_max_output_tokens
+    for key in (
+        "VISION_LLM_MODEL", "VISION_LLM_BASE_URL", "VISION_LLM_FALLBACK_MODEL",
+        "VISION_LLM_FALLBACK_BASE_URL", "VISION_LLM_FALLBACK_API_KEY",
+        "VISION_LLM_MAX_OUTPUT_TOKENS", "OCR_LLM_MAX_OUTPUT_TOKENS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("VISION_LLM_API_KEY", "k")
+
+    status = get_vision_status()
+    assert status["model"] == "deepseek-flash"
+    assert status["base_url"] == "https://api.deepseek.com/v1"
+    assert status["fallback_model"] == "glm-4.6v-flash"
+    assert status["fallback_base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+    assert status["fallback_api_key_configured"] is True
+    # 输出上限：默认 8192，glm-4v-flash 特判 1024
+    assert status["max_output_tokens"] == 8192
+    assert _resolve_max_output_tokens("glm-4v-flash") == 1024
+
+    monkeypatch.setenv("VISION_LLM_MODEL", "custom-model")
+    monkeypatch.setenv("VISION_LLM_FALLBACK_MODEL", "custom-fallback")
+    monkeypatch.setenv("VISION_LLM_FALLBACK_BASE_URL", "https://custom.example/v1")
+    monkeypatch.setenv("VISION_LLM_MAX_OUTPUT_TOKENS", "4000")
+    status2 = get_vision_status()
+    assert status2["model"] == "custom-model"
+    assert status2["fallback_model"] == "custom-fallback"
+    assert status2["fallback_base_url"] == "https://custom.example/v1"
+    assert status2["max_output_tokens"] == 4000
+
+
+def test_empty_result_raises_explicit_error(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "", "indicators": [],
+            })}}]}
+
+    monkeypatch.setattr(
+        "parser.vision_engine.httpx.post", lambda *a, **k: FakeResponse(),
+    )
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    with pytest.raises(Exception) as exc_info:
+        engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    # 静默空结果被禁止：累计为空必须显式失败并给出可读原因
+    assert "未识别到任何指标" in str(exc_info.value)
+
+
+def test_partial_empty_page_returns_success(monkeypatch):
+    """部分页空但累计非空：正常返回已识别指标（部分成功）。"""
+
+    class FakeResponse:
+        status_code = 200
+        def __init__(self, indicators):
+            self._indicators = indicators
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15", "indicators": self._indicators,
+            })}}]}
+
+    import parser.vision_engine as ve
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        # 通过请求体中的 page 文本区分页：第 0 页空、第 1 页有指标
+        text_part = json["messages"][1]["content"][-1]["text"]
+        if "第 1 至 1 张" in text_part:
+            return FakeResponse([])
+        return FakeResponse([
+            {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+             "referenceRange": "3.9-6.1", "pageIndex": 1},
+        ])
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._render_pdf_pages = lambda content: [
+        ("image/png", b"p0" + b"\x00" * 2000),
+        ("image/png", b"p1" + b"\x00" * 2000),
+    ]
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf")
+    assert result["success"] is True
+    assert len(result["indicators"]) == 1
+    assert result["indicators"][0]["pageIndex"] == 1
+
+
+def test_deadline_budget_skips_remaining_pages(monkeypatch):
+    """超过软性总预算时放弃剩余页，返回已解析的部分结果。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "pageIndex": 0},
+                ],
+            })}}]}
+
+    post_calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        post_calls.append(json["model"])
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    # 假时钟：入口 0s，第 1 次页检查 10s（放行），第 2 次页检查 60s（超 55s 预算）
+    clock = iter([0.0, 10.0, 60.0])
+    monkeypatch.setattr(ve.time, "monotonic", lambda: next(clock))
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._render_pdf_pages = lambda content: [
+        ("image/png", b"p0" + b"\x00" * 2000),
+        ("image/png", b"p1" + b"\x00" * 2000),
+    ]
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf")
+
+    # 第 2 页被预算跳过：只发生 1 次模型调用，但已解析页正常返回
+    assert len(post_calls) == 1
+    assert result["success"] is True
+    assert len(result["indicators"]) == 1
 
 
 def test_code_fence_json_extracted(monkeypatch):

@@ -15,34 +15,50 @@ export interface HealthAttachment {
 export const ATTACHMENTS_KEY = 'health_attachments_v1';
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+/** 健康记录在 localStorage 中的基础键（登录态下实际键带 `__userId` 后缀） */
+export const RECORDS_BASE_KEY = 'health_records_v1';
+
+/**
+ * 附件存取的键作用域：登录态下 App 层传入按用户后缀的键，
+ * 与健康记录的多用户隔离保持一致；未传时回落基础键（未登录场景，向后兼容）。
+ */
+export interface AttachmentStorageScope {
+  attachmentsKey?: string;
+  recordsKey?: string;
+}
+
+const resolveKeys = (scope?: AttachmentStorageScope) => ({
+  attachmentsKey: scope?.attachmentsKey || ATTACHMENTS_KEY,
+  recordsKey: scope?.recordsKey || RECORDS_BASE_KEY,
+});
 /**
  * 本地缓存预算：附件以 Google Drive 为持久层，本地只保留 data URL 缓存用于离线查看。
  * 超出预算时优先清理「已上传云盘」的附件缓存（最早的先清）。
  */
 export const ATTACHMENT_CACHE_BUDGET = 4 * 1024 * 1024; // 4MB
 
-export const loadAttachments = (): HealthAttachment[] => {
+export const loadAttachments = (scope?: AttachmentStorageScope): HealthAttachment[] => {
   try {
-    const data = localStorage.getItem(ATTACHMENTS_KEY);
+    const data = localStorage.getItem(resolveKeys(scope).attachmentsKey);
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
   }
 };
 
-export const saveAttachments = (attachments: HealthAttachment[]) => {
-  localStorage.setItem(ATTACHMENTS_KEY, JSON.stringify(attachments));
+export const saveAttachments = (attachments: HealthAttachment[], scope?: AttachmentStorageScope) => {
+  localStorage.setItem(resolveKeys(scope).attachmentsKey, JSON.stringify(attachments));
 };
 
-export const addAttachment = (attachment: HealthAttachment): boolean => {
-  const attachments = loadAttachments();
+export const addAttachment = (attachment: HealthAttachment, scope?: AttachmentStorageScope): boolean => {
+  const attachments = loadAttachments(scope);
 
   if (attachment.fileSize > MAX_FILE_SIZE) {
     return false;
   }
 
   attachments.push(attachment);
-  saveAttachments(attachments);
+  saveAttachments(attachments, scope);
   return true;
 };
 
@@ -146,10 +162,11 @@ export const mergeAttachmentMeta = (local: AttachmentMeta[], remote: AttachmentM
 };
 
 // 查找无引用的孤立附件
-export const findOrphanedAttachments = (): HealthAttachment[] => {
-  const attachments = loadAttachments();
+export const findOrphanedAttachments = (scope?: AttachmentStorageScope): HealthAttachment[] => {
+  const keys = resolveKeys(scope);
+  const attachments = loadAttachments(scope);
   try {
-    const recordsData = localStorage.getItem('health_records_v1');
+    const recordsData = localStorage.getItem(keys.recordsKey);
     const records: { attachmentId?: string }[] = recordsData ? JSON.parse(recordsData) : [];
     const referencedIds = new Set(records.map(r => r.attachmentId).filter(Boolean));
     return attachments.filter(a => !referencedIds.has(a.id));
@@ -159,29 +176,30 @@ export const findOrphanedAttachments = (): HealthAttachment[] => {
 };
 
 // 清理孤立附件
-export const cleanupOrphanedAttachments = (): number => {
-  const orphaned = findOrphanedAttachments();
+export const cleanupOrphanedAttachments = (scope?: AttachmentStorageScope): number => {
+  const orphaned = findOrphanedAttachments(scope);
   if (orphaned.length === 0) return 0;
   const orphanedIds = new Set(orphaned.map(a => a.id));
-  const attachments = loadAttachments();
+  const attachments = loadAttachments(scope);
   const cleaned = attachments.filter(a => !orphanedIds.has(a.id));
-  saveAttachments(cleaned);
+  saveAttachments(cleaned, scope);
   return orphaned.length;
 };
 
-export const deleteAttachment = (attachmentId: string) => {
-  const attachments = loadAttachments();
+export const deleteAttachment = (attachmentId: string, scope?: AttachmentStorageScope) => {
+  const keys = resolveKeys(scope);
+  const attachments = loadAttachments(scope);
   const filtered = attachments.filter(a => a.id !== attachmentId);
-  saveAttachments(filtered);
+  saveAttachments(filtered, scope);
 
   try {
-    const recordsData = localStorage.getItem('health_records_v1');
+    const recordsData = localStorage.getItem(keys.recordsKey);
     if (recordsData) {
       const records = JSON.parse(recordsData);
       const updated = records.map((r: { attachmentId?: string }) =>
         r.attachmentId === attachmentId ? { ...r, attachmentId: undefined } : r,
       );
-      localStorage.setItem('health_records_v1', JSON.stringify(updated));
+      localStorage.setItem(keys.recordsKey, JSON.stringify(updated));
     }
   } catch {
     // ignore record update failures

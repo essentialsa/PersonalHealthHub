@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   ATTACHMENTS_KEY,
+  RECORDS_BASE_KEY,
   ALLOWED_TYPES,
   MAX_FILE_SIZE,
   ATTACHMENT_CACHE_BUDGET,
@@ -8,6 +9,8 @@ import {
   saveAttachments,
   addAttachment,
   deleteAttachment,
+  findOrphanedAttachments,
+  cleanupOrphanedAttachments,
   planAttachmentCacheEviction,
   applyAttachmentCacheEviction,
   mergeAttachmentMeta,
@@ -145,6 +148,81 @@ describe('attachment storage', () => {
     const updatedRecords = JSON.parse(localStorage.getItem('health_records_v1') || '[]');
     expect(updatedRecords[0].attachmentId).toBeUndefined();
     expect(updatedRecords[1].attachmentId).toBeUndefined();
+  });
+});
+
+describe('user-scoped attachment storage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  const userId = 'user-42';
+  const scoped = {
+    attachmentsKey: `${ATTACHMENTS_KEY}__${userId}`,
+    recordsKey: `${RECORDS_BASE_KEY}__${userId}`,
+  };
+
+  it('orphan cleanup operates on scoped keys when scope is provided', () => {
+    const referenced = makeAttachment({ id: 'kept' });
+    const orphaned = makeAttachment({ id: 'orphan' });
+    saveAttachments([referenced, orphaned], scoped);
+    // 用户作用域记录仅引用 kept
+    localStorage.setItem(
+      scoped.recordsKey,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'kept' }]),
+    );
+    // 基础键下放无关数据，不应被触碰
+    localStorage.setItem(RECORDS_BASE_KEY, JSON.stringify([{ id: 'legacy', attachmentId: 'orphan' }]));
+    saveAttachments([makeAttachment({ id: 'legacy-att' })]); // 基础附件键
+
+    const found = findOrphanedAttachments(scoped);
+    expect(found.map(a => a.id)).toEqual(['orphan']);
+
+    const removed = cleanupOrphanedAttachments(scoped);
+    expect(removed).toBe(1);
+    expect(loadAttachments(scoped).map(a => a.id)).toEqual(['kept']);
+    // 基础键数据保持原样
+    expect(JSON.parse(localStorage.getItem(RECORDS_BASE_KEY) || '[]')[0].attachmentId).toBe('orphan');
+    expect(loadAttachments().map(a => a.id)).toEqual(['legacy-att']);
+  });
+
+  it('orphan cleanup defaults to base keys for backward compatibility', () => {
+    const referenced = makeAttachment({ id: 'kept' });
+    const orphaned = makeAttachment({ id: 'orphan' });
+    saveAttachments([referenced, orphaned]);
+    localStorage.setItem(
+      RECORDS_BASE_KEY,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'kept' }]),
+    );
+
+    expect(findOrphanedAttachments().map(a => a.id)).toEqual(['orphan']);
+    expect(cleanupOrphanedAttachments()).toBe(1);
+    expect(loadAttachments().map(a => a.id)).toEqual(['kept']);
+  });
+
+  it('deleteAttachment with scope only touches scoped keys', () => {
+    const a = makeAttachment({ id: 'att1' });
+    saveAttachments([a], scoped);
+    localStorage.setItem(
+      scoped.recordsKey,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'att1' }]),
+    );
+    // 基础键放置应保持不变的数据
+    const baseRecords = [{ id: 'base-r', attachmentId: 'base-att' }];
+    localStorage.setItem(RECORDS_BASE_KEY, JSON.stringify(baseRecords));
+
+    deleteAttachment('att1', scoped);
+
+    expect(loadAttachments(scoped)).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem(scoped.recordsKey) || '[]')[0].attachmentId).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(RECORDS_BASE_KEY) || '[]')).toEqual(baseRecords);
+  });
+
+  it('addAttachment with scope writes to scoped key only', () => {
+    const a = makeAttachment({ id: 'scoped-att' });
+    expect(addAttachment(a, scoped)).toBe(true);
+    expect(loadAttachments(scoped)).toHaveLength(1);
+    expect(loadAttachments()).toHaveLength(0);
   });
 });
 
