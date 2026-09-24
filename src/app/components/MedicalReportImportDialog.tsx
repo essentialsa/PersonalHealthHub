@@ -71,7 +71,7 @@ function ClusterRenameInput({
 
   return (
     <div className="bg-white rounded-md p-2 space-y-1">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           value={value}
           onChange={e => setValue(e.target.value)}
@@ -84,11 +84,11 @@ function ClusterRenameInput({
           }}
           className="h-8 text-sm flex-1"
         />
-        <span className="text-[11px] text-muted-foreground whitespace-nowrap">{itemCount} 条记录</span>
+        <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">{itemCount} 条记录</span>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-xs text-muted-foreground"
+          className="h-8 text-xs text-muted-foreground shrink-0"
           onMouseDown={e => e.preventDefault()}
           onClick={onSkip}
         >
@@ -134,7 +134,7 @@ function GroupImportBar({
   const trimmed = value.trim();
 
   return (
-    <div className="flex items-center gap-2 mb-2">
+    <div className="flex flex-wrap items-center gap-2 mb-2">
       <Input
         value={value}
         onChange={e => setValue(e.target.value)}
@@ -149,10 +149,10 @@ function GroupImportBar({
         }}
         className="h-8 text-sm flex-1"
       />
-      <Button size="sm" className="h-8 text-xs" disabled={!trimmed} onClick={() => onConfirm(trimmed)}>
+      <Button size="sm" className="h-8 text-xs shrink-0" disabled={!trimmed} onClick={() => onConfirm(trimmed)}>
         确认导入
       </Button>
-      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={onCancel}>
+      <Button variant="outline" size="sm" className="h-8 text-xs shrink-0" onClick={onCancel}>
         取消
       </Button>
     </div>
@@ -212,6 +212,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, string>>({});
   const [aiCategories, setAiCategories] = useState<Record<string, string>>({});
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiCategoryMissed, setAiCategoryMissed] = useState(false);
   const aiRequestedRef = useRef("");
   // 正在执行「整组新增为分类」交互的组（`${source}::${name}`）
   const [importingGroupKey, setImportingGroupKey] = useState<string | null>(null);
@@ -243,7 +244,15 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setAiLoading(true);
     void matchUnnamedLabels(labels, catalog, { signal: abortRef.current?.signal })
       .then(suggestions => {
-        if (!suggestions) return;
+        if (!suggestions) {
+          setAiCategoryMissed(true);
+          return;
+        }
+        if (suggestions.every(s => !s.suggestedCategory)) {
+          setAiCategoryMissed(true);
+        } else {
+          setAiCategoryMissed(false);
+        }
         const next: Record<string, string> = {};
         const nextCategories: Record<string, string> = {};
         for (const cluster of unnamedClusters) {
@@ -317,6 +326,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       setExtracted(nextExtracted);
       setAiSuggestions({});
       setAiCategories({});
+      setAiCategoryMissed(false);
       setForcedDuplicates(new Set());
       aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
@@ -425,6 +435,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setRetainReport(true);
     setForcedDuplicates(new Set());
     setImportingGroupKey(null);
+    setAiCategoryMissed(false);
   };
 
   /**
@@ -576,7 +587,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           {triggerLabel ?? "报告导入"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-purple-600" />
@@ -685,7 +696,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                 </div>
 
                 {/* 表格 */}
-                <Table>
+                <Table className="[&_td]:whitespace-normal [&_th]:whitespace-normal">
                   <TableHeader>
                     <TableRow>
                       <TableHead>指标名称</TableHead>
@@ -706,7 +717,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
                       return (
                       <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
-                        <TableCell className="font-medium">{m.rawLabel}</TableCell>
+                        <TableCell className="font-medium min-w-[7rem] break-words">{m.rawLabel}</TableCell>
                         <TableCell className="text-right">{m.value}</TableCell>
                         <TableCell>{m.unit}</TableCell>
                         <TableCell className="text-muted-foreground text-xs">{m.referenceRange || "-"}</TableCell>
@@ -782,11 +793,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                     <div className="space-y-3">
                       {unnamedGroups.map(group => {
                         const groupKey = `${group.source}::${group.name}`;
-                        const canImportGroup = Boolean(onEnsureCategoryItems) && group.source !== "none";
+                        const canImportGroup = Boolean(onEnsureCategoryItems);
                         const importing = canImportGroup && importingGroupKey === groupKey;
                         return (
                           <div key={groupKey} className="rounded-lg border border-amber-200 bg-white/70 p-3">
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2">
                               <h5 className="text-sm font-medium text-amber-900">{group.name}</h5>
                               <Badge variant="secondary" className={cn("text-[11px]", GROUP_SOURCE_BADGE_CLASS[group.source])}>
                                 {GROUP_SOURCE_LABEL[group.source]}
@@ -796,7 +807,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="ml-auto h-7 border-amber-300 text-xs text-amber-700"
+                                  className="ml-auto h-7 border-amber-300 text-xs text-amber-700 shrink-0"
                                   onClick={() => setImportingGroupKey(groupKey)}
                                 >
                                   整组新增为分类
@@ -805,7 +816,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                             </div>
                             {importing && (
                               <GroupImportBar
-                                initialName={group.name}
+                                initialName={group.source === "none" ? "" : group.name}
                                 onConfirm={name => handleImportGroup(group, name)}
                                 onCancel={() => setImportingGroupKey(null)}
                               />
@@ -829,6 +840,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                 );
                               })}
                             </div>
+                            {group.source === 'none' && aiCategoryMissed && (
+                              <p className="text-xs text-muted-foreground mt-2">AI 分类建议未返回（解析服务可能未更新或模型无法判断），可逐簇命名，或整组新增为分类。</p>
+                            )}
                           </div>
                         );
                       })}

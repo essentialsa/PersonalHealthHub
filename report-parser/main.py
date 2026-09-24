@@ -113,6 +113,7 @@ async def health_check():
         "mock_mode": USE_MOCK,
         "ocr_ready": True,
         "engine_initialized": engine is not None,
+        "capabilities": ["reportCategory", "suggestedCategory", "parallel-pages"],
         "vision_llm": {
             "api_key_configured": status["api_key_configured"],
             "base_url": status["base_url"],

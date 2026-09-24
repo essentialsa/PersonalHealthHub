@@ -321,8 +321,16 @@ def test_partial_empty_page_returns_success(monkeypatch):
     assert result["indicators"][0]["pageIndex"] == 1
 
 
+def _chunk_offset_from_body(body):
+    """从请求体的提示文本解析本次 chunk 的 page_offset（'本次提供第 N 至 M 张图片'）。"""
+    import re
+    text_part = body["messages"][1]["content"][-1]["text"]
+    match = re.search(r"本次提供第 (\d+) 至", text_part)
+    return int(match.group(1)) - 1
+
+
 def test_deadline_budget_skips_remaining_pages(monkeypatch):
-    """超过软性总预算时放弃剩余页，返回已解析的部分结果。"""
+    """并行实现下超过软性总预算：首批 chunk 提交后停止提交剩余 chunk，返回部分结果。"""
     import parser.vision_engine as ve
 
     class FakeResponse:
@@ -344,21 +352,128 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
 
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
-    # 假时钟：入口 0s，第 1 次页检查 10s（放行），第 2 次页检查 60s（超 55s 预算）
-    clock = iter([0.0, 10.0, 60.0])
+    # 假时钟：入口 0s，第 1 个 chunk 提交前检查 10s（放行），
+    # 第 2 个 chunk 提交前检查 60s（超 55s 预算，停止提交），60s 供日志复用
+    clock = iter([0.0, 10.0, 60.0, 60.0])
     monkeypatch.setattr(ve.time, "monotonic", lambda: next(clock))
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    # 6 页 = 2 个 chunk（4 页 + 2 页）：首个提交，第二个被预算拦下
     engine._render_pdf_pages = lambda content: [
-        ("image/png", b"p0" + b"\x00" * 2000),
-        ("image/png", b"p1" + b"\x00" * 2000),
+        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(6)
     ]
     result = engine.parse_pdf(b"fake-pdf", "report.pdf")
 
-    # 第 2 页被预算跳过：只发生 1 次模型调用，但已解析页正常返回
+    # 仅首批 1 个 chunk 发起模型调用，后 2 页被跳过；已解析部分正常返回
     assert len(post_calls) == 1
     assert result["success"] is True
+    assert result["pageCount"] == 6
     assert len(result["indicators"]) == 1
+
+
+def test_all_pages_parsed_in_parallel(monkeypatch):
+    """23 页全量解析：6 个 chunk（4页×5+3页）全部被调用，指标聚合并去重。"""
+    import parser.vision_engine as ve
+
+    LABELS = {
+        0: "空腹血糖", 4: "谷丙转氨酶(ALT)", 8: "肌酐",
+        12: "甘油三酯", 16: "促甲状腺激素", 20: "骨骼肌",
+    }
+
+    class FakeResponse:
+        status_code = 200
+        def __init__(self, indicators):
+            self._indicators = indicators
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15", "indicators": self._indicators,
+            })}}]}
+
+    recorded = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        body = json
+        offset = _chunk_offset_from_body(body)
+        image_count = sum(
+            1 for part in body["messages"][1]["content"] if part.get("type") == "image_url"
+        )
+        recorded.append({"offset": offset, "images": image_count})
+        indicators = [{
+            "rawLabel": LABELS[offset], "value": 1.0 + offset, "unit": "u",
+            "referenceRange": "1-100", "reportCategory": "分组", "pageIndex": offset,
+        }]
+        if offset == 0:
+            # 同一 chunk 内完全重复的指标行：去重后只保留一条
+            indicators.append(dict(indicators[0]))
+        return FakeResponse(indicators)
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._render_pdf_pages = lambda content: [
+        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(23)
+    ]
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf")
+
+    # 全部 6 个 chunk（offset 0/4/8/12/16/20）都被调用，末块 3 页
+    assert sorted(item["offset"] for item in recorded) == [0, 4, 8, 12, 16, 20]
+    by_offset = {item["offset"]: item["images"] for item in recorded}
+    assert by_offset[0] == 4 and by_offset[16] == 4 and by_offset[20] == 3
+
+    assert result["success"] is True
+    assert result["pageCount"] == 23
+    # 6 个不同指标聚合，首块重复行被去重
+    assert len(result["indicators"]) == 6
+    assert {item["rawLabel"] for item in result["indicators"]} == set(LABELS.values())
+    assert {item["pageIndex"] for item in result["indicators"]} == set(LABELS.keys())
+
+
+def test_single_chunk_failure_degrades(monkeypatch):
+    """单个 chunk 的模型调用失败（HTTP 500）时降级跳过，其余 chunk 结果保留。"""
+    import parser.vision_engine as ve
+
+    class ErrorResponse:
+        status_code = 500
+        text = "internal error"
+        def json(self):
+            return {}
+
+    class SuccessResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "reportCategory": "血糖", "pageIndex": 0},
+                    {"rawLabel": "白细胞(WBC)", "value": 6.5, "unit": "×10^9/L",
+                     "referenceRange": "3.5-9.5", "reportCategory": "血常规", "pageIndex": 2},
+                ],
+            })}}]}
+
+    failed_offsets = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        offset = _chunk_offset_from_body(json)
+        if offset == 4:
+            failed_offsets.append(offset)
+            return ErrorResponse()
+        return SuccessResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    # 8 页 = 2 个 chunk：offset 0 成功，offset 4 失败
+    engine._render_pdf_pages = lambda content: [
+        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(8)
+    ]
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf")
+
+    assert failed_offsets  # 失败 chunk 确实被请求过（含主备两次尝试）
+    assert result["success"] is True
+    assert result["pageCount"] == 8
+    assert len(result["indicators"]) == 2
+    assert {item["rawLabel"] for item in result["indicators"]} == {"空腹血糖", "白细胞(WBC)"}
 
 
 def test_code_fence_json_extracted(monkeypatch):
