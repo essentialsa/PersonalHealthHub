@@ -23,9 +23,10 @@ SYSTEM_PROMPT = """
 2. 不确定就返回 null，绝不猜；语义不同的指标（如"白细胞"对"白细胞酯酶"）必须返回 null。
 3. 只在给定的 catalog 里选，不得编造新条目。
 4. label 原样返回输入的名称，不要改写。
-5. 每个元素都要给出 suggestedCategory：依据医学常识为该指标给出的建议分类名，优先使用常规
-   体检分类名（如"肝功能"、"肾功能"、"血常规"、"血脂"、"电解质"、"甲状腺功能"等）；无法判断时
-   为 null；即匹配到 catalog 条目也要给出 suggestedCategory。
+5. 每个元素都必须给出 suggestedCategory：依据医学常识给出分类名，优先常规体检分类名（如"肝功能"、
+   "肾功能"、"血常规"、"血脂"、"电解质"、"甲状腺功能"）；非常见指标按语义归入最接近的分类
+   （如"骨骼肌"→"人体成分分析"、"25-羟基维生素D"→"维生素与营养"、"中性分叶核粒细胞百分率"→"血常规"）；
+   只有指标名完全无法辨认时才返回 null；即匹配到 catalog 条目也要给出 suggestedCategory。
 6. 只返回一个 JSON 对象，格式：
    {"matches": [{"label": "输入名称", "catalogId": "条目id或null", "catalogLabel": "条目名或null", "suggestedCategory": "建议分类名或null"}]}
 """.strip()

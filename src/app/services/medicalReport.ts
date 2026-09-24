@@ -182,6 +182,7 @@ export interface ParserServiceStatus {
   endpoint?: string;
   message?: string;
   tried: string[];
+  capabilities?: string[];
 }
 
 export interface MatchedIndicator extends ExtractedIndicator {

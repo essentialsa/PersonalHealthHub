@@ -12,6 +12,7 @@ import math
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -50,7 +51,7 @@ SYSTEM_PROMPT = """
 3. value 必须是纯数字；源文本中的箭头、星号、H/L、<、> 等修饰一律去掉，只保留数值本身。
 4. unit 保留原报告单位；没有单位返回空字符串。referenceRange 保留原报告参考范围；没有返回空字符串。
 5. pageIndex 从 0 开始，对应所给图片的序号。
-6. 每条指标输出 reportCategory：该指标在报告图片中所属的检验分组/项目标题（如“肝功能”、“血常规”、“尿常规”）；报告没有分组标题或无法判断时输出空字符串；分组标题本身不是指标，不要作为指标输出。
+6. reportCategory 必填：每页报告通常都有检验分组/项目标题（如'肝功能'、'血常规'、'尿常规'、'一般检查'、'人体成分分析'、'骨密度测量室'），分组标题可能出现在表格上方、左侧栏或页眉；务必为每条指标填写其所属分组名；只有确实找不到任何分组线索时才输出空字符串。
 7. 不要把日期、报告号、条码号、身份证号、手机号、医院名称等误识别成指标；不确定的指标不要输出。
 8. 同页完全重复的指标行只保留一条。
 9. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
@@ -67,13 +68,13 @@ METADATA_KEYWORDS = (
     "姓名", "性别", "年龄", "条码", "编号",
 )
 
-# 每个请求只带一张图片：glm-4v-flash 对多图输入的响应不可靠
-# （实测两图时可能只处理第一张），逐页请求换来确定性与稳定性
-MAX_IMAGES_PER_REQUEST = 1
+# 每个请求最多带 4 张图片：多图输入降低单次往返开销，
+# 结合分块并行在总预算内覆盖更多页
+MAX_IMAGES_PER_REQUEST = 4
 # PDF 渲染缩放（1.0 = 72dpi；报告正文 144dpi 足够清晰且体积可控）
 PDF_RENDER_SCALE = 2.0
 # PDF 最大处理页数（防止异常大文件拖垮请求）
-MAX_PDF_PAGES = 8
+MAX_PDF_PAGES = 40
 # 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页
 PARSE_DEADLINE_SEC = 55.0
 
@@ -119,6 +120,7 @@ def get_vision_status() -> Dict[str, Any]:
         "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "15")))),
         "max_output_tokens": _resolve_max_output_tokens(model),
         "max_pdf_pages": MAX_PDF_PAGES,
+        "max_images_per_request": MAX_IMAGES_PER_REQUEST,
         "parse_deadline_sec": PARSE_DEADLINE_SEC,
     }
 
@@ -285,31 +287,45 @@ class VisionEngine:
         if len(pages) > MAX_PDF_PAGES:
             pages = pages[:MAX_PDF_PAGES]
 
+        chunk_size = MAX_IMAGES_PER_REQUEST
+        chunks = [(pages[i:i + chunk_size], i) for i in range(0, len(pages), chunk_size)]
         indicators: List[Dict[str, Any]] = []
         report_date = ""
-        chunk_size = MAX_IMAGES_PER_REQUEST
-        started = time.monotonic()
         skipped_pages = 0
+        started = time.monotonic()
         try:
-            for start in range(0, len(pages), chunk_size):
-                # 软性总预算：接近平台 60s 硬限时放弃剩余页，保住已解析的部分结果
-                elapsed = time.monotonic() - started
-                if elapsed > PARSE_DEADLINE_SEC:
-                    skipped_pages = len(pages) - start
-                    logger.warning(
-                        "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
-                        elapsed, PARSE_DEADLINE_SEC, skipped_pages,
-                    )
-                    break
-                chunk = pages[start:start + chunk_size]
-                payload = self._request_structured_json(chunk, page_offset=start)
-                normalized = self._normalize_result(payload, page_count=len(pages))
-                if not normalized["indicators"]:
-                    logger.warning(
-                        "vision_page_empty_indicators page=%d of %d", start, len(pages),
-                    )
-                indicators.extend(normalized["indicators"])
-                report_date = report_date or normalized["reportDate"]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = []
+                for chunk, offset in chunks:
+                    # 提交前预算检查：超预算停止提交剩余 chunk，保住已解析部分
+                    if time.monotonic() - started > PARSE_DEADLINE_SEC:
+                        skipped_pages = len(pages) - offset
+                        logger.warning(
+                            "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
+                            time.monotonic() - started, PARSE_DEADLINE_SEC, skipped_pages,
+                        )
+                        break
+                    futures.append(pool.submit(self._request_chunk, chunk, offset))
+                last_chunk_error: Optional[VisionEngineError] = None
+                for future in futures:
+                    try:
+                        normalized = future.result()
+                    except VisionEngineError as exc:
+                        # 单 chunk 失败降级跳过，保住其余结果（与部分成功语义一致）
+                        last_chunk_error = exc
+                        logger.warning("vision_chunk_failed error=%s", exc)
+                        continue
+                    except Exception as exc:
+                        last_chunk_error = VisionEngineError(f"报告解析失败：{exc}")
+                        logger.warning("vision_chunk_unexpected_error error=%s", exc)
+                        continue
+                    if not normalized["indicators"]:
+                        logger.warning("vision_page_empty_indicators")
+                    indicators.extend(normalized["indicators"])
+                    report_date = report_date or normalized["reportDate"]
+                if not indicators and futures and last_chunk_error is not None:
+                    # 所有提交过的 chunk 都失败：上抛原始可读错误，禁止静默空结果
+                    raise last_chunk_error
         except VisionEngineError:
             raise
         except Exception as exc:  # 防御：任何意外错误转为用户可读信息
@@ -330,6 +346,11 @@ class VisionEngine:
             "markdown": "\n".join(markdown_lines),
             "error": None,
         }
+
+    def _request_chunk(self, chunk: List[tuple], page_offset: int) -> Dict[str, Any]:
+        """单 chunk（多页图）请求 + 归一化；异常上抛由调用方降级处理。"""
+        payload = self._request_structured_json(chunk, page_offset=page_offset)
+        return self._normalize_result(payload, page_count=len(chunk) + page_offset)
 
     # ------------------------------------------------------------------
     def _render_pdf_pages(self, content: bytes) -> List[tuple]:

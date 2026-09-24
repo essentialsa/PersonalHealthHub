@@ -526,9 +526,9 @@ describe("MedicalReportImportDialog E2E", () => {
       await openAndParseReport();
 
       await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
-      // 仅具名组（报告分组/AI 建议）提供整组导入入口，未分组没有
-      expect(screen.getAllByRole("button", { name: "整组新增为分类" })).toHaveLength(1);
-      fireEvent.click(screen.getByRole("button", { name: "整组新增为分类" }));
+      // 具名组与未分组均提供整组导入入口；具名组排在前，取第一个即「肝功能」组
+      expect(screen.getAllByRole("button", { name: "整组新增为分类" })).toHaveLength(2);
+      fireEvent.click(screen.getAllByRole("button", { name: "整组新增为分类" })[0]);
 
       // 组头出现可编辑组名输入框（默认组名）
       expect(screen.getByDisplayValue("肝功能")).toBeInTheDocument();
@@ -603,6 +603,105 @@ describe("MedicalReportImportDialog E2E", () => {
         { label: "鸟嘌呤脱氨酶", unit: "U/L" },
         { label: "甘胆酸", unit: "mg/L" },
       ]);
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+    }
+  });
+
+  it("AI 分类建议全 null 时，未分组区域显示降级提示", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "神秘因子Q", value: 0.5, unit: "g/L", referenceRange: "", pageIndex: 0 },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue([
+      { label: "神秘因子Q", catalogId: null, catalogLabel: null, suggestedCategory: null },
+    ]);
+
+    try {
+      render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+      await openAndParseReport();
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText("AI 分类建议未返回（解析服务可能未更新或模型无法判断），可逐簇命名，或整组新增为分类。"),
+          ).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+    }
+  });
+
+  it("未分组整组导入：默认组名为空且确认禁用，填入名称后建库并导入", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "神秘因子Q", value: 0.5, unit: "g/L", referenceRange: "", pageIndex: 0 },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+
+    const onEnsureCategoryItems = vi.fn().mockReturnValue({
+      "神秘因子Q": "new_item_ungrouped",
+    });
+
+    try {
+      render(
+        <MedicalReportImportDialog
+          onImportRecords={mockImportRecords}
+          onEnsureCategoryItems={onEnsureCategoryItems}
+        />,
+      );
+      await openAndParseReport();
+
+      // 未分组组头出现「整组新增为分类」按钮（仅此一组）
+      const importGroupButton = await waitFor(() => {
+        const btn = screen.getByRole("button", { name: "整组新增为分类" });
+        expect(btn).toBeInTheDocument();
+        return btn;
+      }, { timeout: 5000 });
+      fireEvent.click(importGroupButton);
+
+      // 组名输入默认为空，确认按钮禁用（组名输入位于簇重命名输入之前）
+      const nameInput = screen.getAllByRole("textbox")[0] as HTMLInputElement;
+      expect(nameInput.value).toBe("");
+      expect((screen.getByRole("button", { name: "确认导入" }) as HTMLButtonElement).disabled).toBe(true);
+
+      // 填入名称后确认 → 以新组名建库
+      fireEvent.change(nameInput, { target: { value: "自定义分类" } });
+      fireEvent.click(screen.getByRole("button", { name: "确认导入" }));
+
+      await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
+      expect(onEnsureCategoryItems).toHaveBeenCalledWith("自定义分类", [
+        { label: "神秘因子Q", unit: "g/L" },
+      ]);
+
+      // 组内记录导入，indicatorType 为映射后的 id
+      await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+      const records = mockImportRecords.mock.calls[0][0];
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ indicatorType: "new_item_ungrouped", value: 0.5, unit: "g/L", date: "2024-01-15" });
     } finally {
       vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
       vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
