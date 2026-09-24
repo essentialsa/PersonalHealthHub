@@ -32,6 +32,9 @@ def test_mock_mode_returns_structured_result():
     assert len(result["indicators"]) == 3
     assert result["reportDate"] == "2026-01-15"
     assert all(i["pageIndex"] == 0 for i in result["indicators"])
+    # mock 模式下各条指标都携带检验分组示例
+    assert all(i["reportCategory"] for i in result["indicators"])
+    assert result["indicators"][2]["reportCategory"] == "血糖"
 
 
 def test_missing_api_key_raises_user_facing_error():
@@ -88,6 +91,55 @@ def test_request_construction_and_success(monkeypatch):
     assert result["indicators"][0]["rawLabel"] == "白细胞(WBC)"
     assert result["indicators"][0]["value"] == 6.5
     assert result["indicators"][0]["pageIndex"] == 0
+
+
+def test_report_category_passthrough(monkeypatch):
+    """模型输出带 reportCategory 时透传到解析结果。"""
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "谷丙转氨酶(ALT)", "value": 30, "unit": "U/L",
+                     "referenceRange": "9-50", "reportCategory": "肝功能", "pageIndex": 0},
+                ],
+            })}}]}
+
+    import parser.vision_engine as ve
+    monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    assert result["success"] is True
+    assert result["indicators"][0]["reportCategory"] == "肝功能"
+
+
+def test_report_category_missing_or_invalid_defaults_to_empty(monkeypatch):
+    """模型输出缺 reportCategory 字段或类型异常时，解析结果该字段为空字符串。"""
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    # 缺 reportCategory 字段
+                    {"rawLabel": "白细胞(WBC)", "value": 6.5, "unit": "×10^9/L",
+                     "referenceRange": "3.5-9.5", "pageIndex": 0},
+                    # reportCategory 为非字符串类型
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "reportCategory": 123, "pageIndex": 0},
+                ],
+            })}}]}
+
+    import parser.vision_engine as ve
+    monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    assert result["success"] is True
+    assert result["indicators"][0]["reportCategory"] == ""
+    assert result["indicators"][1]["reportCategory"] == ""
 
 
 def test_timeout_maps_to_user_facing_error(monkeypatch):

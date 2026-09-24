@@ -4784,6 +4784,45 @@ export default function App() {
       },
     );
   };
+  /**
+   * 报告导入-整组新增为分类：确保名为 groupName 的分类存在（不存在则新建），
+   * 并把 items 逐个并入（label trim 相同则复用已有指标 id）。返回 label → itemId
+   * 映射，失败返回 null。setIndicatorCategories 是异步的，这里基于当前 state
+   * 本地先算出全部新 id 并一次性写回整棵树，确保返回映射与实际写入一致。
+   */
+  const handleEnsureCategoryItems = (groupName: string, items: { label: string; unit: string }[]): Record<string, string> | null => {
+    const trimmedGroupName = groupName.trim();
+    if (!trimmedGroupName) {
+      return null;
+    }
+    const timestamp = Date.now();
+    const newId = () => `custom_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+    const existingCategory = indicatorCategories.find(category => category.name.trim() === trimmedGroupName);
+    const nextItems: IndicatorItem[] = [...(existingCategory?.items ?? [])];
+    const labelToItemId: Record<string, string> = {};
+    for (const item of items) {
+      const trimmedLabel = item.label.trim();
+      if (!trimmedLabel) {
+        return null;
+      }
+      const existingItem = nextItems.find(candidate => candidate.label.trim() === trimmedLabel);
+      if (existingItem) {
+        labelToItemId[item.label] = existingItem.id;
+        continue;
+      }
+      const newItem: IndicatorItem = { id: newId(), label: trimmedLabel, unit: item.unit };
+      nextItems.push(newItem);
+      labelToItemId[item.label] = newItem.id;
+    }
+    const nextCategories: IndicatorCategory[] = existingCategory
+      ? indicatorCategories.map(category =>
+          category.id === existingCategory.id ? { ...category, items: nextItems } : category,
+        )
+      : [...indicatorCategories, { id: newId(), name: trimmedGroupName, items: nextItems }];
+    setIndicatorCategories(nextCategories);
+    triggerAutoBackup("categories-updated");
+    return labelToItemId;
+  };
   const handleDeleteRecord = (id: string) => {
     applyRecordsUpdate(
       prev => prev.filter(r => r.id !== id),
@@ -5325,6 +5364,7 @@ export default function App() {
           key="report-import"
           onImportRecords={handleImportRecords}
           onAddAttachment={handleAddAttachment}
+          onEnsureCategoryItems={handleEnsureCategoryItems}
           existingRecords={records}
           existingCategories={indicatorCategories.map(category => ({
             id: category.id,

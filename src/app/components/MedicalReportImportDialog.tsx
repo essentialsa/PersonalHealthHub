@@ -21,6 +21,7 @@ import {
   groupByAction,
   getCategoriesToCreate,
   clusterUnnamedIndicators,
+  groupUnnamedClusters,
   matchUnnamedLabels,
   normalizeIndicatorText,
   type ParseResult,
@@ -28,12 +29,25 @@ import {
   type ResolvedIndicator,
   type ExtractedIndicator,
   type UserIndicatorCategory,
+  type UnnamedGroup,
 } from "@/app/services/medicalReport";
 import { CategorySelectDialog } from "./CategorySelectDialog";
 import { compressImageFile } from "@/app/services/imageCompress";
 
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
 const MAX_SIZE = 50 * 1024 * 1024;
+
+/** 未命名分组来源的徽标文案与配色 */
+const GROUP_SOURCE_LABEL: Record<UnnamedGroup["source"], string> = {
+  report: "报告分组",
+  ai: "AI 建议",
+  none: "未分组",
+};
+const GROUP_SOURCE_BADGE_CLASS: Record<UnnamedGroup["source"], string> = {
+  report: "bg-blue-100 text-blue-700",
+  ai: "bg-violet-100 text-violet-700",
+  none: "bg-muted text-muted-foreground",
+};
 
 /**
  * 未命名指标簇的重命名输入：内部持有输入状态（重聚类不重挂载、不丢焦点），
@@ -103,6 +117,48 @@ function ClusterRenameInput({
   );
 }
 
+/**
+ * 组级导入条：把整组未命名指标新增为分类前的组名确认交互。
+ * 组名默认取组名本身，可编辑；确认/回车提交，取消/Esc 收起。
+ */
+function GroupImportBar({
+  initialName,
+  onConfirm,
+  onCancel,
+}: {
+  initialName: string;
+  onConfirm: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initialName);
+  const trimmed = value.trim();
+
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <Input
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (trimmed) onConfirm(trimmed);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        className="h-8 text-sm flex-1"
+      />
+      <Button size="sm" className="h-8 text-xs" disabled={!trimmed} onClick={() => onConfirm(trimmed)}>
+        确认导入
+      </Button>
+      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={onCancel}>
+        取消
+      </Button>
+    </div>
+  );
+}
+
 interface Props {
   onImportRecords: (records: HealthRecord[]) => void;
   onAddAttachment?: (attachment: HealthAttachment) => boolean;
@@ -110,9 +166,11 @@ interface Props {
   existingRecords?: HealthRecord[];
   triggerClassName?: string;
   triggerLabel?: string;
+  /** 整组导入：确保分类与指标项存在，返回 label → itemId 映射；null 表示失败 */
+  onEnsureCategoryItems?: (groupName: string, items: { label: string; unit: string }[]) => Record<string, string> | null;
 }
 
-export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], existingRecords = [], triggerClassName, triggerLabel }: Props) {
+export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], existingRecords = [], triggerClassName, triggerLabel, onEnsureCategoryItems }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"upload" | "preview">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -152,14 +210,22 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
 
   // ── 未命名指标：聚类 + 免费模型二次匹配 ──
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, string>>({});
+  const [aiCategories, setAiCategories] = useState<Record<string, string>>({});
   const [aiLoading, setAiLoading] = useState(false);
   const aiRequestedRef = useRef("");
+  // 正在执行「整组新增为分类」交互的组（`${source}::${name}`）
+  const [importingGroupKey, setImportingGroupKey] = useState<string | null>(null);
 
   const unnamedClusters = useMemo(
     () => clusterUnnamedIndicators(matched.filter(m => m.matchType === "none")),
     [matched],
   );
   const clusterSignature = unnamedClusters.map(c => c.key).join("|");
+  // 未命名簇按类别分组：报告分组优先、AI 建议兜底、未分组殿后
+  const unnamedGroups = useMemo(
+    () => groupUnnamedClusters(unnamedClusters, aiCategories),
+    [unnamedClusters, aiCategories],
+  );
 
   useEffect(() => {
     if (unnamedClusters.length === 0) {
@@ -179,6 +245,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       .then(suggestions => {
         if (!suggestions) return;
         const next: Record<string, string> = {};
+        const nextCategories: Record<string, string> = {};
         for (const cluster of unnamedClusters) {
           const hit = suggestions.find(s =>
             normalizeIndicatorText(s.label) === cluster.key ||
@@ -187,8 +254,12 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           if (hit?.catalogLabel) {
             next[cluster.key] = hit.catalogLabel;
           }
+          if (hit?.suggestedCategory) {
+            nextCategories[cluster.key] = hit.suggestedCategory;
+          }
         }
         setAiSuggestions(prev => ({ ...prev, ...next }));
+        setAiCategories(prev => ({ ...prev, ...nextCategories }));
       })
       .finally(() => setAiLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,6 +316,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       setMatched(resolved);
       setExtracted(nextExtracted);
       setAiSuggestions({});
+      setAiCategories({});
       setForcedDuplicates(new Set());
       aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
@@ -352,6 +424,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setServiceChecking(false);
     setRetainReport(true);
     setForcedDuplicates(new Set());
+    setImportingGroupKey(null);
   };
 
   /**
@@ -373,6 +446,74 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     );
     setExtracted(nextExtracted);
     setMatched(resolveIndicators(nextExtracted, existingCategories));
+  };
+
+  /**
+   * 整组新增为分类：把组内全部簇作为新分类（或并入同名分类）一次性导入。
+   * 每簇以 canonicalLabel 作为指标名、首条 unit 作为单位建库（归一化同名合并）；
+   * 簇内每条记录各自生成 HealthRecord，疑似重复默认跳过。
+   */
+  const handleImportGroup = (group: UnnamedGroup, groupName: string) => {
+    if (!onEnsureCategoryItems) {
+      return;
+    }
+    // 1. 收集指标定义：每簇一条，canonicalLabel 归一化相同则合并
+    const defByKey = new Map<string, { label: string; unit: string }>();
+    const itemDefs: { label: string; unit: string }[] = [];
+    for (const cluster of group.clusters) {
+      const key = normalizeIndicatorText(cluster.canonicalLabel);
+      if (defByKey.has(key)) {
+        continue;
+      }
+      const def = { label: cluster.canonicalLabel, unit: cluster.items[0]?.unit || "" };
+      defByKey.set(key, def);
+      itemDefs.push(def);
+    }
+    // 2. 确保分类与指标项存在，拿 label → itemId 映射（null 表示失败）
+    let labelToItemId: Record<string, string> | null = null;
+    try {
+      labelToItemId = onEnsureCategoryItems(groupName, itemDefs);
+    } catch (error) {
+      console.error("[报告导入] 建立分类或指标项失败", error);
+    }
+    if (!labelToItemId) {
+      window.alert("导入失败：无法创建分类或指标项，请稍后重试。");
+      return;
+    }
+    // 3. 簇内每条记录各自成记录；同日期+同指标+同数值的疑似重复默认跳过
+    const date = result?.reportDate || new Date().toISOString().split("T")[0];
+    const records: HealthRecord[] = [];
+    let skippedCount = 0;
+    for (const cluster of group.clusters) {
+      const def = defByKey.get(normalizeIndicatorText(cluster.canonicalLabel));
+      const itemId = def ? labelToItemId[def.label] : undefined;
+      if (!itemId) {
+        continue;
+      }
+      for (const item of cluster.items) {
+        const dupKey = recordDuplicateKey({ date, indicatorType: itemId, value: item.value });
+        if (existingDuplicateKeys.has(dupKey) && !forcedDuplicates.has(dupKey)) {
+          skippedCount += 1;
+          continue;
+        }
+        records.push({
+          id: `${Date.now()}_${itemId}_${Math.random().toString(36).slice(2, 8)}`,
+          date,
+          indicatorType: itemId,
+          value: item.value,
+          unit: item.unit,
+          operationAt: new Date().toISOString(),
+        });
+      }
+    }
+    if (skippedCount > 0) {
+      window.alert(`已导入 ${records.length} 条，跳过 ${skippedCount} 条疑似重复记录`);
+    }
+    onImportRecords(records);
+    // 4. 组内条目从未命名区移除（unnamedClusters 由 matched 派生，分组随之消失）
+    const groupItems = group.clusters.flatMap(cluster => cluster.items);
+    setMatched(prev => prev.filter(m => !groupItems.includes(m)));
+    setImportingGroupKey(null);
   };
 
   const handleCategoryConfirm = (actions: { groupId: string; action: "create" | "assign" | "skip"; categoryId?: string; customName?: string }[]) => {
@@ -631,29 +772,64 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   </div>
                 )}
 
-                {/* 未匹配指标区域 */}
+                {/* 未匹配指标区域：按类别分组展示 */}
                 {matched.filter(m => m.matchType === "none").length > 0 && (
                   <div className="mt-4 border rounded-lg p-4 bg-amber-50/50">
                     <div className="flex items-center gap-2 mb-3">
                       <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedClusters.length} 组）</h4>
+                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedGroups.length} 组）</h4>
                     </div>
-                    <div className="space-y-2">
-                      {unnamedClusters.map(cluster => {
-                        const suggestion = aiSuggestions[cluster.key];
-                        // 稳定 key：簇首条目在 matched 中的位置（重跑匹配后位置不变，组件不重挂载）
-                        const stableKey = matched.indexOf(cluster.items[0]);
+                    <div className="space-y-3">
+                      {unnamedGroups.map(group => {
+                        const groupKey = `${group.source}::${group.name}`;
+                        const canImportGroup = Boolean(onEnsureCategoryItems) && group.source !== "none";
+                        const importing = canImportGroup && importingGroupKey === groupKey;
                         return (
-                          <ClusterRenameInput
-                            key={stableKey}
-                            initialLabel={cluster.canonicalLabel}
-                            suggestion={suggestion}
-                            itemCount={cluster.items.length}
-                            onCommit={label => applyClusterRename(cluster.items, label)}
-                            onSkip={() => {
-                              setMatched(prev => prev.filter(m => !cluster.items.includes(m)));
-                            }}
-                          />
+                          <div key={groupKey} className="rounded-lg border border-amber-200 bg-white/70 p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h5 className="text-sm font-medium text-amber-900">{group.name}</h5>
+                              <Badge variant="secondary" className={cn("text-[11px]", GROUP_SOURCE_BADGE_CLASS[group.source])}>
+                                {GROUP_SOURCE_LABEL[group.source]}
+                              </Badge>
+                              <span className="text-[11px] text-muted-foreground">{group.clusters.length} 簇</span>
+                              {canImportGroup && !importing && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="ml-auto h-7 border-amber-300 text-xs text-amber-700"
+                                  onClick={() => setImportingGroupKey(groupKey)}
+                                >
+                                  整组新增为分类
+                                </Button>
+                              )}
+                            </div>
+                            {importing && (
+                              <GroupImportBar
+                                initialName={group.name}
+                                onConfirm={name => handleImportGroup(group, name)}
+                                onCancel={() => setImportingGroupKey(null)}
+                              />
+                            )}
+                            <div className="space-y-2">
+                              {group.clusters.map(cluster => {
+                                const suggestion = aiSuggestions[cluster.key];
+                                // 稳定 key：簇首条目在 matched 中的位置（重跑匹配后位置不变，组件不重挂载）
+                                const stableKey = matched.indexOf(cluster.items[0]);
+                                return (
+                                  <ClusterRenameInput
+                                    key={stableKey}
+                                    initialLabel={cluster.canonicalLabel}
+                                    suggestion={suggestion}
+                                    itemCount={cluster.items.length}
+                                    onCommit={label => applyClusterRename(cluster.items, label)}
+                                    onSkip={() => {
+                                      setMatched(prev => prev.filter(m => !cluster.items.includes(m)));
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
