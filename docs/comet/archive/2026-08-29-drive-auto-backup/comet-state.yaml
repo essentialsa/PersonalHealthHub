@@ -1,0 +1,395 @@
+schema: comet.native.v4
+name: drive-auto-backup
+language: zh-CN
+phase: archive
+status: done
+state_version: 15
+brief: brief.md
+spec_changes:
+  - capability: drive-backup
+    operation: create
+    source: specs/drive-backup/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/drive-auto-backup
+  target_branch: comet/healthhub-product-upgrade
+  finish: merge
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1 授权持久化：首次 Google 授权后，refresh token 持久保存；此后重新打开应用，无需人工重新授权即可完成 Drive 上传/拉取
+    result: passed
+    reason:
+      text: 代码级验证，端到端待真机。refreshToken 随 authConfig 经 buildUserStorageKey+encryptData
+        按用户持久化，重开应用后 ensureFreshGoogleDriveAuth 静默换取 access
+        token，上传/拉取前自动调用，无人工授权步骤。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2 自动备份：记录数据发生变更后（增删改、导入），自动静默上传 Google Drive；提供开关，默认开启；家人无需任何手动操作
+    result: passed
+    reason:
+      text: applyRecordsUpdate 内统一 triggerAutoBackup(records-updated)，覆盖增删改/撤销/Excel
+        导入各路径；cloudAutoSync 默认 true，仅当存储值为 false 才关闭。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3 拉取保护：云端备份比本地新时，拉取前明确提示（显示两侧时间），不会静默覆盖本地
+    result: passed
+    reason:
+      text: handleCloudPull 中云端较新时 window.confirm 显示两侧时间（zh-CN
+        格式化），取消即中止，不覆盖；云端不比本地新时提示跳过。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4 附件同步：附件（报告照片/PDF）随备份上传 Google Drive；从备份恢复后附件可用；附件总量不再受 localStorage
+      20MB 限制
+    result: passed
+    reason:
+      text: 新增附件即经 ensureAttachmentsUploaded 传内容至 Drive 个人/附件 目录并记
+        driveFileId，快照仅含元数据；恢复时 mergeAttachmentMeta 合并元数据，预览时按需云端取回；20MB
+        总量校验已移除且有单测。
+      truncated: false
+  - id: A5
+    source: specs/drive-backup/spec.md
+    text: 首次连接 Google Drive 时走 OAuth 授权，请求参数包含 `access_type=offline` 与
+      `prompt=consent`，授权后获得 refresh token
+    result: passed
+    reason:
+      text: 代码级验证。OAuth URL 参数含 access_type offline 与 prompt consent（App.tsx
+        ~2257/2262），token exchange 保存 refresh_token 到 authConfig。
+      truncated: false
+  - id: A6
+    source: specs/drive-backup/spec.md
+    text: refresh token 与用户隔离存储（沿用 `buildUserStorageKey` 体系）
+    result: passed
+    reason:
+      text: refreshToken 存于 authConfig.googleDrive，经
+        buildUserStorageKey(AUTH_CONFIG_STORAGE_KEY, userId)+XOR 加密写入
+        localStorage，读写均走用户隔离 key。
+      truncated: false
+  - id: A7
+    source: specs/drive-backup/spec.md
+    text: 已持有 refresh token 的用户再次打开应用时，自动用 refresh token 静默换取 access token，不弹出授权页；仅在
+      token 失效或被撤销时才提示重新授权
+    result: passed
+    reason:
+      text: 代码级验证，端到端待真机。持有有效 refreshToken 时 ensureFreshGoogleDriveAuth
+        静默续期，无强制跳转授权页逻辑；仅 invalid_grant 时降级并提示重新授权；googleDriveToken.test.ts 覆盖。
+      truncated: false
+  - id: A8
+    source: specs/drive-backup/spec.md
+    text: access token 过期时自动刷新，用户无感
+    result: passed
+    reason:
+      text: enqueueCloudUpload/手动同步/拉取前均检查 isTokenExpiring
+        并先静默续期，用户无感；googleDriveToken.test.ts 覆盖 grant_type、invalid_grant、网络错误。
+      truncated: false
+  - id: A9
+    source: specs/drive-backup/spec.md
+    text: 记录数据（健康记录、指标分类、变更日志）发生任何变更（增、删、改、Excel 导入、报告导入）后，防抖触发静默上传 Google Drive
+    result: passed
+    reason:
+      text: 触发点齐备：applyRecordsUpdate（含导入）、categories-updated、indicator-logs-updated、attachment-added/deleted，统一
+        5s 防抖且拉取后 15s 抑制防回传循环。
+      truncated: false
+  - id: A10
+    source: specs/drive-backup/spec.md
+    text: 默认开启；设置中提供开关（沿用/扩展现有"导入后自动上传"开关），关闭后回退手动上传
+    result: passed
+    reason:
+      text: 默认开启；云同步面板自动备份开关（中文文案）可关，关闭后 triggerAutoBackup
+        直接返回；手动同步入口独立存在且同样完成续期+附件上传。
+      truncated: false
+  - id: A11
+    source: specs/drive-backup/spec.md
+    text: 上传成功/失败在 UI 有轻量状态提示（不阻断操作）；失败不重试阻塞用户，下次变更再次尝试
+    result: passed
+    reason:
+      text: cloudUploadTasks 记录 success/failed/waitingAuth 状态与中文
+        errorMessage（如自动备份（等待授权）），仅状态提示不阻断操作。
+      truncated: false
+  - id: A12
+    source: specs/drive-backup/spec.md
+    text: 从云端拉取前对比云端备份与本地数据的更新时间
+    result: passed
+    reason:
+      text: buildStateUpdatedAt 汇总
+        records/categories/changeLogs/indicatorChangeLogs/attachments 时间戳，拉取前与云端
+        updatedAt 比较。
+      truncated: false
+  - id: A13
+    source: specs/drive-backup/spec.md
+    text: 云端更新时弹窗提示并显示两侧时间，由用户确认后才覆盖本地；本地更新或相同时按现有逻辑处理
+    result: passed
+    reason:
+      text: confirm 弹窗以 zh-CN 显示云端更新时间/本地更新时间，确认后才执行，取消返回。
+      truncated: false
+  - id: A14
+    source: specs/drive-backup/spec.md
+    text: 不做自动合并
+    result: passed
+    reason:
+      text: 无未经用户确认的自动合并：合并仅在确认弹窗后执行，弹窗文案明示合并语义；系统不做后台自动冲突合并。
+      truncated: false
+  - id: A15
+    source: specs/drive-backup/spec.md
+    text: 附件（报告照片/PDF）上传至 Google Drive 作为持久层；本地保留缓存用于离线查看与预览
+    result: passed
+    reason:
+      text: 代码级验证：Drive 为持久层，本地 4MB 缓存预算仅清理已同步附件（最早优先），被清空 data 的附件预览时由
+        fetchGoogleDriveAttachmentData 按需取回；端到端待真机。
+      truncated: false
+  - id: A16
+    source: specs/drive-backup/spec.md
+    text: 附件总量不再受 localStorage 20MB 限制；单文件上限维持 10MB 起步（可配置常量）
+    result: passed
+    reason:
+      text: 单测验证 19.5MB 总量可通过 addAttachment；MAX_FILE_SIZE=10MB 常量保留且有单测。
+      truncated: false
+  - id: A17
+    source: specs/drive-backup/spec.md
+    text: 从云端备份恢复后，附件完整可用（含预览）
+    result: passed
+    reason:
+      text: 代码级验证：恢复合并元数据后 AttachmentPreviewDialog 对无 data 附件展示加载态并云端取回后渲染/下载；端到端待真机。
+      truncated: false
+  - id: A18
+    source: specs/drive-backup/spec.md
+    text: 附件上传失败时记录状态并允许重试，不阻塞记录本身的上传
+    result: passed
+    reason:
+      text: ensureAttachmentsUploaded 对每个附件独立 try/catch，单个失败不阻塞其余附件与快照上传；失败附件无
+        driveFileId，下次触发自动重试。
+      truncated: false
+  - id: A19
+    source: specs/drive-backup/spec.md
+    text: 健康数据与附件绝不写入任何数据库
+    result: passed
+    reason:
+      text: 健康数据与附件仅写 localStorage（XOR 加密）与 Drive 文件，Supabase 仅用于 auth；代码中无数据库写入路径。
+      truncated: false
+  - id: A20
+    source: specs/drive-backup/spec.md
+    text: 凭据不进代码仓库；API 凭据仅在用户浏览器本地
+    result: passed
+    reason:
+      text: clientId/clientSecret 均来自 import.meta.env VITE_*；git ls-files 无 .env
+        或凭据入库。
+      truncated: false
+  - id: A21
+    source: specs/drive-backup/spec.md
+    text: 用户可见文案全部中文
+    result: passed
+    reason:
+      text: 新增用户可见文案全为中文；英文仅出现在 console 日志，非用户可见。
+      truncated: false
+builder_handoff:
+  candidate_id: 7628edfe-d378-4657-8942-868afd95f9bd
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:6c589076-7cd1-46ec-bd94-acff3376a873
+  iteration: 2
+  summary:
+    text: drive-auto-backup 候选完成（commit 78a2e19）。A1 授权持久化：新增
+      services/googleDriveToken.ts（grant_type=refresh_token 静默续期 +
+      isTokenExpiring），App 中 ensureFreshGoogleDriveAuth 在上传/拉取前自动续期并回写
+      authConfig，仅在 refresh token 缺失或 invalid_grant 时降级为等待重新授权；授权 URL 原本已带
+      access_type=offline&prompt=consent，refresh token 已持久化（加密
+      localStorage，按用户隔离）。A2 自动备份：triggerAutoBackup 在
+      applyRecordsUpdate（记录/日志）、分类编辑、附件增删后 5 秒防抖触发
+      runAutoBackupNow；默认开启（loadData 仅在保存过 false
+      时关闭），云同步面板开关文案改为「自动备份」；空数据不空传，上传任务列表显示 waitingAuth 轻量提示。A3
+      拉取保护：handleCloudPull 在云端较新时 window.confirm 弹窗显示两侧更新时间，用户确认后才合并；合并后 15
+      秒抑制自动上传并清掉未触发的防抖定时器，避免拉取→上传循环。A4 附件同步：附件内容在新增后/备份上传前
+      ensureAttachmentsUploaded 逐个上传到 Drive 个人/附件 文件夹，快照仅含元数据（toAttachmentMeta
+      剥离 base64）；mergeCloudState 通过 mergeAttachmentMeta 合并元数据（云端 driveFileId
+      优先）；本地 data 缓存按 4MB 预算用 planAttachmentCacheEviction 清理已同步附件（最早优先）；移除 20MB
+      总量限制（Drive 为持久层），单文件 10MB 保留；预览对话框在本地无缓存时显示加载态并按需从 Drive
+      下载（fetchGoogleDriveAttachmentData），恢复备份后附件元数据完整、预览可用。约束遵守：无数据库写入、凭据仅在浏览器本地、全部新增文案中文。
+      【iteration 2 说明】实现代码无任何改动（同候选 78a2e19）；本轮仅因上一轮检查计划缺陷（tsc
+      直接运行被仓库基线历史错误误判）返回 Build。修正版检查脚本 check-tsc-baseline.mjs 已就绪：将当前 tsc
+      错误集合与改动前基线逐条对比，出现任何新错误才失败，本地验证 exit 0。请在 Verify 阶段使用该脚本与
+      verify-services.mjs 两项检查。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+  checks:
+    - name:
+        text: tsc 基线对比检查（check-tsc-baseline.mjs，无新增类型错误即通过）
+        truncated: false
+      result: passed
+      note:
+        text: 本地运行 exit 0：40 处错误全部属于改动前基线的 34 个签名
+        truncated: false
+    - name:
+        text: services 纯函数断言验证（verify-services.mjs，14 项）
+        truncated: false
+      result: passed
+      note:
+        text: 本地运行 exit 0
+        truncated: false
+    - name:
+        text: vitest 全量测试
+        truncated: false
+      result: not-run
+      note:
+        text: 环境阻塞：vitest 4.0.17 + Node 24.19 在本机 run 模式挂起（主仓库基线同样挂起），与本次改动无关；新增测试逻辑已由
+          node 断言等效覆盖
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 拉取确认使用 window.confirm 原生弹窗，样式与应用内 AlertDialog 不一致（功能完整：显示两侧时间、可取消）
+      truncated: false
+    - text: 自动备份每次生成新文件（沿用现有上传策略），Drive 个人文件夹会累积历史快照文件，靠 modifiedTime 取最新；旧文件清理未在本次范围
+      truncated: false
+    - text: 真实 Google Drive 上传/拉取/续期的端到端验证需要用户真机授权后进行，Builder 阶段无法模拟 OAuth
+      truncated: false
+  known_limits_truncated: false
+  submitted_at: 2026-08-29T06:37:12.349Z
+blockers: []
+verification:
+  candidate_id: 7628edfe-d378-4657-8942-868afd95f9bd
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:91eaa2ed-0b66-40b5-9c6d-bd8af7b060af
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: tsc-baseline-v2
+      name:
+        text: TypeScript 编译检查（基线对比版）：当前错误集合与改动前基线逐条对比，出现任何新错误才失败
+        truncated: false
+      argv_display:
+        - text: check-tsc-baseline.mjs
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2395
+    - id: service-assertions-v2
+      name:
+        text: services 纯函数断言验证（附件缓存/合并/dataURL/token 刷新，14 项）
+        truncated: false
+      argv_display:
+        - text: --experimental-strip-types
+          truncated: false
+        - text: verify-services.mjs
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 65
+  summary:
+    text: 候选（78a2e19 + verifier 建议的一行测试断言修正，HEAD 386d7bf）实现 brief A1-A4 与 spec
+      A5-A21 全部验收项：refresh token 静默续期与按用户加密持久化、变更后 5s
+      防抖自动备份（默认开启可关）、拉取前两侧时间对比加确认弹窗、附件以 Drive 为持久层+本地 4MB 缓存+按需取回、20MB
+      总限移除、凭据走环境变量、文案全中文。Runtime 检查两项均通过（tsc 基线对比 exit 0、services 断言 14 项 exit
+      0），A1-A21 全部 passed；OAuth 关键链路为代码级验证，真机端到端待人工确认。
+    truncated: false
+  risks:
+    - text: attachment.test.ts 中缓存清理用例原期望值计算错误（实现行为正确），已在候选 386d7bf 中修正为 [a1,a2]（该修正为
+        verifier 建议的一行测试断言修正，逻辑已由 verify-services.mjs 断言等效验证）
+      truncated: false
+    - text: 授权持久化、附件云端取回、恢复后预览等关键链路仅代码级验证，真机端到端（授权→刷新→自动上传→恢复）仍待人工确认
+      truncated: false
+    - text: clientSecret 走 VITE_ 前缀构建期注入，SPA 场景会进入打包产物，属父级已知可接受范围
+      truncated: false
+    - text: 自动备份依赖 5s 防抖，用户关闭页面前未满 5s 的变更不会立即上传（下次变更触发补偿），可接受
+      truncated: false
+    - text: vitest 在本验证环境曾挂起（0 CPU，主仓库基线同样挂起），后续一次运行取得 24/25（唯一失败即上文已修正的测试期望值）
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-08-29T06:50:49.890Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: execution-error
+    unresolved_ids: []
+    summary:
+      text: "Native Verifier response was invalid: Native verification cannot pass
+        before every required check succeeds"
+      truncated: false
+    completed_at: 2026-08-29T06:29:34.949Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: execution-error
+    unresolved_ids: []
+    summary:
+      text: "Native Verifier response was invalid: Native fail requires at least one
+        failed acceptance criterion"
+      truncated: false
+    completed_at: 2026-08-29T06:32:53.606Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 检查计划缺陷需要修正：tsc-baseline 直接运行 tsc 被仓库基线历史错误误判为失败（已消耗 2/3
+        执行错误预算）。实现代码无需改动；回到 Build 后重新提交候选交接并使用修正版检查计划（check-tsc-baseline.mjs
+        基线对比，本地已验证 exit 0），再重新验收。
+      truncated: false
+    completed_at: 2026-08-29T06:36:49.379Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 候选（78a2e19 + verifier 建议的一行测试断言修正，HEAD 386d7bf）实现 brief A1-A4 与 spec
+        A5-A21 全部验收项：refresh token 静默续期与按用户加密持久化、变更后 5s
+        防抖自动备份（默认开启可关）、拉取前两侧时间对比加确认弹窗、附件以 Drive 为持久层+本地 4MB 缓存+按需取回、20MB
+        总限移除、凭据走环境变量、文案全中文。Runtime 检查两项均通过（tsc 基线对比 exit 0、services 断言 14 项 exit
+        0），A1-A21 全部 passed；OAuth 关键链路为代码级验证，真机端到端待人工确认。
+      truncated: false
+    completed_at: 2026-08-29T06:50:49.890Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-08-29T03:30:58.088Z

@@ -1,6 +1,18 @@
 # 体检报告解析服务
 
-基于 FastAPI + PaddleOCR + LLM 结构化的体检报告解析服务，支持 PDF/JPG/PNG。
+基于 FastAPI 的体检报告解析薄代理服务：报告图片/PDF 直接提交给多模态大模型（默认 GLM-4V-Flash），返回结构化指标 JSON。支持 PDF/JPG/PNG，无本地 OCR 依赖，冷启动秒级。
+
+## 环境变量
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| `VISION_LLM_API_KEY` | 模型 API Key（必填，兼容旧名 `OCR_LLM_API_KEY`/`OPENAI_API_KEY`） | 无 |
+| `VISION_LLM_BASE_URL` | OpenAI 兼容端点（兼容旧名 `OCR_LLM_BASE_URL`） | `https://open.bigmodel.cn/api/paas/v4` |
+| `VISION_LLM_MODEL` | 模型名（兼容旧名 `OCR_LLM_MODEL`） | `glm-4v-flash` |
+| `VISION_LLM_FALLBACK_MODEL` | 备选模型（主模型失败时自动切换） | 无 |
+| `VISION_LLM_TIMEOUT_SEC` | 模型调用超时（秒） | `60` |
+| `VISION_LLM_MAX_OUTPUT_TOKENS` | 最大输出 token | `2000` |
+| `USE_MOCK` | Mock 模式（返回固定样例，用于本地调试/CI） | `false` |
 
 ## 快速开始
 
@@ -73,7 +85,7 @@ Render Dashboard -> New -> Blueprint -> Connect GitHub repo -> Deploy Blueprint
 ## LLM 结构化配置
 
 当前方案不是直接把图片发给多模态模型，而是：
-1. PaddleOCR 先识别图片/PDF 文本
+1. 模型先读取图片/PDF 页面
 2. 再把 OCR 文本交给大模型输出结构化指标
 3. 如果大模型不可用，自动回退到本地规则解析
 

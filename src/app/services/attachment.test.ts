@@ -1,13 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   ATTACHMENTS_KEY,
+  RECORDS_BASE_KEY,
   ALLOWED_TYPES,
   MAX_FILE_SIZE,
-  MAX_TOTAL_SIZE,
+  ATTACHMENT_CACHE_BUDGET,
   loadAttachments,
   saveAttachments,
   addAttachment,
   deleteAttachment,
+  findOrphanedAttachments,
+  cleanupOrphanedAttachments,
+  planAttachmentCacheEviction,
+  applyAttachmentCacheEviction,
+  mergeAttachmentMeta,
+  dataUrlToBytes,
+  bytesToDataUrl,
+  type AttachmentMeta,
   type HealthAttachment,
 } from "@/app/services/attachment";
 
@@ -29,12 +38,8 @@ describe("HealthAttachment constants", () => {
     expect(MAX_FILE_SIZE).toBe(10 * 1024 * 1024);
   });
 
-  it("MAX_TOTAL_SIZE is 20MB", () => {
-    expect(MAX_TOTAL_SIZE).toBe(20 * 1024 * 1024);
-  });
-
-  it("MAX_TOTAL_SIZE is twice MAX_FILE_SIZE", () => {
-    expect(MAX_TOTAL_SIZE).toBe(MAX_FILE_SIZE * 2);
+  it("ATTACHMENT_CACHE_BUDGET is 4MB", () => {
+    expect(ATTACHMENT_CACHE_BUDGET).toBe(4 * 1024 * 1024);
   });
 });
 
@@ -120,12 +125,12 @@ describe('attachment storage', () => {
     expect(loadAttachments()).toHaveLength(0);
   });
 
-  it('addAttachment fails when total size exceeds 20MB', () => {
+  it('addAttachment no longer enforces a total size limit (Drive is the persistence layer)', () => {
     const a1 = makeAttachment({ id: '1', fileSize: 9.5 * 1024 * 1024 });
-    const a2 = makeAttachment({ id: '2', fileSize: 10.6 * 1024 * 1024 });
+    const a2 = makeAttachment({ id: '2', fileSize: 10 * 1024 * 1024 });
     addAttachment(a1);
-    expect(addAttachment(a2)).toBe(false);
-    expect(loadAttachments()).toHaveLength(1);
+    expect(addAttachment(a2)).toBe(true);
+    expect(loadAttachments()).toHaveLength(2);
   });
 
   it('deleteAttachment removes attachment and clears referencing records', () => {
@@ -143,5 +148,131 @@ describe('attachment storage', () => {
     const updatedRecords = JSON.parse(localStorage.getItem('health_records_v1') || '[]');
     expect(updatedRecords[0].attachmentId).toBeUndefined();
     expect(updatedRecords[1].attachmentId).toBeUndefined();
+  });
+});
+
+describe('user-scoped attachment storage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  const userId = 'user-42';
+  const scoped = {
+    attachmentsKey: `${ATTACHMENTS_KEY}__${userId}`,
+    recordsKey: `${RECORDS_BASE_KEY}__${userId}`,
+  };
+
+  it('orphan cleanup operates on scoped keys when scope is provided', () => {
+    const referenced = makeAttachment({ id: 'kept' });
+    const orphaned = makeAttachment({ id: 'orphan' });
+    saveAttachments([referenced, orphaned], scoped);
+    // 用户作用域记录仅引用 kept
+    localStorage.setItem(
+      scoped.recordsKey,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'kept' }]),
+    );
+    // 基础键下放无关数据，不应被触碰
+    localStorage.setItem(RECORDS_BASE_KEY, JSON.stringify([{ id: 'legacy', attachmentId: 'orphan' }]));
+    saveAttachments([makeAttachment({ id: 'legacy-att' })]); // 基础附件键
+
+    const found = findOrphanedAttachments(scoped);
+    expect(found.map(a => a.id)).toEqual(['orphan']);
+
+    const removed = cleanupOrphanedAttachments(scoped);
+    expect(removed).toBe(1);
+    expect(loadAttachments(scoped).map(a => a.id)).toEqual(['kept']);
+    // 基础键数据保持原样
+    expect(JSON.parse(localStorage.getItem(RECORDS_BASE_KEY) || '[]')[0].attachmentId).toBe('orphan');
+    expect(loadAttachments().map(a => a.id)).toEqual(['legacy-att']);
+  });
+
+  it('orphan cleanup defaults to base keys for backward compatibility', () => {
+    const referenced = makeAttachment({ id: 'kept' });
+    const orphaned = makeAttachment({ id: 'orphan' });
+    saveAttachments([referenced, orphaned]);
+    localStorage.setItem(
+      RECORDS_BASE_KEY,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'kept' }]),
+    );
+
+    expect(findOrphanedAttachments().map(a => a.id)).toEqual(['orphan']);
+    expect(cleanupOrphanedAttachments()).toBe(1);
+    expect(loadAttachments().map(a => a.id)).toEqual(['kept']);
+  });
+
+  it('deleteAttachment with scope only touches scoped keys', () => {
+    const a = makeAttachment({ id: 'att1' });
+    saveAttachments([a], scoped);
+    localStorage.setItem(
+      scoped.recordsKey,
+      JSON.stringify([{ id: 'r1', date: '2026-07-04', indicatorType: 'bp', value: 120, attachmentId: 'att1' }]),
+    );
+    // 基础键放置应保持不变的数据
+    const baseRecords = [{ id: 'base-r', attachmentId: 'base-att' }];
+    localStorage.setItem(RECORDS_BASE_KEY, JSON.stringify(baseRecords));
+
+    deleteAttachment('att1', scoped);
+
+    expect(loadAttachments(scoped)).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem(scoped.recordsKey) || '[]')[0].attachmentId).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(RECORDS_BASE_KEY) || '[]')).toEqual(baseRecords);
+  });
+
+  it('addAttachment with scope writes to scoped key only', () => {
+    const a = makeAttachment({ id: 'scoped-att' });
+    expect(addAttachment(a, scoped)).toBe(true);
+    expect(loadAttachments(scoped)).toHaveLength(1);
+    expect(loadAttachments()).toHaveLength(0);
+  });
+});
+
+describe("Drive 持久层与本地缓存策略", () => {
+  const makeMeta = (overrides: Partial<HealthAttachment> = {}): HealthAttachment =>
+    makeAttachment({ createdAt: "2026-01-01T00:00:00.000Z", ...overrides });
+
+  it("planAttachmentCacheEviction only evicts synced attachments, oldest first", () => {
+    const a1 = makeMeta({ id: "a1", data: "x".repeat(3000), driveFileId: "d1", createdAt: "2026-01-01T00:00:00.000Z" });
+    const a2 = makeMeta({ id: "a2", data: "x".repeat(3000), driveFileId: "d2", createdAt: "2026-01-02T00:00:00.000Z" });
+    const a3 = makeMeta({ id: "a3", data: "x".repeat(3000), createdAt: "2026-01-03T00:00:00.000Z" }); // 未上传云盘
+    const evictIds = planAttachmentCacheEviction([a1, a2, a3], 5000);
+    // 总缓存 9000 超预算 5000：清掉 a1(3000) 后仍超 2000，需再清 a2(3000) 才回到预算内
+    expect(evictIds).toEqual(["a1", "a2"]);
+  });
+
+  it("planAttachmentCacheEviction returns empty when under budget", () => {
+    const a1 = makeMeta({ id: "a1", data: "x".repeat(100), driveFileId: "d1" });
+    expect(planAttachmentCacheEviction([a1], 4000)).toEqual([]);
+  });
+
+  it("applyAttachmentCacheEviction clears data of evicted attachments only", () => {
+    const a1 = makeMeta({ id: "a1", data: "x" });
+    const a2 = makeMeta({ id: "a2", data: "y" });
+    const next = applyAttachmentCacheEviction([a1, a2], ["a1"]);
+    expect(next[0].data).toBeUndefined();
+    expect(next[1].data).toBe("y");
+    expect(next[0].driveFileId).toBeUndefined();
+  });
+
+  it("mergeAttachmentMeta prefers cloud entries with driveFileId", () => {
+    const local: AttachmentMeta[] = [
+      { id: "1", fileName: "a.pdf", fileType: "application/pdf", fileSize: 1, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "2", fileName: "b.png", fileType: "image/png", fileSize: 2, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const remote: AttachmentMeta[] = [
+      { id: "1", fileName: "a.pdf", fileType: "application/pdf", fileSize: 1, date: "2026-01-01", createdAt: "2026-01-01T00:00:00.000Z", driveFileId: "drive-1" },
+      { id: "3", fileName: "c.pdf", fileType: "application/pdf", fileSize: 3, date: "2026-01-02", createdAt: "2026-01-02T00:00:00.000Z", driveFileId: "drive-3" },
+    ];
+    const merged = mergeAttachmentMeta(local, remote);
+    expect(merged).toHaveLength(3);
+    expect(merged.find(a => a.id === "1")?.driveFileId).toBe("drive-1");
+    expect(merged.find(a => a.id === "2")?.driveFileId).toBeUndefined();
+  });
+
+  it("data url <-> bytes round-trip", () => {
+    const dataUrl = "data:application/pdf;base64," + btoa("hello health hub");
+    const bytes = dataUrlToBytes(dataUrl);
+    expect(Array.from(bytes)).toEqual(Array.from(new TextEncoder().encode("hello health hub")));
+    const restored = bytesToDataUrl(bytes, "application/pdf");
+    expect(restored).toBe(dataUrl);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   matchIndicator,
   calcConfidence,
@@ -7,6 +7,8 @@ import {
   extractDate,
   resolveIndicators,
   groupByAction,
+  clusterUnnamedIndicators,
+  type ResolvedIndicator,
   type ParsedTable,
   type ExtractedIndicator,
 } from "@/app/services/medicalReport";
@@ -215,5 +217,162 @@ describe("groupByAction", () => {
     const grouped = groupByAction(resolved);
     expect(grouped.import).toHaveLength(1);
     expect(grouped.unnamed).toHaveLength(1);
+  });
+});
+
+
+describe("clusterUnnamedIndicators（未命名指标聚类）", () => {
+  const makeUnnamed = (rawLabel: string, value = 5): ResolvedIndicator[] =>
+    rawLabel.split(",").map((label, i) => ({
+      rawLabel: label,
+      value: value + i,
+      unit: "mmol/L",
+      pageIndex: 0,
+      matchType: "none" as const,
+      confidence: { level: "low" as const, score: 0, reasons: [] },
+      userItemFound: false,
+      action: "unnamed" as const,
+    }));
+
+  it("归一化后相同名称聚为一簇（空格等格式差异）", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("血糖,血糖 ,血糖"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].items).toHaveLength(3);
+  });
+
+  it("编辑距离相似度 ≥0.85 的写法变体并入同簇", () => {
+    // 8 字 vs 9 字仅差一个"1"，相似度 8/9 ≈ 0.89
+    const clusters = clusterUnnamedIndicators(makeUnnamed("乳酸脱氢酶同工酶,乳酸脱氢酶同工酶1"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].items).toHaveLength(2);
+  });
+
+  it("不同指标不误并（白细胞 vs 白细胞酯酶，相似度仅 0.6）", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("白细胞,白细胞酯酶"));
+    expect(clusters).toHaveLength(2);
+  });
+
+  it("簇内保留各自数值，canonicalLabel 取首条原始写法", () => {
+    const clusters = clusterUnnamedIndicators(makeUnnamed("血清甘油三酯,血清甘油三酯"));
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].canonicalLabel).toBe("血清甘油三酯");
+    const values = clusters[0].items.map(item => item.value).sort((a, b) => a - b);
+    expect(values).toEqual([5, 6]);
+  });
+
+  it("空数组返回空簇；单条返回单簇", () => {
+    expect(clusterUnnamedIndicators([])).toEqual([]);
+    const single = clusterUnnamedIndicators(makeUnnamed("肌钙蛋白I"));
+    expect(single).toHaveLength(1);
+    expect(single[0].items).toHaveLength(1);
+  });
+});
+
+/* ── parseMedicalReport 网络行为：端点降级 / 422 短路 / 取消 / 超时 ── */
+
+describe("parseMedicalReport 网络行为", () => {
+  const successPayload = {
+    success: true,
+    pageCount: 1,
+    reportDate: "2026-01-15",
+    tables: [],
+    indicators: [
+      { rawLabel: "空腹血糖", value: 5.3, unit: "mmol/L", referenceRange: "3.9-6.1", pageIndex: 0 },
+    ],
+    markdown: "",
+  };
+
+  const loadFreshModule = async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_REPORT_PARSER_URLS", "https://ep1.example,https://ep2.example");
+    return await import("@/app/services/medicalReport");
+  };
+
+  const makeResponse = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("4xx（非 422）继续尝试下一端点并成功", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      calls.push(String(url));
+      if (String(url).startsWith("https://ep1.example")) {
+        return Promise.resolve(makeResponse(400, { detail: "bad request" }));
+      }
+      return Promise.resolve(makeResponse(200, successPayload));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.png", { type: "image/png" });
+    const result = await mod.parseMedicalReport(file);
+
+    expect(calls).toEqual([
+      "https://ep1.example/api/parse",
+      "https://ep2.example/api/parse",
+    ]);
+    expect(result.success).toBe(true);
+    expect(result.indicators[0].rawLabel).toBe("空腹血糖");
+  });
+
+  it("422 参数校验错误短路降级链", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      calls.push(String(url));
+      return Promise.resolve(makeResponse(422, { detail: "validation error" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.png", { type: "image/png" });
+
+    await expect(mod.parseMedicalReport(file)).rejects.toThrow("解析失败 (422)");
+    expect(calls).toEqual(["https://ep1.example/api/parse"]);
+  });
+
+  it("外部 signal 已取消时立即以 AbortError 拒绝", async () => {
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(new DOMException("aborted", "AbortError"));
+        }
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.png", { type: "image/png" });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      mod.parseMedicalReport(file, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("超时错误文案包含等待秒数且不引用已下线的 Render", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.reject(new DOMException("请求超时", "AbortError")),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.png", { type: "image/png" });
+
+    await expect(mod.parseMedicalReport(file)).rejects.toThrow(/已等待 65 秒/);
+    // 所有端点都被尝试
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    try {
+      await mod.parseMedicalReport(file);
+    } catch (error) {
+      expect(String(error)).not.toContain("Render");
+    }
   });
 });

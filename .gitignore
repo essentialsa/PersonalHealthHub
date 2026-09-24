@@ -35,3 +35,5 @@ screenshots/
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
+.env*
+!.env.example

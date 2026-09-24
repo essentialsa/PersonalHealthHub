@@ -1,0 +1,33 @@
+schema: comet.native.children.v2
+acceptance_index:
+  A1:
+    source: brief.md
+    text: "A1 授权持久化：首次 Google 授权后，refresh token 持久保存；此后重新打开应用，无需人工重新授权即可完成 Drive 上传/拉取"
+  A2:
+    source: brief.md
+    text: "A2 自动备份：记录数据发生变更后（增删改、导入），自动静默上传 Google Drive；提供开关，默认开启；家人无需任何手动操作"
+  A3:
+    source: brief.md
+    text: "A3 拉取保护：云端备份比本地新时，拉取前明确提示（显示两侧时间），不会静默覆盖本地"
+  A4:
+    source: brief.md
+    text: "A4 附件同步：附件（报告照片/PDF）随备份上传 Google Drive；从备份恢复后附件可用；附件总量不再受 localStorage 20MB 限制"
+  A5:
+    source: brief.md
+    text: "A5 OCR 模型切换：报告图片由多模态模型直接识别输出结构化 JSON；模型名、base URL、API key 全部为环境变量配置；后端不含 PaddleOCR"
+  A6:
+    source: brief.md
+    text: "A6 OCR 可靠性：正常网络下报告导入在 30 秒内返回；失败时前端给出明确失败状态与降级引导（手动录入/Excel 导入/照片挂附件），不出现无限 loading"
+  A7:
+    source: brief.md
+    text: "A7 移动端可读：375px 宽度下 RecordTable/RecordChart 数据可读（数值、参考范围箭头、颜色不重叠不截断）、就诊摘要可完整展示并复制；微信内置浏览器打开正常；发现的问题修复并留有验证记录"
+children:
+  - name: drive-auto-backup
+    depends_on: []
+    covers: [A1, A2, A3, A4]
+  - name: ocr-multimodal-import
+    depends_on: []
+    covers: [A5, A6]
+  - name: mobile-reading
+    depends_on: []
+    covers: [A7]

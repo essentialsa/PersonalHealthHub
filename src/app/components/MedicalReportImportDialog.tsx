@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/app/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/app/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
@@ -7,9 +7,11 @@ import { Badge } from "@/app/components/ui/badge";
 import { Progress } from "@/app/components/ui/progress";
 import { Input } from "@/app/components/ui/input";
 import { cn } from "@/app/components/ui/utils";
-import { UploadCloud, FileText, AlertCircle, CheckCircle, Loader2, X, RefreshCw } from "lucide-react";
+import { UploadCloud, FileText, AlertCircle, CheckCircle, Loader2, X, RefreshCw, Sparkles } from "lucide-react";
 import type { HealthRecord } from "@/app/components/AddRecordDialog";
 import type { HealthAttachment } from "@/app/services/attachment";
+import { MAX_FILE_SIZE as MAX_ATTACHMENT_SIZE } from "@/app/services/attachment";
+import { recordDuplicateKey } from "@/app/services/duplicateRecords";
 import { Checkbox } from "@/app/components/ui/checkbox";
 import {
   parseMedicalReport,
@@ -18,24 +20,99 @@ import {
   resolveIndicators,
   groupByAction,
   getCategoriesToCreate,
+  clusterUnnamedIndicators,
+  matchUnnamedLabels,
+  normalizeIndicatorText,
   type ParseResult,
   type ParserServiceStatus,
   type ResolvedIndicator,
+  type ExtractedIndicator,
   type UserIndicatorCategory,
 } from "@/app/services/medicalReport";
 import { CategorySelectDialog } from "./CategorySelectDialog";
+import { compressImageFile } from "@/app/services/imageCompress";
 
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
 const MAX_SIZE = 50 * 1024 * 1024;
+
+/**
+ * 未命名指标簇的重命名输入：内部持有输入状态（重聚类不重挂载、不丢焦点），
+ * 在失焦/回车/采用时提交，由父级整表重跑匹配（命中用户指标库即转可导入）。
+ */
+function ClusterRenameInput({
+  initialLabel,
+  suggestion,
+  onCommit,
+  onSkip,
+  itemCount,
+}: {
+  initialLabel: string;
+  suggestion?: string;
+  onCommit: (label: string) => void;
+  onSkip: () => void;
+  itemCount: number;
+}) {
+  const [value, setValue] = useState(initialLabel);
+  const suggestionVisible = Boolean(suggestion && suggestion !== initialLabel && suggestion !== value);
+
+  return (
+    <div className="bg-white rounded-md p-2 space-y-1">
+      <div className="flex items-center gap-2">
+        <Input
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onBlur={() => onCommit(value)}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          className="h-8 text-sm flex-1"
+        />
+        <span className="text-[11px] text-muted-foreground whitespace-nowrap">{itemCount} 条记录</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs text-muted-foreground"
+          onMouseDown={e => e.preventDefault()}
+          onClick={onSkip}
+        >
+          跳过
+        </Button>
+      </div>
+      {suggestionVisible && suggestion && (
+        <div className="flex items-center gap-2 pl-1">
+          <Sparkles className="w-3 h-3 text-violet-500" />
+          <span className="text-xs text-violet-600">AI 建议命名为「{suggestion}」</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-xs px-2 border-violet-200 text-violet-600"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => {
+              setValue(suggestion);
+              onCommit(suggestion);
+            }}
+          >
+            采用
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   onImportRecords: (records: HealthRecord[]) => void;
   onAddAttachment?: (attachment: HealthAttachment) => boolean;
   existingCategories?: UserIndicatorCategory[];
+  existingRecords?: HealthRecord[];
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], triggerClassName }: Props) {
+export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], existingRecords = [], triggerClassName, triggerLabel }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"upload" | "preview">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -50,7 +127,72 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [serviceChecking, setServiceChecking] = useState(false);
   const [filter, setFilter] = useState<"all" | "high" | "medium" | "low">("all");
   const [retainReport, setRetainReport] = useState(true);
+  // 用户勾选强制导入的"疑似重复"记录键（同日期+同指标+同数值）
+  const [forcedDuplicates, setForcedDuplicates] = useState<Set<string>>(new Set());
   const serviceOnline = serviceStatus?.online ?? null;
+
+  // 解析原始提取结果：未命名指标改名后整表重跑 resolveIndicators 用
+  const [extracted, setExtracted] = useState<ExtractedIndicator[]>([]);
+  // 对话框级取消信号：关闭/卸载时 abort 在途解析与二次匹配请求
+  const abortRef = useRef<AbortController | null>(null);
+
+  // 卸载时取消所有在途请求
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
+  // 既有记录的重复键集合：用于预览表中标记"疑似重复"
+  const existingDuplicateKeys = useMemo(
+    () => new Set(existingRecords.map(recordDuplicateKey)),
+    [existingRecords],
+  );
+
+  // ── 未命名指标：聚类 + 免费模型二次匹配 ──
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiRequestedRef = useRef("");
+
+  const unnamedClusters = useMemo(
+    () => clusterUnnamedIndicators(matched.filter(m => m.matchType === "none")),
+    [matched],
+  );
+  const clusterSignature = unnamedClusters.map(c => c.key).join("|");
+
+  useEffect(() => {
+    if (unnamedClusters.length === 0) {
+      aiRequestedRef.current = "";
+      return;
+    }
+    if (aiRequestedRef.current === clusterSignature) {
+      return;
+    }
+    aiRequestedRef.current = clusterSignature;
+    const catalog = existingCategories.flatMap(category =>
+      (category.items || []).map(item => ({ id: `${category.id}::${item.id}`, label: item.label })),
+    );
+    const labels = unnamedClusters.map(cluster => cluster.canonicalLabel);
+    setAiLoading(true);
+    void matchUnnamedLabels(labels, catalog, { signal: abortRef.current?.signal })
+      .then(suggestions => {
+        if (!suggestions) return;
+        const next: Record<string, string> = {};
+        for (const cluster of unnamedClusters) {
+          const hit = suggestions.find(s =>
+            normalizeIndicatorText(s.label) === cluster.key ||
+            cluster.keys.some(key => key === normalizeIndicatorText(s.label)),
+          );
+          if (hit?.catalogLabel) {
+            next[cluster.key] = hit.catalogLabel;
+          }
+        }
+        setAiSuggestions(prev => ({ ...prev, ...next }));
+      })
+      .finally(() => setAiLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterSignature]);
 
   const checkService = useCallback(async () => {
     setServiceChecking(true);
@@ -73,8 +215,14 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const handleFile = async (f: File) => {
     if (!ALLOWED.includes(f.type)) { setError("仅支持 PDF、JPG、PNG 格式"); return; }
     if (f.size > MAX_SIZE) { setError("文件不能超过 50MB"); return; }
-    setFile(f);
     setError(null);
+    // 大图先压缩：控制请求体体积（Serverless 上限），对识别也更友好
+    try {
+      const { file: compressed } = await compressImageFile(f);
+      setFile(compressed);
+    } catch {
+      setFile(f);
+    }
   };
 
   const handleParse = async () => {
@@ -82,18 +230,23 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setParsing(true);
     setProgress(0);
     setTab("preview");
+    abortRef.current = new AbortController();
 
-    // OCR 解析耗时主要取决于 Render 冷启动和报告页数，进度只表示等待状态。
+    // 解析耗时主要取决于报告页数与模型响应，进度只表示等待状态。
     const timer = setInterval(() => setProgress(p => Math.min(p + (p < 70 ? Math.random() * 4 : Math.random() * 1.2), 92)), 1200);
 
     try {
-      const r = await parseMedicalReport(file);
-      const extracted =
+      const r = await parseMedicalReport(file, { signal: abortRef.current.signal });
+      const nextExtracted =
         Array.isArray(r.indicators) && r.indicators.length > 0
           ? r.indicators
           : extractIndicatorsFromTables(r.tables);
-      const resolved = resolveIndicators(extracted, existingCategories);
+      const resolved = resolveIndicators(nextExtracted, existingCategories);
       setMatched(resolved);
+      setExtracted(nextExtracted);
+      setAiSuggestions({});
+      setForcedDuplicates(new Set());
+      aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
 
       clearInterval(timer);
@@ -101,6 +254,10 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       setResult(r);
     } catch (e) {
       clearInterval(timer);
+      // 关闭对话框导致的取消：不再弹错误提示
+      if (abortRef.current?.signal.aborted) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "解析失败");
       setTab("upload");
     } finally {
@@ -112,7 +269,12 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (!result) return;
     const date = result.reportDate || new Date().toISOString().split("T")[0];
     let records: HealthRecord[] = matched
-      .filter(m => m.action === "import" && (m.userItemId || m.systemId))
+      .filter(m => {
+        if (m.action !== "import" || !(m.userItemId || m.systemId)) return false;
+        // 疑似重复（同日期+同指标+同数值）默认跳过，用户勾选后方可强制导入
+        const dupKey = recordDuplicateKey({ date, indicatorType: (m.userItemId || m.systemId)!, value: m.value });
+        return !existingDuplicateKeys.has(dupKey) || forcedDuplicates.has(dupKey);
+      })
       .map(m => ({
         id: `${Date.now()}_${m.userItemId || m.systemId}_${Math.random().toString(36).slice(2, 8)}`,
         date,
@@ -123,26 +285,49 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       }));
 
     // 保留原始报告作为附件
-    if (retainReport && file && onAddAttachment) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const attachment: HealthAttachment = {
-          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-          data: reader.result as string,
-          date,
-          createdAt: new Date().toISOString(),
-        };
-        onAddAttachment(attachment);
-        const recordsWithAttachment = records.map(r => ({ ...r, attachmentId: attachment.id }));
-        onImportRecords(recordsWithAttachment);
+    if (retainReport && file) {
+      // 附件服务有独立的 10MB 上限（解析仍允许 50MB）：超限时导入前警告，避免悬空 attachmentId
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        const proceed = window.confirm(
+          `报告文件超过附件大小上限（${MAX_ATTACHMENT_SIZE / 1024 / 1024}MB），无法保留为附件。\n是否继续导入（不含附件）？`,
+        );
+        if (!proceed) return;
+        onImportRecords(records);
         handleClose();
-      };
-      reader.onerror = () => setError("文件读取失败");
-      reader.readAsDataURL(file);
-      return;
+        return;
+      }
+      if (onAddAttachment) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const attachment: HealthAttachment = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            data: reader.result as string,
+            date,
+            createdAt: new Date().toISOString(),
+          };
+          // 显式检查保存结果：失败时明确告知，且记录不引用不存在的附件
+          let saved = false;
+          try {
+            saved = onAddAttachment(attachment);
+          } catch {
+            saved = false;
+          }
+          if (!saved) {
+            window.alert("附件未保存（超出大小限制或本地存储空间不足），记录已导入，但未附带原始报告。");
+          }
+          const recordsWithAttachment = saved
+            ? records.map(r => ({ ...r, attachmentId: attachment.id }))
+            : records;
+          onImportRecords(recordsWithAttachment);
+          handleClose();
+        };
+        reader.onerror = () => setError("文件读取失败");
+        reader.readAsDataURL(file);
+        return;
+      }
     }
 
     onImportRecords(records);
@@ -150,18 +335,44 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   };
 
   const handleClose = () => {
+    // 关闭即取消在途解析/二次匹配请求
+    abortRef.current?.abort();
+    abortRef.current = null;
     setOpen(false);
     setTab("upload");
     setFile(null);
     setError(null);
     setResult(null);
     setMatched([]);
+    setExtracted([]);
     setProgress(0);
     setPendingCategories([]);
     setCategoryDialogOpen(false);
     setServiceStatus(null);
     setServiceChecking(false);
     setRetainReport(true);
+    setForcedDuplicates(new Set());
+  };
+
+  /**
+   * 未命名指标改名后整表重跑匹配：新名称命中用户指标库或标准词典时，
+   * 对应条目即时转为可导入（action='import'），让命名真正生效。
+   */
+  const applyClusterRename = (clusterItems: ResolvedIndicator[], label: string) => {
+    if (!label.trim()) {
+      return;
+    }
+    const indices = matched
+      .map((m, idx) => (clusterItems.includes(m) ? idx : -1))
+      .filter(idx => idx >= 0);
+    if (indices.length === 0) {
+      return;
+    }
+    const nextExtracted = extracted.map((item, idx) =>
+      indices.includes(idx) ? { ...item, rawLabel: label.trim() } : item,
+    );
+    setExtracted(nextExtracted);
+    setMatched(resolveIndicators(nextExtracted, existingCategories));
   };
 
   const handleCategoryConfirm = (actions: { groupId: string; action: "create" | "assign" | "skip"; categoryId?: string; customName?: string }[]) => {
@@ -174,7 +385,20 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const filtered = matched.filter(m => filter === "all" || m.confidence.level === filter);
   const counts = { all: matched.length, high: matched.filter(m => m.confidence.level === "high").length, medium: matched.filter(m => m.confidence.level === "medium").length, low: matched.filter(m => m.confidence.level === "low").length };
   const groupedCounts = groupByAction(matched);
-  const importableCount = groupedCounts.import.length;
+  const previewDate = result?.reportDate || new Date().toISOString().split("T")[0];
+  // 预览用重复键：与 handleImport 的过滤口径一致
+  const duplicateKeyOf = (m: ResolvedIndicator) =>
+    m.userItemId || m.systemId
+      ? recordDuplicateKey({ date: previewDate, indicatorType: (m.userItemId || m.systemId)!, value: m.value })
+      : null;
+  const duplicateCount = groupedCounts.import.filter(m => {
+    const key = duplicateKeyOf(m);
+    return key !== null && existingDuplicateKeys.has(key);
+  }).length;
+  const importableCount = groupedCounts.import.filter(m => {
+    const key = duplicateKeyOf(m);
+    return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
+  }).length;
   const suggestedCount = groupedCounts.createCategory.length + groupedCounts.createItem.length;
 
   const confColor: Record<string, "default" | "secondary" | "destructive"> = { high: "default", medium: "secondary", low: "destructive" };
@@ -208,7 +432,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           )}
         >
           <FileText className="w-4 h-4" />
-          报告导入
+          {triggerLabel ?? "报告导入"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -335,7 +559,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                     {filtered.length === 0 && (
                       <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">无数据</TableCell></TableRow>
                     )}
-                    {filtered.map((m, i) => (
+                    {filtered.map((m, i) => {
+                      const dupKey = duplicateKeyOf(m);
+                      const isDuplicate = m.action === "import" && dupKey !== null && existingDuplicateKeys.has(dupKey);
+                      const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
+                      return (
                       <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
                         <TableCell className="font-medium">{m.rawLabel}</TableCell>
                         <TableCell className="text-right">{m.value}</TableCell>
@@ -345,6 +573,28 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           <Badge variant={m.action === "import" ? "default" : "secondary"} className="text-xs">
                             {actionLabel[m.action]}
                           </Badge>
+                          {isDuplicate && (
+                            <div className="mt-1 flex items-center gap-1">
+                              <Badge variant="destructive" className="text-[10px]">疑似重复</Badge>
+                              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                <Checkbox
+                                  checked={forceChecked}
+                                  onCheckedChange={checked => {
+                                    setForcedDuplicates(prev => {
+                                      const next = new Set(prev);
+                                      if (checked && dupKey !== null) {
+                                        next.add(dupKey);
+                                      } else if (dupKey !== null) {
+                                        next.delete(dupKey);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                仍导入
+                              </label>
+                            </div>
+                          )}
                           {m.action !== "import" && m.systemLabel ? (
                             <div className="mt-1 text-[11px] text-muted-foreground">建议：{m.systemLabel}</div>
                           ) : null}
@@ -353,7 +603,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           <Badge variant={confColor[m.confidence.level]} className="text-xs">{confLabel[m.confidence.level]}</Badge>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
 
@@ -385,33 +636,37 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   <div className="mt-4 border rounded-lg p-4 bg-amber-50/50">
                     <div className="flex items-center gap-2 mb-3">
                       <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项）</h4>
+                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedClusters.length} 组）</h4>
                     </div>
                     <div className="space-y-2">
-                      {matched.filter(m => m.matchType === "none").map((m, i) => (
-                        <div key={`unnamed-${i}`} className="flex items-center gap-2 bg-white rounded-md p-2">
-                          <Input
-                            defaultValue={m.rawLabel}
-                            className="h-8 text-sm flex-1"
-                            onChange={e => {
-                              const updated = [...matched];
-                              updated[matched.indexOf(m)] = { ...updated[matched.indexOf(m)], rawLabel: e.target.value };
-                              setMatched(updated);
+                      {unnamedClusters.map(cluster => {
+                        const suggestion = aiSuggestions[cluster.key];
+                        // 稳定 key：簇首条目在 matched 中的位置（重跑匹配后位置不变，组件不重挂载）
+                        const stableKey = matched.indexOf(cluster.items[0]);
+                        return (
+                          <ClusterRenameInput
+                            key={stableKey}
+                            initialLabel={cluster.canonicalLabel}
+                            suggestion={suggestion}
+                            itemCount={cluster.items.length}
+                            onCommit={label => applyClusterRename(cluster.items, label)}
+                            onSkip={() => {
+                              setMatched(prev => prev.filter(m => !cluster.items.includes(m)));
                             }}
                           />
-                          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => {
-                            setMatched(matched.filter((_, idx) => idx !== matched.indexOf(m)));
-                          }}>跳过</Button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">💡 可直接修改指标名称，或点击"跳过"忽略</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      💦 {aiLoading ? "AI 正在生成命名建议…" : "写法相近的指标已自动归为一组，命名一次即可应用到整组；可直接修改或点击「跳过」忽略"}
+                    </p>
                   </div>
                 )}
 
                 {/* 统计信息 */}
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2 pt-2">
                   <span>可导入: {importableCount}</span>
+                  {duplicateCount > 0 && <span className="text-red-600">疑似重复: {duplicateCount}（默认跳过）</span>}
                   <span>建议维护: {suggestedCount}</span>
                   <span>未命名: {groupedCounts.unnamed.length}</span>
                 </div>

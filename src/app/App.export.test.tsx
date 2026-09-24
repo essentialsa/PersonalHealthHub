@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, screen, waitFor } from "@testing-library/react";
-import * as XLSX from "xlsx";
 
 const supabaseGetSessionMock = vi.fn();
 const supabaseOnAuthStateChangeMock = vi.fn();
@@ -13,7 +12,9 @@ vi.mock("@supabase/supabase-js", async actualImport => {
       return {
         auth: {
           getSession: supabaseGetSessionMock,
-          onAuthStateChange: supabaseOnAuthStateChangeMock,
+          onAuthStateChange: supabaseOnAuthStateChangeMock.mockReturnValue({
+            data: { subscription: { unsubscribe: vi.fn() } },
+          }),
           signInWithPassword: vi.fn(),
           signUp: vi.fn(),
           resetPasswordForEmail: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock("@supabase/supabase-js", async actualImport => {
   };
 });
 
-import App, { testCloudConnection, exchangeGoogleDriveCodeForToken } from "./App";
+import { testCloudConnection, exchangeGoogleDriveCodeForToken } from "./App";
 
 const createLocalStorageMock = () => {
   let store: Record<string, string> = {};
@@ -54,8 +55,10 @@ describe("Excel 导出空指标与数据过滤", () => {
     vi.restoreAllMocks();
     localStorage.clear();
     vi.spyOn(window, "alert").mockImplementation(() => {});
-    delete (window as any).VITE_SUPABASE_URL;
-    delete (window as any).VITE_SUPABASE_ANON_KEY;
+    // 模块级常量在 import 时读取 env，需 resetModules 后用动态 import 重新求值
+    vi.resetModules();
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
   });
 
   it("当某个指标分类无数据时，仅生成表头行的空 Sheet", async () => {
@@ -85,11 +88,14 @@ describe("Excel 导出空指标与数据过滤", () => {
 
     const appendedSheets: { name: string; aoa: unknown[][] }[] = [];
 
-    vi.spyOn(XLSX.utils, "book_new").mockReturnValue({ Sheets: {}, SheetNames: [] } as any);
-    vi.spyOn(XLSX.utils, "aoa_to_sheet").mockImplementation((aoa: unknown[][]) => {
+    const { default: AppDynamic } = await import("./App");
+    const XlsxDynamic = await import("xlsx");
+
+    vi.spyOn(XlsxDynamic.utils, "book_new").mockReturnValue({ Sheets: {}, SheetNames: [] } as any);
+    vi.spyOn(XlsxDynamic.utils, "aoa_to_sheet").mockImplementation((aoa: unknown[][]) => {
       return { __aoa: aoa } as any;
     });
-    vi.spyOn(XLSX.utils, "book_append_sheet").mockImplementation((wb: any, sheet: any, name?: string) => {
+    vi.spyOn(XlsxDynamic.utils, "book_append_sheet").mockImplementation((wb: any, sheet: any, name?: string) => {
       if (!name) {
         return;
       }
@@ -101,9 +107,9 @@ describe("Excel 导出空指标与数据过滤", () => {
       }
       wb.Sheets[name] = sheet;
       wb.SheetNames.push(name);
-      appendedSheets.push({ name, aoa: sheet.__aoa });
+      appendedSheets.push({ name, aoa: (sheet as { __aoa: unknown[][] }).__aoa });
     });
-    render(<App />);
+    render(<AppDynamic />);
 
     const openButton = await screen.findByRole("button", { name: /导出Excel/ });
     fireEvent.click(openButton);
@@ -156,11 +162,14 @@ describe("Excel 导出空指标与数据过滤", () => {
 
     const appendedSheets: { name: string; aoa: unknown[][] }[] = [];
 
-    vi.spyOn(XLSX.utils, "book_new").mockReturnValue({ Sheets: {}, SheetNames: [] } as any);
-    vi.spyOn(XLSX.utils, "aoa_to_sheet").mockImplementation((aoa: unknown[][]) => {
+    const { default: AppDynamic } = await import("./App");
+    const XlsxDynamic = await import("xlsx");
+
+    vi.spyOn(XlsxDynamic.utils, "book_new").mockReturnValue({ Sheets: {}, SheetNames: [] } as any);
+    vi.spyOn(XlsxDynamic.utils, "aoa_to_sheet").mockImplementation((aoa: unknown[][]) => {
       return { __aoa: aoa } as any;
     });
-    vi.spyOn(XLSX.utils, "book_append_sheet").mockImplementation((wb: any, sheet: any, name?: string) => {
+    vi.spyOn(XlsxDynamic.utils, "book_append_sheet").mockImplementation((wb: any, sheet: any, name?: string) => {
       if (!name) {
         return;
       }
@@ -172,9 +181,9 @@ describe("Excel 导出空指标与数据过滤", () => {
       }
       wb.Sheets[name] = sheet;
       wb.SheetNames.push(name);
-      appendedSheets.push({ name, aoa: sheet.__aoa });
+      appendedSheets.push({ name, aoa: (sheet as { __aoa: unknown[][] }).__aoa });
     });
-    render(<App />);
+    render(<AppDynamic />);
 
     const openButton = await screen.findByRole("button", { name: /导出Excel/ });
     fireEvent.click(openButton);
@@ -364,8 +373,8 @@ describe("登录状态加载逻辑", () => {
     vi.resetModules();
     supabaseGetSessionMock.mockReset();
     supabaseOnAuthStateChangeMock.mockReset();
-    (window as any).VITE_SUPABASE_URL = "https://test.supabase.co";
-    (window as any).VITE_SUPABASE_ANON_KEY = "anon-key";
+    vi.stubEnv("VITE_SUPABASE_URL", "https://test.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "anon-key");
   });
 
   it("网络正常时快速完成登录状态判断并展示登录页", async () => {

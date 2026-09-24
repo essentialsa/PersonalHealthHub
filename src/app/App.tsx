@@ -1,12 +1,17 @@
-import { useState, useEffect, type FormEvent, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent, type ChangeEvent } from "react";
 import { AddRecordDialog, HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 import { RecordTable } from "@/app/components/RecordTable";
-import { RecordChart } from "@/app/components/RecordChart";
 import { ImportRecordsDialog } from "@/app/components/ImportRecordsDialog";
 import { MedicalReportImportDialog } from "@/app/components/MedicalReportImportDialog";
 import { ExportDialog } from "@/app/components/ExportDialog";
 import { ConsultationBriefDialog } from "@/app/components/ConsultationBriefDialog";
 import { AttachmentPreviewDialog } from "@/app/components/AttachmentPreviewDialog";
+import { DataMaintenancePage, cardBtnPrimary, cardBtnSecondary } from "@/app/components/DataMaintenancePage";
+import { ChartAnalysisPage } from "@/app/components/ChartAnalysisPage";
+import { AppSidebar, MobileSidebarSheet, type SidebarGroup } from "@/app/components/shell/AppSidebar";
+import { AppTopbar } from "@/app/components/shell/AppTopbar";
+import { AppNotifications } from "@/app/components/shell/AppNotifications";
+import { StatsCards } from "@/app/components/shell/StatsCards";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
@@ -36,9 +41,6 @@ import {
 import {
   Download,
   Activity,
-  TrendingUp,
-  Calendar,
-  Database,
   Settings2,
   Trash2,
   RotateCcw,
@@ -47,22 +49,34 @@ import {
   CloudUpload,
   HardDrive,
   Loader2,
-  Lock,
-  Unlock,
   ShieldCheck,
   UserCog,
   User,
-  Eye,
   EyeOff,
   CheckCircle2,
-  XCircle,
   CloudDownload,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { cn } from "@/app/components/ui/utils";
 import * as XLSX from "xlsx";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import { type HealthAttachment, addAttachment as addAttachmentStorage, deleteAttachment as deleteAttachmentStorage, ATTACHMENTS_KEY } from "@/app/services/attachment";
+import {
+  type HealthAttachment,
+  type AttachmentMeta,
+  addAttachment as addAttachmentStorage,
+  deleteAttachment as deleteAttachmentStorage,
+  type AttachmentStorageScope,
+  ATTACHMENTS_KEY,
+  ATTACHMENT_CACHE_BUDGET,
+  toAttachmentMeta,
+  mergeAttachmentMeta,
+  planAttachmentCacheEviction,
+  applyAttachmentCacheEviction,
+  bytesToDataUrl,
+} from "@/app/services/attachment";
+import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -130,6 +144,7 @@ interface CloudProviderAuth {
   expiresAt?: string;
   refreshToken?: string;
   rootFolderId?: string;
+  attachmentsFolderId?: string;
   dataFileId?: string;
   permissions: CloudProviderPermissions;
   lastVerified?: string;
@@ -432,6 +447,17 @@ const createGooglePkceVerifier = () => {
   return generateRandomString(64);
 };
 
+// PKCE S256：challenge = base64url(SHA-256(verifier ASCII))，无填充
+const createGooglePkceChallenge = async (verifier: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+
 // Old keys for migration
 const LEGACY_STORAGE_KEY = "health_records";
 const LEGACY_INDICATOR_STORAGE_KEY = "health_indicator_categories";
@@ -543,6 +569,7 @@ interface IndicatorMaintenanceDialogProps {
   indicatorChangeLogs: IndicatorChangeLogEntry[];
   onChangeIndicatorLogs: (logs: IndicatorChangeLogEntry[]) => void;
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
 function IndicatorMaintenanceDialog({
@@ -552,6 +579,7 @@ function IndicatorMaintenanceDialog({
   indicatorChangeLogs,
   onChangeIndicatorLogs,
   triggerClassName,
+  triggerLabel,
 }: IndicatorMaintenanceDialogProps) {
   const [open, setOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -814,7 +842,7 @@ function IndicatorMaintenanceDialog({
           )}
         >
           <Settings2 className="w-4 h-4" />
-          检验指标维护
+          {triggerLabel ?? "检验指标维护"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[780px] h-[85vh] bg-white/95 backdrop-blur-xl border-0 shadow-2xl flex flex-col overflow-hidden">
@@ -1320,9 +1348,10 @@ interface ClearAllDataDialogProps {
   disabled: boolean;
   onConfirm: () => void;
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-function ClearAllDataDialog({ disabled, onConfirm, triggerClassName }: ClearAllDataDialogProps) {
+function ClearAllDataDialog({ disabled, onConfirm, triggerClassName, triggerLabel }: ClearAllDataDialogProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -1335,7 +1364,7 @@ function ClearAllDataDialog({ disabled, onConfirm, triggerClassName }: ClearAllD
           )}
         >
           <Trash2 className="w-4 h-4" />
-          删除全部
+          {triggerLabel ?? "删除全部"}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
@@ -1367,9 +1396,19 @@ interface UserMenuProps {
   email?: string | null;
   onConfirm: () => void;
   onSetPassword: (password: string) => Promise<string | null> | string | null;
+  variant?: "button" | "avatar" | "footer";
 }
 
-function UserMenu({ email, onConfirm, onSetPassword }: UserMenuProps) {
+const getEmailInitials = (email?: string | null) => {
+  const source = (email || "").trim();
+  if (!source) {
+    return "用户";
+  }
+  const localPart = source.split("@")[0];
+  return localPart.slice(0, 2).toUpperCase() || source.slice(0, 2).toUpperCase();
+};
+
+function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserMenuProps) {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -1408,13 +1447,39 @@ function UserMenu({ email, onConfirm, onSetPassword }: UserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className="gap-2 bg-white/80 backdrop-blur-sm border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
-        >
-          <User className="w-4 h-4" />
-          <span className="max-w-[180px] truncate">{email || "当前用户"}</span>
-        </Button>
+        {variant === "avatar" ? (
+          <Button
+            variant="outline"
+            aria-label="账号菜单"
+            className="h-10 w-10 rounded-full p-0 border-0 bg-gradient-to-br from-violet-500 to-blue-500 text-white text-xs font-semibold shadow-md shadow-violet-200 hover:from-violet-600 hover:to-blue-600 hover:scale-105 transition-transform"
+          >
+            {getEmailInitials(email)}
+          </Button>
+        ) : variant === "footer" ? (
+          <Button
+            variant="outline"
+            aria-label="账号菜单"
+            className="w-full h-auto justify-start gap-3 p-2 rounded-xl border-0 bg-transparent hover:bg-violet-50"
+          >
+            <span className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-white text-xs font-semibold flex items-center justify-center shrink-0">
+              {getEmailInitials(email)}
+            </span>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block text-[13px] font-medium text-gray-700 truncate">
+                {email || "当前用户"}
+              </span>
+              <span className="block text-xs text-gray-400">账号设置</span>
+            </span>
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            className="gap-2 bg-white/80 backdrop-blur-sm border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
+          >
+            <User className="w-4 h-4" />
+            <span className="max-w-[180px] truncate">{email || "当前用户"}</span>
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 bg-white/95 backdrop-blur-xl border-violet-100">
         <DropdownMenuLabel className="text-xs text-gray-500">当前账号</DropdownMenuLabel>
@@ -1526,7 +1591,7 @@ interface CloudSyncPayloadState {
   categories: IndicatorCategory[];
   changeLogs: RecordChangeLogEntry[];
   indicatorChangeLogs: IndicatorChangeLogEntry[];
-  attachments: HealthAttachment[];
+  attachments: AttachmentMeta[];
 }
 
 interface CloudSyncSnapshot {
@@ -1582,6 +1647,13 @@ const buildStateUpdatedAt = (payload: CloudSyncPayloadState): string => {
     }
   });
 
+  payload.attachments.forEach(attachment => {
+    const candidate = parseTimeValue(attachment.createdAt || attachment.date);
+    if (candidate > maxTime) {
+      maxTime = candidate;
+    }
+  });
+
   if (maxTime <= 0) {
     return new Date(0).toISOString();
   }
@@ -1626,7 +1698,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
     categories?: IndicatorCategory[];
     changeLogs?: RecordChangeLogEntry[];
     indicatorChangeLogs?: IndicatorChangeLogEntry[];
-    attachments?: HealthAttachment[];
+    attachments?: AttachmentMeta[];
   };
 
   if (source.schemaVersion === CLOUD_SYNC_SCHEMA_VERSION && source.payload) {
@@ -1660,7 +1732,7 @@ const resolveCloudPayload = (raw: unknown, fallbackUpdatedAt?: string): Resolved
       categories: Array.isArray(source.categories) ? source.categories : [],
       changeLogs: Array.isArray(source.changeLogs) ? source.changeLogs : [],
       indicatorChangeLogs: Array.isArray(source.indicatorChangeLogs) ? source.indicatorChangeLogs : [],
-      attachments: Array.isArray(source.attachments) ? source.attachments : [],
+      attachments: [],
     },
     updatedAt: source.updatedAt || fallbackUpdatedAt || new Date(0).toISOString(),
   };
@@ -1729,23 +1801,7 @@ const mergeCloudState = (
   const mergedIndicatorLogs = mergeById(local.indicatorChangeLogs, remote.indicatorChangeLogs).sort(
     (a, b) => parseTimeValue(a.timestamp) - parseTimeValue(b.timestamp),
   );
-
-  // Merge attachments by id, prefer newer createdAt
-  const localAttachmentMap = new Map(local.attachments.map(a => [a.id, a]));
-  remote.attachments.forEach(attachment => {
-    const localAttachment = localAttachmentMap.get(attachment.id);
-    if (!localAttachment) {
-      localAttachmentMap.set(attachment.id, attachment);
-      return;
-    }
-    // Prefer newer attachment
-    const localTime = parseTimeValue(localAttachment.createdAt);
-    const remoteTime = parseTimeValue(attachment.createdAt);
-    if (remoteTime > localTime) {
-      localAttachmentMap.set(attachment.id, attachment);
-    }
-  });
-  const mergedAttachments = Array.from(localAttachmentMap.values());
+  const mergedAttachments = mergeAttachmentMeta(local.attachments, remote.attachments);
 
   return {
     payload: {
@@ -1761,6 +1817,7 @@ const mergeCloudState = (
       touchedCategories: mergedCategoriesCount,
       addedChangeLogs: Math.max(mergedChangeLogs.length - local.changeLogs.length, 0),
       addedIndicatorLogs: Math.max(mergedIndicatorLogs.length - local.indicatorChangeLogs.length, 0),
+      addedAttachments: Math.max(mergedAttachments.length - local.attachments.length, 0),
     },
   };
 };
@@ -2085,7 +2142,11 @@ function CloudSyncDialog({
 
   const handleTestConnection = async () => {
     if (!editingAuth.accessToken) {
-      alert("请先填写访问令牌");
+      if (editingAuth.refreshToken || authConfig.googleDrive?.refreshToken) {
+        alert("检测到已有授权凭据：请点击「获取/更新云盘Token」完成授权后，系统会自动续期令牌，无需手动填写。");
+      } else {
+        alert("请先填写访问令牌，或点击「获取/更新云盘Token」完成 Google 授权。");
+      }
       return;
     }
     console.log("[CloudAuth] start testConnection", {
@@ -2100,6 +2161,7 @@ function CloudSyncDialog({
             headers: {
               Authorization: `Bearer ${editingAuth.accessToken}`,
             },
+            signal: AbortSignal.timeout(15000),
           },
         );
         if (!response.ok) {
@@ -2233,6 +2295,8 @@ function CloudSyncDialog({
       }
       const state = createGoogleOAuthState();
       const verifier = createGooglePkceVerifier();
+      // PKCE S256：发送 SHA-256 摘要作为 challenge（原 plain 已弃用）
+      const codeChallenge = await createGooglePkceChallenge(verifier);
       const stored = {
         state,
         verifier,
@@ -2251,8 +2315,8 @@ function CloudSyncDialog({
         access_type: "offline",
         include_granted_scopes: "true",
         state,
-        code_challenge: verifier,
-        code_challenge_method: "plain",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
         prompt: "consent",
       });
       const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -2373,7 +2437,7 @@ function CloudSyncDialog({
                     <CardTitle className="text-sm">同步策略</CardTitle>
                   </div>
                   <CardDescription className="text-xs mt-1">
-                    控制导入后的自动上传行为，建议在网络良好时开启。
+                    数据变更后自动备份到云盘，无需手动操作，建议保持开启。
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -2387,9 +2451,9 @@ function CloudSyncDialog({
                     }`}
                   >
                     <div className="flex flex-col items-start">
-                      <span>导入后自动上传</span>
+                      <span>自动备份</span>
                       <span className="text-[11px] text-gray-500 mt-0.5">
-                        解析成功的数据导入本地后，自动上传对应 JSON 文件到云端。
+                        记录、分类或附件发生变化后，自动静默上传备份到云端（约 5 秒内完成）。
                       </span>
                     </div>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-current">
@@ -2399,7 +2463,7 @@ function CloudSyncDialog({
                   <div className="text-[11px] text-gray-400 leading-relaxed">
                     当前配置：
                     <span className="ml-1 font-medium text-gray-700">{providerLabel}</span>
-                    {autoSync ? "，导入完成后将自动触发上传。" : "，导入完成后不会自动上传。"}
+                    {autoSync ? "，数据变更后将自动备份。" : "，仅手动点击同步时才上传。"}
                   </div>
                 </CardContent>
               </Card>
@@ -2558,11 +2622,10 @@ function CloudSyncDialog({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>授权有效期至</Label>
+                        <Label>访问令牌有效期至（只读，过期后自动用长期凭证静默续期）</Label>
                         <Input
-                          type="date"
-                          value={editingAuth.expiresAt?.split("T")[0] || ""}
-                          onChange={e => setEditingAuth({ ...editingAuth, expiresAt: e.target.value })}
+                          readOnly
+                          value={editingAuth.expiresAt ? new Date(editingAuth.expiresAt).toLocaleString("zh-CN") : "未授权"}
                         />
                       </div>
                     </div>
@@ -2786,7 +2849,7 @@ export default function App() {
   const [changeLogs, setChangeLogs] = useState<RecordChangeLogEntry[]>([]);
   const [indicatorChangeLogs, setIndicatorChangeLogs] = useState<IndicatorChangeLogEntry[]>([]);
   const [cloudProvider, setCloudProvider] = useState<CloudProvider>("none");
-  const [cloudAutoSync, setCloudAutoSync] = useState(false);
+  const [cloudAutoSync, setCloudAutoSync] = useState(true);
   const [cloudUploadTasks, setCloudUploadTasks] = useState<CloudUploadTask[]>([]);
   const [cloudAvailableStorageText, setCloudAvailableStorageText] = useState("");
   const [manualSyncing, setManualSyncing] = useState(false);
@@ -2794,8 +2857,26 @@ export default function App() {
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
   const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
+  const [previewAttachmentLoading, setPreviewAttachmentLoading] = useState(false);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
   const [maintenanceCategoryId, setMaintenanceCategoryId] = useState<string>("__all__");
+  const [activeTab, setActiveTab] = useState<"table" | "chart" | "maintenance">("table");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [dataListPage, setDataListPage] = useState(1);
+
+  // 自动备份：保存最新 state 的 ref，供防抖回调读取，避免闭包拿到过期数据
+  const cloudPayloadRef = useRef({ records, indicatorCategories, changeLogs, indicatorChangeLogs, attachments });
+  cloudPayloadRef.current = { records, indicatorCategories, changeLogs, indicatorChangeLogs, attachments };
+  const cloudAutoUploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cloudAuthConfigRef = useRef(authConfig);
+  cloudAuthConfigRef.current = authConfig;
+  const cloudProviderRef = useRef(cloudProvider);
+  cloudProviderRef.current = cloudProvider;
+  const cloudAutoSyncRef = useRef(cloudAutoSync);
+  cloudAutoSyncRef.current = cloudAutoSync;
+  // 拉取云端数据合并进本地后短暂抑制自动上传，避免“拉取→自动上传”循环
+  const suppressAutoUploadUntilRef = useRef(0);
 
   useEffect(() => {
     if (indicatorCategories.length === 0) {
@@ -2821,6 +2902,11 @@ export default function App() {
       }
     }
   }, [indicatorCategories, maintenanceCategoryId]);
+
+  // 切换分类或修改搜索词时，数据列表分页重置回第一页
+  useEffect(() => {
+    setDataListPage(1);
+  }, [indicatorDataCategoryId, searchQuery]);
 
   const handleUpdateAuthConfig = (config: CloudAuthConfig) => {
     console.log("[CloudAuth] update authConfig", {
@@ -2901,7 +2987,7 @@ export default function App() {
         setChangeLogs([]);
         setIndicatorChangeLogs([]);
         setCloudProvider("none");
-        setCloudAutoSync(false);
+        setCloudAutoSync(true);
         setCloudUploadTasks([]);
         setCloudAvailableStorageText("");
         setCloudPulling(false);
@@ -2937,8 +3023,8 @@ export default function App() {
         if (savedProvider === "googleDrive" || savedProvider === "none") {
           setCloudProvider(savedProvider as CloudProvider);
         }
-        if (savedAutoSync === "true") {
-          setCloudAutoSync(true);
+        if (savedAutoSync === "false") {
+          setCloudAutoSync(false);
         }
 
         const savedAuthConfig = localStorage.getItem(scopedKey(AUTH_CONFIG_STORAGE_KEY));
@@ -3115,7 +3201,7 @@ export default function App() {
           ...(prevGoogle || {}),
           permissions: basePermissions,
           accessToken: tokenInfo.accessToken,
-          refreshToken: tokenInfo.refreshToken,
+          refreshToken: tokenInfo.refreshToken ?? prevGoogle?.refreshToken,
           expiresAt: tokenInfo.expiresAt,
           lastVerified: new Date().toISOString(),
           tokenInvalid: false,
@@ -3283,7 +3369,412 @@ export default function App() {
         return maintenanceIndicatorIds.includes(typeId);
       })
     : changeLogs;
+  const DATA_LIST_PAGE_SIZE = 10;
+  // ===== 全局搜索（顶栏）与数据列表分页的派生数据 =====
+  const searchLower = searchQuery.trim().toLowerCase();
+  const dataListRowsFiltered = searchLower
+    ? indicatorDataRows.filter(row => {
+        if (String(row.date).toLowerCase().includes(searchLower)) {
+          return true;
+        }
+        return indicatorDataItems.some(item => {
+          if (item.label.toLowerCase().includes(searchLower)) {
+            return true;
+          }
+          const cellValue = formatIndicatorValue((row as Record<string, unknown>)[item.id]);
+          return String(cellValue).toLowerCase().includes(searchLower);
+        });
+      })
+    : indicatorDataRows;
+  const dataListTotalPages = Math.max(1, Math.ceil(dataListRowsFiltered.length / DATA_LIST_PAGE_SIZE));
+  const dataListSafePage = Math.min(dataListPage, dataListTotalPages);
+  const dataListPageRows = dataListRowsFiltered.slice(
+    (dataListSafePage - 1) * DATA_LIST_PAGE_SIZE,
+    dataListSafePage * DATA_LIST_PAGE_SIZE,
+  );
+  const dataListPageItems = (() => {
+    const pages = new Set<number>([1, dataListTotalPages, dataListSafePage - 1, dataListSafePage, dataListSafePage + 1]);
+    const list: (number | "ellipsis")[] = [];
+    let last = 0;
+    for (let page = 1; page <= dataListTotalPages; page++) {
+      if (pages.has(page)) {
+        if (page - last > 1) {
+          list.push("ellipsis");
+        }
+        list.push(page);
+        last = page;
+      }
+    }
+    return list;
+  })();
+  const maintenanceSearchRecords = searchLower
+    ? maintenanceRecords.filter(record => {
+        const indicator = maintenanceIndicators.find(item => item.id === record.indicatorType);
+        return (
+          record.date.toLowerCase().includes(searchLower) ||
+          String(record.value).toLowerCase().includes(searchLower) ||
+          (indicator?.label ?? "").toLowerCase().includes(searchLower)
+        );
+      })
+    : maintenanceRecords;
+  const indicatorLabelMap = Object.fromEntries(indicatorItems.map(item => [item.id, item.label]));
+  const lastSyncedAtText = (() => {
+    const successTasks = cloudUploadTasks.filter(task => task.status === "success");
+    if (successTasks.length === 0) {
+      return "";
+    }
+    const latest = successTasks.reduce((a, b) =>
+      new Date(b.createdAt).getTime() > new Date(a.createdAt).getTime() ? b : a,
+    );
+    return new Date(latest.createdAt).toLocaleString("zh-CN");
+  })();
+  const syncBadge = manualSyncing
+    ? ({ tone: "syncing", text: "正在同步…" } as const)
+    : cloudProvider !== "none"
+      ? ({ tone: "success", text: lastSyncedAtText ? `已同步 · ${lastSyncedAtText}` : "已连接云端" } as const)
+      : ({ tone: "muted", text: "未配置云同步" } as const);
+
   const createCloudUploadId = () => `cloud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  /**
+   * 用 refresh token 静默续期 access token；成功后回写 authConfig。
+   * 返回可用（已刷新或仍然有效）的授权信息，无法解决时返回 null。
+   */
+  const ensureFreshGoogleDriveAuth = async (): Promise<CloudProviderAuth | null> => {
+    const current = cloudAuthConfigRef.current.googleDrive;
+    if (!current) {
+      return null;
+    }
+    if (current.accessToken && !current.tokenInvalid && !isTokenExpiring(current.expiresAt)) {
+      return current;
+    }
+    if (!current.refreshToken) {
+      return null;
+    }
+    const clientId = import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID;
+    if (!clientId) {
+      console.error("[CloudAuth] missing VITE_GOOGLE_DRIVE_CLIENT_ID for token refresh");
+      return null;
+    }
+    const result = await refreshGoogleDriveAccessToken({
+      refreshToken: current.refreshToken,
+      clientId,
+      clientSecret: import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_SECRET,
+    });
+    if ("errorMessage" in result) {
+      console.error("[CloudAuth] silent token refresh failed", result.errorMessage);
+      if (result.invalidRefreshToken) {
+        markGoogleDriveTokenInvalid({
+          status: 401,
+          operation: "refresh token",
+          apiMessage: result.errorMessage,
+        });
+      }
+      return null;
+    }
+    const next: CloudProviderAuth = {
+      ...current,
+      accessToken: result.tokenInfo.accessToken,
+      expiresAt: result.tokenInfo.expiresAt,
+      tokenInvalid: false,
+      lastErrorMessage: undefined,
+      refreshToken: result.tokenInfo.refreshToken || current.refreshToken,
+    };
+    console.log("[CloudAuth] silent token refresh succeeded", { expiresAt: next.expiresAt });
+    setAuthConfig(prev => ({ ...prev, googleDrive: next }));
+    cloudAuthConfigRef.current = { ...cloudAuthConfigRef.current, googleDrive: next };
+    return next;
+  };
+
+  /** 查找/创建「个人/附件」子文件夹，附件内容统一存放在这里 */
+  const ensureGoogleDriveAttachmentsFolder = async (
+    accessToken: string,
+    personalFolderId: string,
+  ): Promise<string | undefined> => {
+    try {
+      const query = `name='附件' and '${personalFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const url =
+        "https://www.googleapis.com/drive/v3/files?q=" +
+        encodeURIComponent(query) +
+        "&spaces=drive&fields=files(id,name)&pageSize=10";
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error("[CloudSync] list attachments folder failed", { status: resp.status, body: text });
+        return undefined;
+      }
+      const data = (await resp.json()) as { files?: { id: string; name: string }[] };
+      if (data.files && data.files.length > 0) {
+        return data.files[0].id;
+      }
+      const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "附件",
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [personalFolderId],
+        }),
+      });
+      if (!createResp.ok) {
+        const text = await createResp.text();
+        console.error("[CloudSync] create attachments folder failed", { status: createResp.status, body: text });
+        return undefined;
+      }
+      const created = (await createResp.json()) as { id?: string };
+      return created.id;
+    } catch (error) {
+      console.error("[CloudSync] ensure attachments folder error", error);
+      return undefined;
+    }
+  };
+
+  /** 上传单个附件内容到 Drive「个人/附件」目录，返回 Drive 文件 id */
+  const uploadGoogleDriveAttachmentContent = async (
+    accessToken: string,
+    attachmentsFolderId: string,
+    attachment: HealthAttachment,
+  ): Promise<string | undefined> => {
+    if (!attachment.data) {
+      return undefined;
+    }
+    const boundary = `-------314159265358979323846`;
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+    const metadata = {
+      name: `${attachment.id}__${attachment.fileName}`,
+      mimeType: attachment.fileType || "application/octet-stream",
+      parents: [attachmentsFolderId],
+    };
+    const body =
+      delimiter +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      JSON.stringify(metadata) +
+      delimiter +
+      `Content-Type: ${metadata.mimeType}\r\nContent-Transfer-Encoding: base64\r\n\r\n` +
+      (attachment.data.split(",")[1] || "") +
+      closeDelimiter;
+    const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    const created = (await response.json()) as { id?: string };
+    return created.id;
+  };
+
+  /**
+   * 把本地有内容但还没上传云盘的附件逐个上传（在快照上传前调用）。
+   * 单个附件失败不阻塞其余附件和快照上传；上传成功的附件记录 driveFileId，
+   * 并按本地缓存预算清理已同步附件的 data（云盘为持久层）。
+   */
+  const ensureAttachmentsUploaded = async (auth: CloudProviderAuth): Promise<boolean> => {
+    const accessToken = auth.accessToken;
+    if (!accessToken) {
+      return false;
+    }
+    const pending = cloudPayloadRef.current.attachments.filter(a => a.data && !a.driveFileId);
+    if (pending.length === 0) {
+      return true;
+    }
+    let folderId = auth.attachmentsFolderId;
+    if (!folderId) {
+      let personalFolderId = auth.rootFolderId;
+      if (!personalFolderId) {
+        personalFolderId = await ensureGoogleDrivePersonalFolder(accessToken);
+        if (personalFolderId) {
+          updateGoogleDriveRootFolderId(personalFolderId);
+        }
+      }
+      if (!personalFolderId) {
+        console.error("[CloudSync] cannot resolve personal folder for attachments upload");
+        return false;
+      }
+      folderId = await ensureGoogleDriveAttachmentsFolder(accessToken, personalFolderId);
+      if (folderId) {
+        const resolvedFolderId: string = folderId;
+        const applyAttachmentsFolder = (google: CloudProviderAuth | undefined): CloudProviderAuth | undefined =>
+          google ? { ...google, attachmentsFolderId: resolvedFolderId } : google;
+        setAuthConfig(prev => {
+          const nextGoogle = applyAttachmentsFolder(prev.googleDrive);
+          return nextGoogle ? { ...prev, googleDrive: nextGoogle } : prev;
+        });
+        cloudAuthConfigRef.current = {
+          ...cloudAuthConfigRef.current,
+          googleDrive: applyAttachmentsFolder(cloudAuthConfigRef.current.googleDrive),
+        };
+      }
+    }
+    if (!folderId) {
+      return false;
+    }
+    let allOk = true;
+    for (const attachment of pending) {
+      try {
+        const driveFileId = await uploadGoogleDriveAttachmentContent(accessToken, folderId, attachment);
+        if (!driveFileId) {
+          allOk = false;
+          continue;
+        }
+        console.log("[CloudSync] attachment uploaded", { id: attachment.id, driveFileId });
+        setAttachments(prev => {
+          const next = prev.map(a =>
+            a.id === attachment.id ? { ...a, driveFileId, data: a.data } : a,
+          );
+          const evictIds = planAttachmentCacheEviction(next, ATTACHMENT_CACHE_BUDGET);
+          const pruned = applyAttachmentCacheEviction(next, evictIds);
+          return evictIds.length > 0 ? pruned : next;
+        });
+        cloudPayloadRef.current = {
+          ...cloudPayloadRef.current,
+          attachments: cloudPayloadRef.current.attachments.map(a =>
+            a.id === attachment.id ? { ...a, driveFileId } : a,
+          ),
+        };
+      } catch (error) {
+        allOk = false;
+        console.error("[CloudSync] attachment upload failed", { id: attachment.id, error });
+      }
+    }
+    return allOk;
+  };
+
+  /** 从 Drive 按需下载附件内容（本地缓存已被清理时用于预览/下载），并尝试回填缓存 */
+  const fetchGoogleDriveAttachmentData = async (attachment: HealthAttachment): Promise<string | undefined> => {
+    const auth = await ensureFreshGoogleDriveAuth();
+    const accessToken = auth?.accessToken;
+    if (!accessToken || !attachment.driveFileId) {
+      return undefined;
+    }
+    try {
+      const resp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${attachment.driveFileId}?alt=media`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!resp.ok) {
+        console.error("[CloudSync] attachment download failed", { status: resp.status });
+        return undefined;
+      }
+      const buffer = await resp.arrayBuffer();
+      const dataUrl = bytesToDataUrl(new Uint8Array(buffer), attachment.fileType);
+      setAttachments(prev => {
+        const next = prev.map(a => (a.id === attachment.id ? { ...a, data: dataUrl } : a));
+        const evictIds = planAttachmentCacheEviction(next, ATTACHMENT_CACHE_BUDGET);
+        return evictIds.length > 0 ? applyAttachmentCacheEviction(next, evictIds) : next;
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error("[CloudSync] attachment download error", error);
+      return undefined;
+    }
+  };
+
+  /** 立即执行一次自动备份快照上传（附件先行）。返回上传状态。 */
+  const runAutoBackupNow = async (reason: string): Promise<CloudUploadStatus> => {
+    const provider = cloudProviderRef.current;
+    if (provider === "none") {
+      return "failed";
+    }
+    const snapshotPayload = cloudPayloadRef.current;
+    if (
+      snapshotPayload.records.length === 0 &&
+      snapshotPayload.attachments.length === 0 &&
+      snapshotPayload.indicatorChangeLogs.length === 0
+    ) {
+      console.log("[CloudSync] auto backup skipped: empty payload", { reason });
+      return "success";
+    }
+    const auth = await ensureFreshGoogleDriveAuth();
+    if (!auth) {
+      console.log("[CloudSync] auto backup waiting for auth", { reason });
+      setCloudUploadTasks(prev =>
+        [
+          {
+            id: createCloudUploadId(),
+            provider,
+            fileName: "自动备份（等待授权）",
+            createdAt: new Date().toISOString(),
+            progress: 0,
+            status: "waitingAuth" as const,
+            errorMessage: "授权过期或缺失，自动备份已暂停；重新授权后会自动恢复。",
+          },
+          ...prev,
+        ].slice(0, 20),
+      );
+      return "waitingAuth";
+    }
+    await ensureAttachmentsUploaded(auth);
+    const now = new Date();
+    const date = now.toISOString().split("T")[0];
+    const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
+    const snapshot = buildCloudSnapshot(
+      {
+        records: snapshotPayload.records,
+        categories: snapshotPayload.indicatorCategories,
+        changeLogs: snapshotPayload.changeLogs,
+        indicatorChangeLogs: snapshotPayload.indicatorChangeLogs,
+        attachments: snapshotPayload.attachments.map(toAttachmentMeta),
+      },
+      "web",
+    );
+    return enqueueCloudUpload(provider, {
+      fileName: `体检数据自动同步_${date}_${time}.json`,
+      json: JSON.stringify(snapshot),
+    });
+  };
+
+  /** 数据变更后防抖触发自动备份（默认开启，可在云同步面板关闭） */
+  const triggerAutoBackup = (reason: string) => {
+    if (cloudProviderRef.current === "none" || !cloudAutoSyncRef.current) {
+      return;
+    }
+    if (Date.now() < suppressAutoUploadUntilRef.current) {
+      return;
+    }
+    if (cloudAutoUploadTimerRef.current) {
+      clearTimeout(cloudAutoUploadTimerRef.current);
+    }
+    cloudAutoUploadTimerRef.current = setTimeout(() => {
+      cloudAutoUploadTimerRef.current = null;
+      void runAutoBackupNow(reason).catch(error => {
+        console.error("[CloudSync] auto backup error", { reason, error });
+      });
+    }, 5000);
+  };
+
+  // 预览附件时若本地缓存已被清理，从云端按需取回
+  useEffect(() => {
+    if (!previewAttachmentId) {
+      return;
+    }
+    const attachment = cloudPayloadRef.current.attachments.find(a => a.id === previewAttachmentId);
+    if (!attachment || attachment.data || !attachment.driveFileId) {
+      return;
+    }
+    let cancelled = false;
+    setPreviewAttachmentLoading(true);
+    void fetchGoogleDriveAttachmentData(attachment).finally(() => {
+      if (!cancelled) {
+        setPreviewAttachmentLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewAttachmentId, attachments]);
 
   const markGoogleDriveTokenInvalid = (info: {
     status: number;
@@ -3428,10 +3919,17 @@ export default function App() {
       notify("请先在云同步中选择云存储平台。");
       return null;
     }
-    const currentAuth =
+    let currentAuth =
       cloudProvider === "googleDrive"
         ? authConfig.googleDrive
         : undefined;
+    if (!currentAuth || !currentAuth.accessToken || currentAuth.tokenInvalid || isTokenExpiring(currentAuth.expiresAt)) {
+      // 有 refresh token 时静默续期，用户无感；失败才提示重新授权
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
+      }
+    }
     if (!currentAuth || !currentAuth.accessToken) {
       notify("未检测到有效授权，请在云同步面板完成授权后重试。");
       return null;
@@ -3440,12 +3938,9 @@ export default function App() {
       notify("检测到最近一次访问云端返回权限错误或令牌无效，请在云同步面板中重新获取云盘 Token 后重试。");
       return null;
     }
-    if (currentAuth.expiresAt) {
-      const expiresAt = new Date(currentAuth.expiresAt);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
-        notify("授权信息已过期，请在云同步面板更新授权后重试。");
-        return null;
-      }
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      notify("授权信息已过期，请在云同步面板更新授权后重试。");
+      return null;
     }
     if (cloudProvider === "googleDrive") {
       const accessToken = currentAuth.accessToken;
@@ -3626,6 +4121,14 @@ export default function App() {
     }
 
     if (!currentAuth || !currentAuth.accessToken) {
+      // 有 refresh token 时无需人工重新授权，先尝试静默续期
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
+      }
+    }
+
+    if (!currentAuth || !currentAuth.accessToken) {
       console.log("[CloudSync] missing auth for provider", { provider });
       setCloudUploadTasks(prev =>
         prev.map(t =>
@@ -3637,22 +4140,36 @@ export default function App() {
       return "waitingAuth";
     }
 
-    if (currentAuth.expiresAt) {
-      const expiresAt = new Date(currentAuth.expiresAt);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
-        console.log("[CloudSync] auth expired for provider", {
-          provider,
-          expiresAt: currentAuth.expiresAt,
-        });
-        setCloudUploadTasks(prev =>
-          prev.map(t =>
-            t.id === id
-              ? { ...t, status: "waitingAuth", errorMessage: "授权信息已过期，请重新授权。" }
-              : t,
-          ),
-        );
-        return "waitingAuth";
+    // token 过期或临近过期时先用 refresh token 静默续期，失败才降级 waitingAuth
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      const refreshed = await ensureFreshGoogleDriveAuth();
+      if (refreshed && refreshed.accessToken) {
+        currentAuth = refreshed;
       }
+    }
+    if (!currentAuth.accessToken) {
+      setCloudUploadTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? { ...t, status: "waitingAuth", errorMessage: "未检测到有效访问令牌，请重新授权。" }
+            : t,
+        ),
+      );
+      return "waitingAuth";
+    }
+    if (isTokenExpiring(currentAuth.expiresAt)) {
+      console.log("[CloudSync] auth expired for provider", {
+        provider,
+        expiresAt: currentAuth.expiresAt,
+      });
+      setCloudUploadTasks(prev =>
+        prev.map(t =>
+          t.id === id
+            ? { ...t, status: "waitingAuth", errorMessage: "授权信息已过期，请重新授权。" }
+            : t,
+        ),
+      );
+      return "waitingAuth";
     }
 
     const accessToken = currentAuth.accessToken;
@@ -3740,7 +4257,6 @@ export default function App() {
     let effectiveCategories = indicatorCategories;
     let effectiveChangeLogs = changeLogs;
     let effectiveIndicatorChangeLogs = indicatorChangeLogs;
-    let effectiveAttachments = attachments;
     if (effectiveRecords.length === 0) {
       try {
         const saved = localStorage.getItem(buildUserStorageKey(STORAGE_KEY, activeUserId));
@@ -3793,19 +4309,6 @@ export default function App() {
         console.error("[CloudSync] failed to load indicator logs from storage for manual sync", error);
       }
     }
-    if (effectiveAttachments.length === 0) {
-      try {
-        const saved = localStorage.getItem(buildUserStorageKey(ATTACHMENTS_KEY, activeUserId));
-        if (saved) {
-          const parsed = JSON.parse(saved) as HealthAttachment[];
-          if (Array.isArray(parsed)) {
-            effectiveAttachments = parsed;
-          }
-        }
-      } catch (error) {
-        console.error("[CloudSync] failed to load attachments from storage for manual sync", error);
-      }
-    }
     if (effectiveRecords.length === 0) {
       alert("暂无数据可同步。");
       return;
@@ -3819,6 +4322,10 @@ export default function App() {
     });
     setManualSyncing(true);
     try {
+      const auth = await ensureFreshGoogleDriveAuth();
+      if (auth) {
+        await ensureAttachmentsUploaded(auth);
+      }
       const now = new Date();
       const date = now.toISOString().split("T")[0];
       const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
@@ -3828,7 +4335,7 @@ export default function App() {
           categories: effectiveCategories,
           changeLogs: effectiveChangeLogs,
           indicatorChangeLogs: effectiveIndicatorChangeLogs,
-          attachments: effectiveAttachments,
+          attachments: cloudPayloadRef.current.attachments.map(toAttachmentMeta),
         },
         "web",
       );
@@ -3878,7 +4385,7 @@ export default function App() {
         categories: indicatorCategories,
         changeLogs,
         indicatorChangeLogs,
-        attachments,
+        attachments: attachments.map(toAttachmentMeta),
       };
 
       const localUpdatedAtMs = parseTimeValue(buildStateUpdatedAt(localPayload));
@@ -3888,17 +4395,46 @@ export default function App() {
         return;
       }
 
+      const formatTime = (ms: number) =>
+        ms > 0 ? new Date(ms).toLocaleString("zh-CN") : "无记录";
+      const confirmed = window.confirm(
+        `云端备份比本地新，是否同步？\n\n` +
+          `云端更新时间：${formatTime(remoteUpdatedAtMs)}\n` +
+          `本地更新时间：${formatTime(localUpdatedAtMs)}\n\n` +
+          `确认后云端数据将与本地合并（同一条记录以较新者为准），本地新增内容不会丢失。`,
+      );
+      if (!confirmed) {
+        console.log("[CloudSync] cloud pull cancelled by user");
+        return;
+      }
+
       const merged = mergeCloudState(localPayload, remoteSnapshot.payload);
       setRecords(merged.payload.records);
       setIndicatorCategories(merged.payload.categories);
       setChangeLogs(merged.payload.changeLogs);
       setIndicatorChangeLogs(merged.payload.indicatorChangeLogs);
-      setAttachments(merged.payload.attachments);
+      setAttachments(prev => {
+        const mergedAttachments = mergeAttachmentMeta(
+          prev.map(toAttachmentMeta),
+          merged.payload.attachments,
+        );
+        const localById = new Map(prev.map(a => [a.id, a]));
+        return mergedAttachments.map(meta => {
+          const localAttachment = localById.get(meta.id);
+          return localAttachment ? { ...localAttachment, driveFileId: meta.driveFileId } : meta;
+        }) as HealthAttachment[];
+      });
       setHistoryStack([]);
       setFutureStack([]);
+      // 拉取产生的本地变更不再触发自动上传，避免拉取→上传循环
+      suppressAutoUploadUntilRef.current = Date.now() + 15_000;
+      if (cloudAutoUploadTimerRef.current) {
+        clearTimeout(cloudAutoUploadTimerRef.current);
+        cloudAutoUploadTimerRef.current = null;
+      }
 
       alert(
-        `已同步云端更新：新增记录 ${merged.stats.addedRecords} 条，更新记录 ${merged.stats.updatedRecords} 条，更新分类 ${merged.stats.touchedCategories} 项。`,
+        `已同步云端更新：新增记录 ${merged.stats.addedRecords} 条，更新记录 ${merged.stats.updatedRecords} 条，更新分类 ${merged.stats.touchedCategories} 项，同步附件 ${merged.stats.addedAttachments} 个。`,
       );
     } finally {
       setCloudPulling(false);
@@ -3932,6 +4468,8 @@ export default function App() {
       }
       return next;
     });
+    // 记录变更后防抖触发自动备份（拉取合并期间会被抑制）
+    triggerAutoBackup("records-updated");
   };
 
   const supabaseClientInstance = supabaseEnabled ? getSupabaseClient() : null;
@@ -4193,17 +4731,32 @@ export default function App() {
     );
   };
 
+  // 附件存取键作用域：登录态下与健康记录一致按用户后缀隔离，避免误读写基础键
+  const attachmentStorageScope: AttachmentStorageScope = {
+    attachmentsKey: buildUserStorageKey(ATTACHMENTS_KEY, activeUserId),
+    recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
+  };
+
   const handleAddAttachment = (attachment: HealthAttachment): boolean => {
-    const success = addAttachmentStorage(attachment);
+    const success = addAttachmentStorage(attachment, attachmentStorageScope);
     if (success) {
       setAttachments(prev => [...prev, attachment]);
+      // 新附件尽快上传云盘（Drive 为持久层），随后防抖同步快照元数据
+      void (async () => {
+        const auth = await ensureFreshGoogleDriveAuth();
+        if (auth) {
+          await ensureAttachmentsUploaded(auth);
+        }
+      })();
+      triggerAutoBackup("attachment-added");
     }
     return success;
   };
 
   const handleDeleteAttachment = (attachmentId: string) => {
-    deleteAttachmentStorage(attachmentId);
+    deleteAttachmentStorage(attachmentId, attachmentStorageScope);
     setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+    triggerAutoBackup("attachment-deleted");
   };
 
   const handleImportRecords = (newRecords: HealthRecord[]) => {
@@ -4214,26 +4767,8 @@ export default function App() {
     const normalizedRecords = newRecords.map(record =>
       record.operationAt ? record : { ...record, operationAt: importTimestamp },
     );
-    if (cloudProvider !== "none" && cloudAutoSync) {
-      const date = new Date().toISOString().split("T")[0];
-      const snapshot = buildCloudSnapshot(
-        {
-          records: [...records, ...normalizedRecords],
-          categories: indicatorCategories,
-          changeLogs,
-          indicatorChangeLogs,
-          attachments,
-        },
-        "web",
-      );
-      const payload = {
-        fileName: `体检数据导入_${date}.json`,
-        json: JSON.stringify(snapshot),
-      };
-      void (async () => {
-        await enqueueCloudUpload(cloudProvider, payload);
-      })();
-    }
+    // 导入后同样走统一的防抖自动备份（原“导入后自动上传”行为由 triggerAutoBackup 承接）
+    triggerAutoBackup("records-imported");
     applyRecordsUpdate(
       prev => [...prev, ...normalizedRecords],
       () => {
@@ -4741,202 +5276,287 @@ export default function App() {
     }
   }
 
-  const actionTriggerClassName = "h-10 px-2 justify-center whitespace-nowrap text-sm flex-1 min-w-0";
+  const sidebarItemClass =
+    "w-full justify-start gap-2.5 rounded-lg border-0 bg-none bg-transparent px-3 text-gray-600 shadow-none backdrop-blur-none hover:bg-violet-50 hover:text-violet-700 hover:shadow-none";
+  const sidebarDangerClass =
+    "w-full justify-start gap-2.5 rounded-lg border-0 bg-none bg-transparent px-3 text-rose-600 shadow-none backdrop-blur-none hover:bg-rose-50 hover:text-rose-700 hover:shadow-none";
+  const userFooter =
+    supabaseEnabled && supabaseSession ? (
+      <UserMenu
+        variant="footer"
+        email={supabaseSession.user.email}
+        onConfirm={handleSignOut}
+        onSetPassword={handleSetUserPassword}
+      />
+    ) : undefined;
+
+  const sidebarGroups: SidebarGroup[] = [
+    {
+      title: "数据管理",
+      items: [
+        <AddRecordDialog
+          key="add-record"
+          onAddRecord={handleAddRecord}
+          onAddAttachment={handleAddAttachment}
+          indicatorCategories={indicatorCategories}
+          triggerClassName={sidebarItemClass}
+        />,
+        <IndicatorMaintenanceDialog
+          key="indicator-maintenance"
+          categories={indicatorCategories}
+          onChangeCategories={updater => {
+            setIndicatorCategories(updater);
+            triggerAutoBackup("categories-updated");
+          }}
+          usedIndicatorIds={new Set(records.map(r => r.indicatorType))}
+          indicatorChangeLogs={indicatorChangeLogs}
+          onChangeIndicatorLogs={updater => {
+            setIndicatorChangeLogs(updater);
+            triggerAutoBackup("indicator-logs-updated");
+          }}
+          triggerClassName={sidebarItemClass}
+        />,
+      ],
+    },
+    {
+      title: "报告",
+      items: [
+        <MedicalReportImportDialog
+          key="report-import"
+          onImportRecords={handleImportRecords}
+          onAddAttachment={handleAddAttachment}
+          existingRecords={records}
+          existingCategories={indicatorCategories.map(category => ({
+            id: category.id,
+            name: category.name,
+            code: category.code,
+            items: category.items.map(item => ({
+              id: item.id,
+              label: item.label,
+              unit: item.unit,
+              code: item.code,
+              referenceRange: item.referenceRange,
+              aliases: item.aliases,
+            })),
+          }))}
+          triggerClassName={sidebarItemClass}
+        />,
+        <ConsultationBriefDialog
+          key="consultation-brief"
+          categories={indicatorCategories}
+          records={records}
+          triggerClassName={sidebarItemClass}
+        />,
+      ],
+    },
+    {
+      title: "工具",
+      items: [
+        <ImportRecordsDialog
+          key="excel-import"
+          categories={indicatorCategories}
+          onImportRecords={handleImportRecords}
+          existingRecords={records}
+          triggerClassName={sidebarItemClass}
+        />,
+        <ExportDialog
+          key="excel-export"
+          categories={indicatorCategories}
+          onExport={handleExport}
+          triggerClassName={sidebarItemClass}
+        />,
+      ],
+    },
+    {
+      title: "同步",
+      items: [
+        <CloudSyncDialog
+          key="cloud-sync"
+          provider={cloudProvider}
+          autoSync={cloudAutoSync}
+          tasks={cloudUploadTasks}
+          availableStorageText={cloudAvailableStorageText}
+          authConfig={authConfig}
+          onChangeProvider={setCloudProvider}
+          onToggleAutoSync={() => setCloudAutoSync(prev => !prev)}
+          onUpdateAuthConfig={handleUpdateAuthConfig}
+          onPullFromCloud={handleCloudPull}
+          cloudPulling={cloudPulling}
+          triggerClassName={sidebarItemClass}
+        />,
+        <Button
+          key="manual-sync"
+          variant="outline"
+          disabled={manualSyncing}
+          onClick={handleManualSync}
+          className={sidebarItemClass}
+        >
+          {manualSyncing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              正在同步
+            </>
+          ) : (
+            <>
+              <CloudUpload className="w-4 h-4" />
+              立即同步
+            </>
+          )}
+        </Button>,
+      ],
+    },
+    {
+      title: "危险操作",
+      items: [
+        <ClearAllDataDialog
+          key="clear-all"
+          disabled={records.length === 0}
+          onConfirm={handleClearAllRecords}
+          triggerClassName={sidebarDangerClass}
+        />,
+      ],
+    },
+  ];
+
+  const maintenanceSlots = {
+    manageIndicators: (
+      <IndicatorMaintenanceDialog
+        categories={indicatorCategories}
+        onChangeCategories={updater => {
+          setIndicatorCategories(updater);
+          triggerAutoBackup("categories-updated");
+        }}
+        usedIndicatorIds={new Set(records.map(r => r.indicatorType))}
+        indicatorChangeLogs={indicatorChangeLogs}
+        onChangeIndicatorLogs={updater => {
+          setIndicatorChangeLogs(updater);
+          triggerAutoBackup("indicator-logs-updated");
+        }}
+        triggerClassName={cardBtnPrimary}
+        triggerLabel="管理指标"
+      />
+    ),
+    importExcel: (
+      <ImportRecordsDialog
+        categories={indicatorCategories}
+        onImportRecords={handleImportRecords}
+        existingRecords={records}
+        triggerClassName={cardBtnSecondary}
+        triggerLabel="导入Excel"
+      />
+    ),
+    exportExcel: (
+      <ExportDialog
+        categories={indicatorCategories}
+        onExport={handleExport}
+        triggerClassName={cardBtnPrimary}
+        triggerLabel="导出Excel"
+      />
+    ),
+    importReport: (
+      <MedicalReportImportDialog
+        onImportRecords={handleImportRecords}
+        onAddAttachment={handleAddAttachment}
+        existingRecords={records}
+        existingCategories={indicatorCategories.map(category => ({
+          id: category.id,
+          name: category.name,
+          code: category.code,
+          items: category.items.map(item => ({
+            id: item.id,
+            label: item.label,
+            unit: item.unit,
+            code: item.code,
+            referenceRange: item.referenceRange,
+            aliases: item.aliases,
+          })),
+        }))}
+        triggerClassName={cardBtnPrimary}
+        triggerLabel="导入报告"
+      />
+    ),
+    clearAll: (
+      <ClearAllDataDialog
+        disabled={records.length === 0}
+        onConfirm={handleClearAllRecords}
+        triggerClassName="h-9 px-4 rounded-lg text-[13px]"
+        triggerLabel="删除全部数据"
+      />
+    ),
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* 头部 */}
-        <div className="mb-10">
-          <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-gradient-to-br from-violet-500 to-blue-500 rounded-2xl shadow-lg shadow-violet-200">
-                <Activity className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-blue-600 to-pink-600 bg-clip-text text-transparent">
-                  个人健康中心
-                </h1>
-                <p className="text-gray-600 mt-2">智能记录，轻松管理您的健康数据</p>
-              </div>
-            </div>
-            {supabaseEnabled && supabaseSession && (
-              <div className="mt-2">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50">
+      <AppSidebar groups={sidebarGroups} footer={userFooter} />
+      <MobileSidebarSheet
+        open={mobileSidebarOpen}
+        onOpenChange={setMobileSidebarOpen}
+        groups={sidebarGroups}
+        footer={userFooter}
+      />
+      <div className="lg:ml-[260px] flex min-h-screen flex-col">
+        <AppTopbar
+          onMenuClick={() => setMobileSidebarOpen(true)}
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          right={
+            <>
+              <AppNotifications
+                logs={changeLogs}
+                indicatorLabels={indicatorLabelMap}
+                syncing={manualSyncing}
+                syncText={syncBadge.text}
+                onViewAll={() => setActiveTab("maintenance")}
+              />
+              {supabaseEnabled && supabaseSession && (
                 <UserMenu
+                  variant="avatar"
                   email={supabaseSession.user.email}
                   onConfirm={handleSignOut}
                   onSetPassword={handleSetUserPassword}
                 />
-              </div>
-            )}
-          </div>
-          
-          <div className="grid w-full gap-2 pb-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
-              <AddRecordDialog
-                onAddRecord={handleAddRecord}
-                onAddAttachment={handleAddAttachment}
-                indicatorCategories={indicatorCategories}
-                triggerClassName={actionTriggerClassName}
-              />
-              <IndicatorMaintenanceDialog
-                categories={indicatorCategories}
-                onChangeCategories={setIndicatorCategories}
-                usedIndicatorIds={new Set(records.map(r => r.indicatorType))}
-                indicatorChangeLogs={indicatorChangeLogs}
-                onChangeIndicatorLogs={setIndicatorChangeLogs}
-                triggerClassName={actionTriggerClassName}
-              />
-              <MedicalReportImportDialog
-                onImportRecords={handleImportRecords}
-                onAddAttachment={handleAddAttachment}
-                existingCategories={indicatorCategories.map(category => ({
-                  id: category.id,
-                  name: category.name,
-                  code: category.code,
-                  items: category.items.map(item => ({
-                    id: item.id,
-                    label: item.label,
-                    unit: item.unit,
-                    code: item.code,
-                    referenceRange: item.referenceRange,
-                    aliases: item.aliases,
-                  })),
-                }))}
-                triggerClassName={actionTriggerClassName}
-              />
-              <ConsultationBriefDialog
-                categories={indicatorCategories}
-                records={records}
-                triggerClassName={actionTriggerClassName}
-              />
-              <ImportRecordsDialog
-                categories={indicatorCategories}
-                onImportRecords={handleImportRecords}
-                triggerClassName={actionTriggerClassName}
-              />
-              <ExportDialog
-                categories={indicatorCategories}
-                onExport={handleExport}
-                triggerClassName={actionTriggerClassName}
-              />
-              <CloudSyncDialog
-                provider={cloudProvider}
-                autoSync={cloudAutoSync}
-                tasks={cloudUploadTasks}
-                availableStorageText={cloudAvailableStorageText}
-                authConfig={authConfig}
-                onChangeProvider={setCloudProvider}
-                onToggleAutoSync={() => setCloudAutoSync(prev => !prev)}
-                onUpdateAuthConfig={handleUpdateAuthConfig}
-                onPullFromCloud={handleCloudPull}
-                cloudPulling={cloudPulling}
-                triggerClassName={actionTriggerClassName}
-              />
-              <Button
-                variant="outline"
-                disabled={manualSyncing}
-                onClick={handleManualSync}
-                className={cn(
-                  "gap-2 bg-white/80 backdrop-blur-sm border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 disabled:opacity-40 disabled:cursor-not-allowed",
-                  actionTriggerClassName,
-                )}
-              >
-                {manualSyncing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    正在同步
-                  </>
-                ) : (
-                  <>
-                    <CloudUpload className="w-4 h-4" />
-                    立即同步
-                  </>
-                )}
-              </Button>
-              <ClearAllDataDialog
-                disabled={records.length === 0}
-                onConfirm={handleClearAllRecords}
-                triggerClassName={actionTriggerClassName}
-              />
-          </div>
-        </div>
+              )}
+            </>
+          }
+        />
+        <main className="flex-1 p-4 lg:p-8">
 
         {/* 统计卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-violet-100/50 hover:shadow-2xl hover:shadow-violet-100/70 transition-all duration-300">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-gradient-to-br from-violet-400 to-blue-400 rounded-lg">
-                  <Database className="w-4 h-4 text-white" />
-                </div>
-                <CardDescription className="text-gray-600">总记录数</CardDescription>
-              </div>
-              <CardTitle className="text-4xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
-                {records.length}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-blue-100/50 hover:shadow-2xl hover:shadow-blue-100/70 transition-all duration-300">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-lg">
-                  <TrendingUp className="w-4 h-4 text-white" />
-                </div>
-                <CardDescription className="text-gray-600">检验指标种类</CardDescription>
-              </div>
-              <CardTitle className="text-4xl bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                {indicatorCategories.length}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-pink-100/50 hover:shadow-2xl hover:shadow-pink-100/70 transition-all duration-300">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-gradient-to-br from-pink-400 to-rose-400 rounded-lg">
-                  <Calendar className="w-4 h-4 text-white" />
-                </div>
-                <CardDescription className="text-gray-600">最后更新</CardDescription>
-              </div>
-              <CardTitle className="text-xl bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
-                {records.length > 0
-                  ? new Date(Math.max(...records.map(r => new Date(r.date).getTime()))).toLocaleDateString('zh-CN')
-                  : "暂无数据"}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        </div>
+        <StatsCards records={records} categoriesCount={indicatorCategories.length} />
 
         {/* 主内容区 */}
-        <Tabs defaultValue="table" className="space-y-6">
-          <TabsList className="bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1">
-            <TabsTrigger 
-              value="table" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white rounded-lg"
+        <Tabs
+          value={activeTab}
+          onValueChange={value => setActiveTab(value as "table" | "chart" | "maintenance")}
+          className="space-y-6"
+        >
+          <TabsList className="bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1 rounded-full max-w-full overflow-x-auto">
+            <TabsTrigger
+              value="table"
+              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
             >
               数据列表
             </TabsTrigger>
-            <TabsTrigger 
+            <TabsTrigger
               value="chart"
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-pink-500 data-[state=active]:text-white rounded-lg"
+              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-pink-500 data-[state=active]:text-white"
             >
               图表分析
             </TabsTrigger>
             <TabsTrigger
               value="maintenance"
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white rounded-lg"
+              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
             >
               数据维护
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="table">
-            <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-violet-100/50 rounded-none">
-              <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
+              <div className="px-6 py-5 border-b border-violet-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <CardTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
-                    指标数据
-                  </CardTitle>
-                  <CardDescription>按指标种类查看具体检测数据</CardDescription>
+                  <h3 className="text-base font-semibold text-gray-800">指标数据</h3>
+                  <p className="text-[13px] text-gray-500 mt-0.5">按指标种类查看具体检测数据</p>
                 </div>
                 <Select
                   value={indicatorDataCategory?.id ?? ""}
@@ -4953,18 +5573,19 @@ export default function App() {
                     ))}
                   </SelectContent>
                 </Select>
-              </CardHeader>
-              <CardContent>
-                {indicatorDataItems.length === 0 ? (
-                  <div className="border border-violet-100 bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
-                    暂无可展示的指标数据
-                  </div>
-                ) : indicatorDataRows.length === 0 ? (
-                  <div className="border border-violet-100 bg-white/40 h-40 flex flex-col items-center justify-center text-gray-400 text-sm">
-                    当前分类暂无数据
-                  </div>
-                ) : (
-                  <div className="border border-violet-100 overflow-hidden bg-white/40">
+              </div>
+              {indicatorDataItems.length === 0 ? (
+                <div className="m-6 border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm">
+                  暂无可展示的指标数据
+                </div>
+              ) : dataListRowsFiltered.length === 0 ? (
+                <div className="m-6 border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm gap-1">
+                  <span>{searchLower ? "没有匹配搜索关键词的数据" : "当前分类暂无数据"}</span>
+                  {searchLower && <span className="text-xs">清空搜索框可查看全部数据</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="m-6 border border-violet-100 rounded-xl overflow-hidden bg-white/40">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-violet-100 bg-violet-50/60">
@@ -4982,12 +5603,12 @@ export default function App() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {indicatorDataRows.map(row => (
+                        {dataListPageRows.map(row => (
                           <TableRow
                             key={String(row.date)}
                             className="border-violet-100 hover:bg-violet-50/40 transition-colors even:bg-white/60"
                           >
-                            <TableCell className="text-sm text-gray-700 w-32 py-3">
+                            <TableCell className="text-sm font-medium text-gray-700 w-32 py-3">
                               {String(row.date)}
                             </TableCell>
                             {indicatorDataItems.map(item => (
@@ -5000,57 +5621,103 @@ export default function App() {
                       </TableBody>
                     </Table>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  <div className="px-6 py-4 border-t border-violet-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="text-[13px] text-gray-500">
+                      {`共 ${dataListRowsFiltered.length} 条记录，显示第 ${(dataListSafePage - 1) * DATA_LIST_PAGE_SIZE + 1}-${Math.min(dataListSafePage * DATA_LIST_PAGE_SIZE, dataListRowsFiltered.length)} 条`}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="上一页"
+                        disabled={dataListSafePage <= 1}
+                        onClick={() => setDataListPage(dataListSafePage - 1)}
+                        className="h-9 w-9 rounded-md border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      {dataListPageItems.map((page, index) =>
+                        page === "ellipsis" ? (
+                          <span key={`ellipsis-${index}`} className="px-1.5 text-gray-400 text-sm">
+                            …
+                          </span>
+                        ) : (
+                          <Button
+                            key={page}
+                            variant="outline"
+                            size="icon"
+                            aria-label={`第 ${page} 页`}
+                            aria-current={page === dataListSafePage ? "page" : undefined}
+                            onClick={() => setDataListPage(page)}
+                            className={cn(
+                              "h-9 w-9 rounded-md text-sm",
+                              page === dataListSafePage
+                                ? "bg-gradient-to-r from-violet-500 to-blue-500 border-0 text-white hover:from-violet-600 hover:to-blue-600"
+                                : "border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700",
+                            )}
+                          >
+                            {page}
+                          </Button>
+                        ),
+                      )}
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="下一页"
+                        disabled={dataListSafePage >= dataListTotalPages}
+                        onClick={() => setDataListPage(dataListSafePage + 1)}
+                        className="h-9 w-9 rounded-md border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </TabsContent>
 
            <TabsContent value="chart">
-            <RecordChart
+            <ChartAnalysisPage
               records={records}
-              indicators={indicatorItems}
               categories={indicatorCategories}
-              attachments={attachments}
-              onPreviewAttachment={(id) => setPreviewAttachmentId(id)}
-              onUpdateRecord={handleUpdateRecord}
-              onDeleteRecord={handleDeleteRecord}
-              onAddAttachment={handleAddAttachment}
-              onDeleteAttachment={handleDeleteAttachment}
+              searchQuery={searchQuery}
             />
           </TabsContent>
           <TabsContent value="maintenance">
-            <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-violet-100/50">
-              <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-gradient-to-br from-violet-400 to-blue-400 rounded-lg">
-                    <History className="w-5 h-5 text-white" />
-                  </div>
+            <DataMaintenancePage
+              indicatorCount={indicatorItems.length}
+              reportCount={attachments.length}
+              syncTone={syncBadge.tone}
+              syncText={syncBadge.text}
+              manualSyncing={manualSyncing}
+              onManualSync={handleManualSync}
+              slots={maintenanceSlots}
+            >
+              <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
+                <div className="px-6 py-5 border-b border-violet-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <CardTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
-                      数据维护
-                    </CardTitle>
-                    <CardDescription>集中管理体检记录与修改历史</CardDescription>
+                    <h3 className="text-base font-semibold text-gray-800">记录列表</h3>
+                    <p className="text-[13px] text-gray-500 mt-0.5">筛选分类后查看与编辑具体检验记录</p>
                   </div>
+                  <Select value={maintenanceCategoryId} onValueChange={setMaintenanceCategoryId}>
+                    <SelectTrigger className="w-[220px] border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
+                      <SelectValue placeholder="全部指标分类" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
+                      <SelectItem value="__all__">全部指标分类</SelectItem>
+                      {indicatorCategories.map(category => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Select value={maintenanceCategoryId} onValueChange={setMaintenanceCategoryId}>
-                  <SelectTrigger className="w-[220px] border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
-                    <SelectValue placeholder="全部指标分类" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
-                    <SelectItem value="__all__">全部指标分类</SelectItem>
-                    {indicatorCategories.map(category => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardHeader>
-              <CardContent className="space-y-6">
+                <div className="p-6 space-y-6">
                 <div>
-                  <div className="text-sm font-medium text-gray-700 mb-3">记录列表</div>
                   <RecordTable
-                    records={maintenanceRecords}
+                    records={maintenanceSearchRecords}
                     indicators={maintenanceIndicators}
                     onDeleteRecord={handleDeleteRecord}
                     onUpdateRecord={handleUpdateRecord}
@@ -5143,15 +5810,21 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+                </div>
+              </div>
+            </DataMaintenancePage>
           </TabsContent>
         </Tabs>
+        </main>
       </div>
 
       <AttachmentPreviewDialog
         attachment={attachments.find(a => a.id === previewAttachmentId) || null}
-        onClose={() => setPreviewAttachmentId(null)}
+        loading={previewAttachmentLoading}
+        onClose={() => {
+          setPreviewAttachmentId(null);
+          setPreviewAttachmentLoading(false);
+        }}
       />
     </div>
   );

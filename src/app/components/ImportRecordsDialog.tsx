@@ -10,6 +10,8 @@ import { cn } from "@/app/components/ui/utils";
 import { UploadCloud, FileSpreadsheet, AlertTriangle, CheckCircle2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
+import { recordDuplicateKey } from "@/app/services/duplicateRecords";
+import { Checkbox } from "@/app/components/ui/checkbox";
 
 const normalizeHeaderKey = (value: string) =>
   value
@@ -32,10 +34,12 @@ interface ParsedRow {
 interface ImportRecordsDialogProps {
   categories: IndicatorCategory[];
   onImportRecords: (records: HealthRecord[]) => void;
+  existingRecords?: HealthRecord[];
   triggerClassName?: string;
+  triggerLabel?: string;
 }
 
-export function ImportRecordsDialog({ categories, onImportRecords, triggerClassName }: ImportRecordsDialogProps) {
+export function ImportRecordsDialog({ categories, onImportRecords, existingRecords = [], triggerClassName, triggerLabel }: ImportRecordsDialogProps) {
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
@@ -47,6 +51,14 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const [manualError, setManualError] = useState<string | null>(null);
+  // 用户勾选强制导入的"疑似重复"行（同日期+同指标+同数值）
+  const [forcedDuplicates, setForcedDuplicates] = useState<Set<string>>(new Set());
+
+  // 既有记录的重复键集合：用于预览表中标记"疑似重复"
+  const existingDuplicateKeys = useMemo(
+    () => new Set(existingRecords.map(recordDuplicateKey)),
+    [existingRecords],
+  );
 
   const selectedCategory = useMemo(
     () => categories.find(c => c.id === selectedCategoryId) ?? categories[0],
@@ -100,9 +112,32 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
     [parsedRows],
   );
 
+  // 有效行中的重复键（行级别，用于 UI 标记与提交过滤）
+  const rowDuplicateKey = (row: ParsedRow): string | null =>
+    row.indicatorId && row.value !== null
+      ? recordDuplicateKey({ date: row.date, indicatorType: row.indicatorId, value: row.value })
+      : null;
+
   const invalidRows = useMemo(
     () => parsedRows.filter(row => row.errors.length > 0),
     [parsedRows],
+  );
+
+  // 实际可导入行：有效且（非重复或用户勾选强制导入）
+  const importableRows = useMemo(
+    () => validRows.filter(row => {
+      const key = rowDuplicateKey(row);
+      return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
+    }),
+    [validRows, existingDuplicateKeys, forcedDuplicates],
+  );
+
+  const duplicateRowCount = useMemo(
+    () => validRows.filter(row => {
+      const key = rowDuplicateKey(row);
+      return key !== null && existingDuplicateKeys.has(key);
+    }).length,
+    [validRows, existingDuplicateKeys],
   );
 
   const handleReset = () => {
@@ -115,6 +150,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
     setManualDate(new Date().toISOString().split("T")[0]);
     setManualValues({});
     setManualError(null);
+    setForcedDuplicates(new Set());
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -328,14 +364,14 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (validRows.length === 0) {
+    if (importableRows.length === 0) {
       return;
     }
     setPhase("importing");
 
     const now = Date.now();
     const operationAt = new Date().toISOString();
-    let records: HealthRecord[] = validRows.map((row, index: number) => {
+    let records: HealthRecord[] = importableRows.map((row, index: number) => {
       const indicatorId = row.indicatorId as string;
       const fallbackCategory = categories.find(category =>
         category.items.some((indicator: IndicatorItem) => indicator.id === indicatorId),
@@ -467,7 +503,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
     URL.revokeObjectURL(url);
   };
 
-  const canImport = validRows.length > 0 && phase === "parsed";
+  const canImport = importableRows.length > 0 && phase === "parsed";
 
   return (
     <Dialog
@@ -490,7 +526,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
           )}
         >
           <UploadCloud className="w-4 h-4" />
-          Excel 导入
+          {triggerLabel ?? "Excel 导入"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[760px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
@@ -599,6 +635,9 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
                       <span className="flex items-center gap-1 text-xs text-emerald-600">
                         <CheckCircle2 className="w-3 h-3" />
                         解析完成：共 {parsedRows.length} 行，其中有效 {validRows.length} 行，存在问题 {invalidRows.length} 行。
+                        {duplicateRowCount > 0 && (
+                          <span className="text-amber-600">疑似重复 {duplicateRowCount} 行（默认跳过）。</span>
+                        )}
                       </span>
                     )}
                   </div>
@@ -641,10 +680,13 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
                       <TableBody>
                         {parsedRows.slice(0, 50).map(row => {
                           const hasError = row.errors.length > 0;
+                          const dupKey = rowDuplicateKey(row);
+                          const isDuplicate = !hasError && dupKey !== null && existingDuplicateKeys.has(dupKey);
+                          const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
                           return (
                             <TableRow
                               key={`${row.sourceRowIndex}-${row.indicatorLabelGuess}`}
-                              className={hasError ? "bg-rose-50/40" : ""}
+                              className={hasError ? "bg-rose-50/40" : isDuplicate ? "bg-amber-50/40" : ""}
                             >
                               <TableCell className="text-xs text-gray-500">{row.sourceRowIndex}</TableCell>
                               <TableCell className="text-xs text-gray-700">{row.date}</TableCell>
@@ -661,6 +703,27 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
                                 {hasError ? (
                                   <span className="text-rose-500">
                                     {row.errors.join("；")}
+                                  </span>
+                                ) : isDuplicate ? (
+                                  <span className="flex items-center gap-1">
+                                    <span className="text-amber-600">疑似重复</span>
+                                    <label className="flex items-center gap-1 text-[11px] text-gray-500">
+                                      <Checkbox
+                                        checked={forceChecked}
+                                        onCheckedChange={checked => {
+                                          setForcedDuplicates(prev => {
+                                            const next = new Set(prev);
+                                            if (checked && dupKey !== null) {
+                                              next.add(dupKey);
+                                            } else if (dupKey !== null) {
+                                              next.delete(dupKey);
+                                            }
+                                            return next;
+                                          });
+                                        }}
+                                      />
+                                      仍导入
+                                    </label>
                                   </span>
                                 ) : (
                                   <span className="text-emerald-600">可导入</span>
@@ -711,8 +774,8 @@ export function ImportRecordsDialog({ categories, onImportRecords, triggerClassN
                     className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     确认导入有效数据
-                    {validRows.length > 0 && (
-                      <span className="ml-1">({validRows.length} 条)</span>
+                    {importableRows.length > 0 && (
+                      <span className="ml-1">({importableRows.length} 条)</span>
                     )}
                   </Button>
                 </div>

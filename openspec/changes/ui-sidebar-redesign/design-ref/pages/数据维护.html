@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人健康中心</title>
+    <style id="theme-vars">
+/* ============================================
+   个人健康中心 - 设计令牌
+   主题：清新医疗风 · 青绿色系
+   ============================================ */
+
+:root {
+  /* Brand - 青绿医疗色系 */
+  --hc-primary: #0d9488;
+  --hc-primary-light: #14b8a6;
+  --hc-primary-dark: #0f766e;
+  --hc-primary-foreground: #ffffff;
+
+  /* Background & Surface */
+  --hc-background: #f0fdfa;
+  --hc-foreground: #0f172a;
+  --hc-card: #ffffff;
+  --hc-card-foreground: #0f172a;
+  --hc-muted: #f1f5f9;
+  --hc-muted-foreground: #64748b;
+
+  /* Border & Input */
+  --hc-border: #e2e8f0;
+  --hc-input: #e2e8f0;
+  --hc-ring: #0d9488;
+
+  /* Popover */
+  --hc-popover: #ffffff;
+  --hc-popover-foreground: #0f172a;
+
+  /* Accent support hues */
+  --hc-accent-blue: #3b82f6;
+  --hc-accent-purple: #8b5cf6;
+  --hc-accent-rose: #f43f5e;
+  --hc-accent-amber: #f59e0b;
+
+  /* State colors */
+  --hc-success: #10b981;
+  --hc-warning: #f59e0b;
+  --hc-error: #ef4444;
+  --hc-info: #3b82f6;
+
+  /* Sidebar */
+  --hc-sidebar-bg: #ffffff;
+  --hc-sidebar-border: #e2e8f0;
+  --hc-sidebar-hover: #f0fdfa;
+  --hc-sidebar-active: #ccfbf1;
+
+  /* Radius scale */
+  --hc-radius-sm: 6px;
+  --hc-radius-md: 10px;
+  --hc-radius-lg: 14px;
+  --hc-radius-xl: 20px;
+
+  /* Shadow scale - subtle */
+  --hc-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hc-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --hc-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.08);
+
+  /* Typography */
+  --hc-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* Tailwind semantic aliases */
+@theme inline {
+  --color-background: var(--hc-background);
+  --color-foreground: var(--hc-foreground);
+  --color-card: var(--hc-card);
+  --color-card-foreground: var(--hc-card-foreground);
+  --color-popover: var(--hc-popover);
+  --color-popover-foreground: var(--hc-popover-foreground);
+  --color-primary: var(--hc-primary);
+  --color-primary-foreground: var(--hc-primary-foreground);
+  --color-muted: var(--hc-muted);
+  --color-muted-foreground: var(--hc-muted-foreground);
+  --color-border: var(--hc-border);
+  --color-input: var(--hc-input);
+  --color-ring: var(--hc-ring);
+  --radius-sm: var(--hc-radius-sm);
+  --radius-md: var(--hc-radius-md);
+  --radius-lg: var(--hc-radius-lg);
+  --radius-xl: var(--hc-radius-xl);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--hc-background);
+    --color-foreground: var(--hc-foreground);
+    --color-card: var(--hc-card);
+    --color-card-foreground: var(--hc-card-foreground);
+    --color-popover: var(--hc-popover);
+    --color-popover-foreground: var(--hc-popover-foreground);
+    --color-primary: var(--hc-primary);
+    --color-primary-foreground: var(--hc-primary-foreground);
+    --color-muted: var(--hc-muted);
+    --color-muted-foreground: var(--hc-muted-foreground);
+    --color-border: var(--hc-border);
+    --color-input: var(--hc-input);
+    --color-ring: var(--hc-ring);
+    --radius-sm: var(--hc-radius-sm);
+    --radius-md: var(--hc-radius-md);
+    --radius-lg: var(--hc-radius-lg);
+    --radius-xl: var(--hc-radius-xl);
+  }
+  @layer base {
+    body { background: var(--hc-background); color: var(--hc-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--hc-background); }
+      .text-background { color: var(--hc-background); }
+      .border-background { border-color: var(--hc-background); }
+      .ring-background { --tw-ring-color: var(--hc-background); }
+      .bg-foreground { background-color: var(--hc-foreground); }
+      .text-foreground { color: var(--hc-foreground); }
+      .border-foreground { border-color: var(--hc-foreground); }
+      .ring-foreground { --tw-ring-color: var(--hc-foreground); }
+      .bg-card { background-color: var(--hc-card); }
+      .text-card { color: var(--hc-card); }
+      .border-card { border-color: var(--hc-card); }
+      .ring-card { --tw-ring-color: var(--hc-card); }
+      .bg-card-foreground { background-color: var(--hc-card-foreground); }
+      .text-card-foreground { color: var(--hc-card-foreground); }
+      .border-card-foreground { border-color: var(--hc-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--hc-card-foreground); }
+      .bg-popover { background-color: var(--hc-popover); }
+      .text-popover { color: var(--hc-popover); }
+      .border-popover { border-color: var(--hc-popover); }
+      .ring-popover { --tw-ring-color: var(--hc-popover); }
+      .bg-popover-foreground { background-color: var(--hc-popover-foreground); }
+      .text-popover-foreground { color: var(--hc-popover-foreground); }
+      .border-popover-foreground { border-color: var(--hc-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--hc-popover-foreground); }
+      .bg-primary { background-color: var(--hc-primary); }
+      .text-primary { color: var(--hc-primary); }
+      .border-primary { border-color: var(--hc-primary); }
+      .ring-primary { --tw-ring-color: var(--hc-primary); }
+      .bg-primary-foreground { background-color: var(--hc-primary-foreground); }
+      .text-primary-foreground { color: var(--hc-primary-foreground); }
+      .border-primary-foreground { border-color: var(--hc-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--hc-primary-foreground); }
+      .bg-muted { background-color: var(--hc-muted); }
+      .text-muted { color: var(--hc-muted); }
+      .border-muted { border-color: var(--hc-muted); }
+      .ring-muted { --tw-ring-color: var(--hc-muted); }
+      .bg-muted-foreground { background-color: var(--hc-muted-foreground); }
+      .text-muted-foreground { color: var(--hc-muted-foreground); }
+      .border-muted-foreground { border-color: var(--hc-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--hc-muted-foreground); }
+      .bg-border { background-color: var(--hc-border); }
+      .text-border { color: var(--hc-border); }
+      .border-border { border-color: var(--hc-border); }
+      .ring-border { --tw-ring-color: var(--hc-border); }
+      .bg-input { background-color: var(--hc-input); }
+      .text-input { color: var(--hc-input); }
+      .border-input { border-color: var(--hc-input); }
+      .ring-input { --tw-ring-color: var(--hc-input); }
+      .bg-ring { background-color: var(--hc-ring); }
+      .text-ring { color: var(--hc-ring); }
+      .border-ring { border-color: var(--hc-ring); }
+      .ring-ring { --tw-ring-color: var(--hc-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="critical-layout">
+      /* ===== Critical Layout ===== */
+      .app-layout {
+        display: flex;
+        min-height: 100vh;
+      }
+      .sidebar {
+        width: 260px;
+        flex-shrink: 0;
+        background: var(--hc-sidebar-bg);
+        border-right: 1px solid var(--hc-sidebar-border);
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 20;
+      }
+      .main-wrapper {
+        flex: 1;
+        margin-left: 260px;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .topbar {
+        background: var(--hc-card);
+        border-bottom: 1px solid var(--hc-border);
+        padding: 20px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .main-content {
+        padding: 32px;
+        flex: 1;
+      }
+      /* Stats cards grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        margin-bottom: 32px;
+      }
+      .stat-card {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        padding: 24px;
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .stat-card:hover {
+        box-shadow: var(--hc-shadow-md);
+        transform: translateY(-2px);
+      }
+      /* Tabs */
+      .tabs-wrapper {
+        margin-bottom: 24px;
+      }
+      .tab-group {
+        display: inline-flex;
+        background: var(--hc-muted);
+        border-radius: 999px;
+        padding: 4px;
+        gap: 2px;
+      }
+      .tab-btn {
+        padding: 10px 24px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        background: transparent;
+      }
+      .tab-btn:hover {
+        color: var(--hc-foreground);
+      }
+      .tab-btn.active {
+        background: var(--hc-primary);
+        color: var(--hc-primary-foreground);
+        box-shadow: var(--hc-shadow-sm);
+      }
+      /* Table section */
+      .table-section {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        overflow: hidden;
+      }
+      .table-header {
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .data-table th {
+        text-align: left;
+        padding: 14px 24px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--hc-muted-foreground);
+        background: var(--hc-muted);
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .data-table td {
+        padding: 16px 24px;
+        font-size: 14px;
+        color: var(--hc-foreground);
+        border-bottom: 1px solid var(--hc-border);
+        transition: background 0.2s ease;
+      }
+      .data-table tbody tr:hover td {
+        background: var(--hc-sidebar-hover);
+      }
+      .data-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+      /* Sidebar nav */
+      .sidebar-logo {
+        padding: 24px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--hc-sidebar-border);
+      }
+      .sidebar-nav {
+        flex: 1;
+        padding: 16px 12px;
+        overflow-y: auto;
+      }
+      .nav-group {
+        margin-bottom: 20px;
+      }
+      .nav-group-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--hc-muted-foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 8px 12px;
+        margin-bottom: 4px;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        color: var(--hc-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+      }
+      .nav-item:hover {
+        background: var(--hc-sidebar-hover);
+        color: var(--hc-primary);
+      }
+      .nav-item.active {
+        background: var(--hc-sidebar-active);
+        color: var(--hc-primary-dark);
+        font-weight: 500;
+      }
+      .nav-item.danger {
+        color: var(--hc-error);
+      }
+      .nav-item.danger:hover {
+        background: #fef2f2;
+      }
+      .sidebar-footer {
+        padding: 16px 20px;
+        border-top: 1px solid var(--hc-sidebar-border);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      /* Topbar right */
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .search-box {
+        position: relative;
+      }
+      .search-box input {
+        width: 280px;
+        padding: 10px 16px 10px 40px;
+        border: 1px solid var(--hc-input);
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        background: var(--hc-background);
+        transition: all 0.2s ease;
+        outline: none;
+      }
+      .search-box input:focus {
+        border-color: var(--hc-ring);
+        box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+        background: var(--hc-card);
+      }
+      .search-box .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--hc-muted-foreground);
+      }
+      .icon-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--hc-radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+      }
+      .icon-btn:hover {
+        background: var(--hc-muted);
+        color: var(--hc-foreground);
+      }
+      .notification-dot {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        background: var(--hc-error);
+        border-radius: 50%;
+        border: 2px solid var(--hc-card);
+      }
+      .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--hc-primary), var(--hc-primary-light));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .user-avatar:hover {
+        transform: scale(1.05);
+      }
+      /* Stat card icon wrapper */
+      .stat-icon-wrap {
+        width: 48px;
+        height: 48px;
+        border-radius: var(--hc-radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stat-icon-wrap.teal {
+        background: rgba(13, 148, 136, 0.1);
+        color: var(--hc-primary);
+      }
+      .stat-icon-wrap.blue {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--hc-accent-blue);
+      }
+      .stat-icon-wrap.rose {
+        background: rgba(244, 63, 94, 0.1);
+        color: var(--hc-accent-rose);
+      }
+      .stat-label {
+        font-size: 14px;
+        color: var(--hc-muted-foreground);
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+        line-height: 1.2;
+      }
+      .stat-trend {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 4px 10px;
+        border-radius: 999px;
+      }
+      .stat-trend.up {
+        color: var(--hc-success);
+        background: rgba(16, 185, 129, 0.1);
+      }
+      .stat-trend.info {
+        color: var(--hc-info);
+        background: rgba(59, 130, 246, 0.1);
+      }
+      /* Pagination */
+      .table-footer {
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-top: 1px solid var(--hc-border);
+      }
+      .pagination {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .page-btn {
+        min-width: 36px;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: var(--hc-radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: var(--hc-muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid transparent;
+      }
+      .page-btn:hover {
+        background: var(--hc-muted);
+        color: var(--hc-foreground);
+      }
+      .page-btn.active {
+        background: var(--hc-primary);
+        color: var(--hc-primary-foreground);
+        border-color: var(--hc-primary);
+      }
+      /* Select dropdown */
+      .category-select {
+        padding: 8px 36px 8px 14px;
+        border: 1px solid var(--hc-input);
+        border-radius: var(--hc-radius-md);
+        font-size: 14px;
+        color: var(--hc-foreground);
+        background: var(--hc-card);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+      }
+      .category-select:hover {
+        border-color: var(--hc-primary);
+      }
+      .category-select:focus {
+        outline: none;
+        border-color: var(--hc-ring);
+        box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+      }
+      /* Table title */
+      .table-title h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .table-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Topbar title */
+      .topbar-title h1 {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .topbar-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Logo */
+      .logo-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--hc-radius-md);
+        background: linear-gradient(135deg, var(--hc-primary), var(--hc-primary-light));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+      }
+      .logo-text {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--hc-foreground);
+      }
+      /* Page info text */
+      .page-info {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      /* Maintain section */
+      .maintain-section {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        box-shadow: var(--hc-shadow-sm);
+        border: 1px solid var(--hc-border);
+        overflow: hidden;
+      }
+      .maintain-header {
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--hc-border);
+      }
+      .maintain-title h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+        margin-bottom: 2px;
+      }
+      .maintain-title p {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+      }
+      .maintain-body {
+        padding: 24px;
+      }
+      .maintain-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+      }
+      .maintain-card {
+        background: var(--hc-card);
+        border-radius: var(--hc-radius-lg);
+        padding: 24px;
+        border: 1px solid var(--hc-border);
+        transition: all 0.25s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .maintain-card:hover {
+        box-shadow: var(--hc-shadow-md);
+        transform: translateY(-3px);
+        border-color: var(--hc-primary-light);
+      }
+      .maintain-card-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .maintain-icon-wrap {
+        width: 48px;
+        height: 48px;
+        border-radius: var(--hc-radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .maintain-icon-wrap.teal {
+        background: rgba(13, 148, 136, 0.1);
+        color: var(--hc-primary);
+      }
+      .maintain-icon-wrap.blue {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--hc-accent-blue);
+      }
+      .maintain-icon-wrap.purple {
+        background: rgba(139, 92, 246, 0.1);
+        color: var(--hc-accent-purple);
+      }
+      .maintain-icon-wrap.amber {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--hc-accent-amber);
+      }
+      .maintain-card-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--hc-foreground);
+        margin-bottom: 4px;
+      }
+      .maintain-card-desc {
+        font-size: 13px;
+        color: var(--hc-muted-foreground);
+        line-height: 1.5;
+      }
+      .maintain-card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: auto;
+      }
+      .maintain-card-meta {
+        font-size: 12px;
+        color: var(--hc-muted-foreground);
+      }
+      .maintain-btn {
+        padding: 8px 18px;
+        border-radius: var(--hc-radius-md);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .maintain-btn.primary {
+        background: var(--hc-primary);
+        color: var(--hc-primary-foreground);
+        border-color: var(--hc-primary);
+      }
+      .maintain-btn.primary:hover {
+        background: var(--hc-primary-dark);
+        border-color: var(--hc-primary-dark);
+      }
+      .maintain-btn.secondary {
+        background: transparent;
+        color: var(--hc-foreground);
+        border-color: var(--hc-border);
+      }
+      .maintain-btn.secondary:hover {
+        background: var(--hc-muted);
+        border-color: var(--hc-primary);
+        color: var(--hc-primary);
+      }
+      .maintain-btn-group {
+        display: flex;
+        gap: 8px;
+      }
+      .sync-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--hc-success);
+        padding: 4px 10px;
+        background: rgba(16, 185, 129, 0.1);
+        border-radius: 999px;
+      }
+      .sync-status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--hc-success);
+      }
+      /* Danger zone */
+      .danger-zone {
+        margin-top: 24px;
+        background: #fff5f5;
+        border-radius: var(--hc-radius-lg);
+        border: 1px solid #fecaca;
+        padding: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .danger-zone-info {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .danger-icon-wrap {
+        width: 44px;
+        height: 44px;
+        border-radius: var(--hc-radius-md);
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--hc-error);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .danger-zone-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--hc-error);
+        margin-bottom: 4px;
+      }
+      .danger-zone-desc {
+        font-size: 13px;
+        color: #dc2626;
+        opacity: 0.8;
+      }
+      .danger-btn {
+        padding: 10px 20px;
+        border-radius: var(--hc-radius-md);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: transparent;
+        color: var(--hc-error);
+        border: 1px solid var(--hc-error);
+        white-space: nowrap;
+      }
+      .danger-btn:hover {
+        background: var(--hc-error);
+        color: #ffffff;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+  <div class="app-layout">
+    <!-- ===== Sidebar ===== -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">
+          <i data-lucide="heart-pulse" width="20" height="20"></i>
+        </div>
+        <span class="logo-text">个人健康中心</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <!-- 数据管理组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">数据管理</div>
+          <a href="#" class="nav-item active">
+            <i data-lucide="plus-circle" width="18" height="18"></i>
+            <span>添加检验记录</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="list-checks" width="18" height="18"></i>
+            <span>检验指标维护</span>
+          </a>
+        </div>
+
+        <!-- 报告组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">报告</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="file-upload" width="18" height="18"></i>
+            <span>报告导入</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="file-text" width="18" height="18"></i>
+            <span>问诊简报</span>
+          </a>
+        </div>
+
+        <!-- 工具组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">工具</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="sheet" width="18" height="18"></i>
+            <span>Excel导入</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="download" width="18" height="18"></i>
+            <span>导出Excel</span>
+          </a>
+        </div>
+
+        <!-- 同步组 -->
+        <div class="nav-group">
+          <div class="nav-group-title">同步</div>
+          <a href="#" class="nav-item">
+            <i data-lucide="cloud" width="18" height="18"></i>
+            <span>云同步</span>
+          </a>
+          <a href="#" class="nav-item">
+            <i data-lucide="refresh-cw" width="18" height="18"></i>
+            <span>立即同步</span>
+          </a>
+        </div>
+
+        <!-- 危险操作 -->
+        <div class="nav-group">
+          <div class="nav-group-title">危险操作</div>
+          <a href="#" class="nav-item danger">
+            <i data-lucide="trash-2" width="18" height="18"></i>
+            <span>删除全部</span>
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar" style="width: 36px; height: 36px; font-size: 13px;">
+          ZS
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 500; color: var(--hc-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">张三</div>
+          <div style="font-size: 12px; color: var(--hc-muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">zhangsan@example.com</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== Main Wrapper ===== -->
+    <div class="main-wrapper">
+      <!-- ===== Topbar ===== -->
+      <header id="topbar" class="topbar">
+        <div class="topbar-title">
+          <h1>数据概览</h1>
+          <p>智能记录，轻松管理您的健康数据</p>
+        </div>
+        <div class="topbar-right">
+          <div class="search-box">
+            <i data-lucide="search" width="18" height="18" class="search-icon"></i>
+            <input type="text" placeholder="搜索记录、指标...">
+          </div>
+          <div class="icon-btn">
+            <i data-lucide="bell" width="20" height="20"></i>
+            <span class="notification-dot"></span>
+          </div>
+          <div class="user-avatar">ZS</div>
+        </div>
+      </header>
+
+      <!-- ===== Main Content ===== -->
+      <main id="main-content" class="main-content">
+        <!-- ===== Stats Cards ===== -->
+        <section id="stats-cards" class="stats-grid">
+          <!-- Card 1: 总记录数 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap teal">
+              <i data-lucide="database" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">总记录数</div>
+            <div class="stat-value">49</div>
+            <div>
+              <span class="stat-trend up">
+                <i data-lucide="trending-up" width="14" height="14"></i>
+                +2 本月新增
+              </span>
+            </div>
+          </div>
+
+          <!-- Card 2: 检验指标种类 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap blue">
+              <i data-lucide="bar-chart-3" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">检验指标种类</div>
+            <div class="stat-value">10</div>
+            <div>
+              <span class="stat-trend info">
+                <i data-lucide="layers" width="14" height="14"></i>
+                覆盖 5 大类别
+              </span>
+            </div>
+          </div>
+
+          <!-- Card 3: 最后更新 -->
+          <div class="stat-card">
+            <div class="stat-icon-wrap rose">
+              <i data-lucide="calendar" width="24" height="24"></i>
+            </div>
+            <div class="stat-label">最后更新</div>
+            <div class="stat-value">2026/4/24</div>
+            <div>
+              <span class="stat-trend info">
+                <i data-lucide="clock" width="14" height="14"></i>
+                3 天前
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Tabs ===== -->
+        <section id="tabs-section" class="tabs-wrapper">
+          <div class="tab-group">
+            <button class="tab-btn" data-dom-id="nav-tab-list-2">数据列表</button>
+            <button class="tab-btn" data-dom-id="nav-tab-chart">图表分析</button>
+            <button class="tab-btn active">数据维护</button>
+          </div>
+        </section>
+
+        <!-- ===== Data Maintain Section ===== -->
+        <section id="data-table-section" class="maintain-section">
+          <div class="maintain-header">
+            <div class="maintain-title">
+              <h3>数据维护</h3>
+              <p>管理检验指标和数据记录</p>
+            </div>
+          </div>
+
+          <div class="maintain-body">
+            <!-- 2-column card grid -->
+            <div class="maintain-grid">
+              <!-- Card 1: 指标管理 -->
+              <div class="maintain-card">
+                <div class="maintain-card-head">
+                  <div class="maintain-icon-wrap teal">
+                    <i data-lucide="sliders-horizontal" width="22" height="22"></i>
+                  </div>
+                  <div>
+                    <div class="maintain-card-title">检验指标维护</div>
+                    <div class="maintain-card-desc">添加、编辑、删除检验指标项目</div>
+                  </div>
+                </div>
+                <div class="maintain-card-footer">
+                  <span class="maintain-card-meta">当前 10 个指标</span>
+                  <button class="maintain-btn primary">
+                    <i data-lucide="settings" width="14" height="14"></i>
+                    管理指标
+                  </button>
+                </div>
+              </div>
+
+              <!-- Card 2: 数据导入导出 -->
+              <div class="maintain-card">
+                <div class="maintain-card-head">
+                  <div class="maintain-icon-wrap blue">
+                    <i data-lucide="file-spreadsheet" width="22" height="22"></i>
+                  </div>
+                  <div>
+                    <div class="maintain-card-title">Excel 数据管理</div>
+                    <div class="maintain-card-desc">批量导入或导出检验数据</div>
+                  </div>
+                </div>
+                <div class="maintain-card-footer">
+                  <span class="maintain-card-meta">支持 .xlsx, .csv</span>
+                  <div class="maintain-btn-group">
+                    <button class="maintain-btn secondary">
+                      <i data-lucide="upload" width="14" height="14"></i>
+                      导入Excel
+                    </button>
+                    <button class="maintain-btn primary">
+                      <i data-lucide="download" width="14" height="14"></i>
+                      导出Excel
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 3: 报告管理 -->
+              <div class="maintain-card">
+                <div class="maintain-card-head">
+                  <div class="maintain-icon-wrap purple">
+                    <i data-lucide="file-text" width="22" height="22"></i>
+                  </div>
+                  <div>
+                    <div class="maintain-card-title">报告导入管理</div>
+                    <div class="maintain-card-desc">从体检报告中自动识别提取数据</div>
+                  </div>
+                </div>
+                <div class="maintain-card-footer">
+                  <span class="maintain-card-meta">已导入 12 份</span>
+                  <button class="maintain-btn primary">
+                    <i data-lucide="file-plus" width="14" height="14"></i>
+                    导入报告
+                  </button>
+                </div>
+              </div>
+
+              <!-- Card 4: 同步与备份 -->
+              <div class="maintain-card">
+                <div class="maintain-card-head">
+                  <div class="maintain-icon-wrap amber">
+                    <i data-lucide="cloud" width="22" height="22"></i>
+                  </div>
+                  <div>
+                    <div class="maintain-card-title">云端同步</div>
+                    <div class="maintain-card-desc">将数据同步到云端，多设备访问</div>
+                  </div>
+                </div>
+                <div class="maintain-card-footer">
+                  <span class="sync-status">
+                    <span class="sync-status-dot"></span>
+                    已同步 · 最后同步 2小时前
+                  </span>
+                  <button class="maintain-btn primary">
+                    <i data-lucide="refresh-cw" width="14" height="14"></i>
+                    立即同步
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Danger zone -->
+            <div class="danger-zone">
+              <div class="danger-zone-info">
+                <div class="danger-icon-wrap">
+                  <i data-lucide="alert-triangle" width="22" height="22"></i>
+                </div>
+                <div>
+                  <div class="danger-zone-title">危险操作</div>
+                  <div class="danger-zone-desc">删除所有数据，此操作不可撤销</div>
+                </div>
+              </div>
+              <button class="danger-btn">
+                <i data-lucide="trash-2" width="14" height="14" style="display: inline-block; vertical-align: -2px; margin-right: 4px;"></i>
+                删除全部数据
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>lucide.createIcons();</script>
+</body>
+</html>

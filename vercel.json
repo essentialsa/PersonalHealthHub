@@ -5,6 +5,30 @@
   "devCommand": "npm run dev",
   "framework": "vite",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/api/parse",
+      "destination": "/api/report-parser.py"
+    },
+    {
+      "source": "/api/match-labels",
+      "destination": "/api/report-parser.py"
+    },
+    {
+      "source": "/api/healthz",
+      "destination": "/api/report-parser.py"
+    },
+    {
+      "source": "/api/ocr-readyz",
+      "destination": "/api/report-parser.py"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/**/*.py": {
+      "maxDuration": 60
+    }
+  }
 }

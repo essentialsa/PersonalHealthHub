@@ -2,9 +2,12 @@
  * 体检报告解析服务 — 调用 OCR 解析 API
  */
 
-const REMOTE_PARSER_ENDPOINTS = ["https://essentialsa-health-data-ocr.onrender.com"];
+// OCR 薄代理已随前端同域部署（Vercel Serverless），默认指向生产域名；
+// Render 独立后端已下线。
+const REMOTE_PARSER_ENDPOINTS = ["https://health-data-mgmt.vercel.app"];
 const LOCAL_PARSER_ENDPOINTS = ["http://127.0.0.1:8000", "http://localhost:8000"];
-const PARSE_TIMEOUT_MS = 240000;
+// 与 Vercel Serverless maxDuration=60s 对齐（60s 平台硬限 + 5s 余量）
+const PARSE_TIMEOUT_MS = 65000;
 const HEALTH_CHECK_TIMEOUT_MS = 45000;
 
 const isLocalBrowserPage = (): boolean => {
@@ -72,8 +75,16 @@ type EndpointAttemptError = {
 
 const createTimeoutError = () => new DOMException("请求超时", "AbortError");
 
-const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number, externalSignal?: AbortSignal): Promise<Response> => {
   const controller = new AbortController();
+  const onExternalAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort);
+    }
+  }
   const timer = setTimeout(() => {
     controller.abort(createTimeoutError());
   }, timeoutMs);
@@ -84,6 +95,9 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
     });
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 };
 
@@ -100,15 +114,8 @@ const readErrorMessage = async (resp: Response): Promise<string> => {
   }
 };
 
-const isRetryableStatus = (status: number): boolean => {
-  if (status === 511) {
-    return true;
-  }
-  if (status === 408 || status === 425 || status === 429) {
-    return true;
-  }
-  return status >= 500;
-};
+// 仅参数校验错误（422 类）重试无意义，短路降级链；其余状态码（含 400/401/403/429/5xx）继续下一端点
+const isParameterValidationError = (status: number): boolean => status === 422;
 
 const summarizeAttemptErrors = (errors: EndpointAttemptError[]): string => {
   if (errors.length === 0) {
@@ -123,7 +130,7 @@ const summarizeAttemptErrors = (errors: EndpointAttemptError[]): string => {
 
 const describeFetchError = (error: unknown, timeoutMs: number): string => {
   if (error instanceof DOMException && error.name === "AbortError") {
-    return `请求超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，Render 免费实例冷启动或多页/高清报告会更慢）`;
+    return `请求超时（已等待 ${Math.round(timeoutMs / 1000)} 秒，多页或高清报告解析较慢，请稍后重试）`;
   }
   if (error instanceof Error) {
     return error.message;
@@ -186,8 +193,14 @@ export interface MatchedIndicator extends ExtractedIndicator {
 
 /* ── API 调用 ── */
 
-export async function parseMedicalReport(file: File): Promise<ParseResult> {
+export interface ParseRequestOptions {
+  /** 对话框等调用方的取消信号：abort 后在途请求立即取消 */
+  signal?: AbortSignal;
+}
+
+export async function parseMedicalReport(file: File, options: ParseRequestOptions = {}): Promise<ParseResult> {
   const errors: EndpointAttemptError[] = [];
+  let parameterError: Error | null = null;
 
   for (const endpoint of PARSER_ENDPOINTS) {
     try {
@@ -195,6 +208,7 @@ export async function parseMedicalReport(file: File): Promise<ParseResult> {
         `${endpoint}/api/parse`,
         { method: "POST", body: createUploadFormData(file) },
         PARSE_TIMEOUT_MS,
+        options.signal,
       );
 
       if (resp.ok) {
@@ -210,15 +224,23 @@ export async function parseMedicalReport(file: File): Promise<ParseResult> {
       const message = await readErrorMessage(resp);
       errors.push({ endpoint, status: resp.status, message });
 
-      if (!isRetryableStatus(resp.status)) {
-        throw new Error(`解析失败 (${resp.status})：${message}`);
+      // 参数校验错误重试无意义：记录后立即短路整个降级链
+      if (isParameterValidationError(resp.status)) {
+        parameterError = new Error(`解析失败 (${resp.status})：${message}`);
+        break;
       }
     } catch (error) {
+      if (options.signal?.aborted) {
+        throw new DOMException("请求已取消", "AbortError");
+      }
       const message = describeFetchError(error, PARSE_TIMEOUT_MS);
       errors.push({ endpoint, message });
     }
   }
 
+  if (parameterError) {
+    throw parameterError;
+  }
   throw new Error(summarizeAttemptErrors(errors));
 }
 
@@ -370,7 +392,7 @@ const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
   coagulation: "凝血功能",
 };
 
-const normalizeIndicatorText = (value: string): string =>
+export const normalizeIndicatorText = (value: string): string =>
   value
     .normalize("NFKC")
     .trim()
@@ -761,4 +783,110 @@ export function getCategoriesToCreate(resolved: ResolvedIndicator[]): { category
     categoryName: DEFAULT_CATEGORY_LABELS[catId] || catId,
     indicators,
   }));
+}
+
+/* ── 未命名指标聚类 + 免费模型二次匹配 ── */
+
+export interface UnnamedCluster {
+  /** 簇内首条 rawLabel 的归一化形式 */
+  key: string;
+  /** 展示用原始写法（首条） */
+  canonicalLabel: string;
+  /** 簇内全部归一化变体（含首条） */
+  keys: string[];
+  items: ResolvedIndicator[];
+}
+
+const UNNAMED_CLUSTER_SIMILARITY = 0.85;
+
+/**
+ * 把 action=unnamed 的指标聚成簇：归一化名称精确相等的直接同簇；
+ * 不同名但编辑距离相似度 ≥ 0.85 的并入同簇（保守阈值，避免把"白细胞"和
+ * "白细胞酯酶"这类真不同指标并掉）。每条记录保留各自的数值/日期。
+ */
+export function clusterUnnamedIndicators(unnamed: ResolvedIndicator[]): UnnamedCluster[] {
+  const clusters: UnnamedCluster[] = [];
+  for (const item of unnamed) {
+    const normalized = normalizeIndicatorText(item.rawLabel);
+    const hit = clusters.find(cluster =>
+      cluster.keys.some(key => key === normalized || similarity(key, normalized) >= UNNAMED_CLUSTER_SIMILARITY),
+    );
+    if (hit) {
+      hit.items.push(item);
+      if (!hit.keys.includes(normalized)) {
+        hit.keys.push(normalized);
+      }
+    } else {
+      clusters.push({ key: normalized, canonicalLabel: item.rawLabel, keys: [normalized], items: [item] });
+    }
+  }
+  return clusters;
+}
+
+export interface LabelMatchCatalogEntry {
+  id: string;
+  label: string;
+}
+
+export interface LabelMatchSuggestion {
+  label: string;
+  catalogId: string | null;
+  catalogLabel: string | null;
+}
+
+/**
+ * 把未命中的指标名列表发给后端薄接口，由免费模型（GLM-4V-Flash 文本模式）
+ * 做语义匹配。走与 /api/parse 相同的多端点兜底；全部失败时返回 null，
+ * 调用方应静默降级为纯手动命名。
+ */
+export async function matchUnnamedLabels(
+  labels: string[],
+  catalog: LabelMatchCatalogEntry[],
+  options: ParseRequestOptions = {},
+): Promise<LabelMatchSuggestion[] | null> {
+  if (labels.length === 0 || catalog.length === 0 || PARSER_ENDPOINTS.length === 0) {
+    return null;
+  }
+  const errors: EndpointAttemptError[] = [];
+  for (const endpoint of PARSER_ENDPOINTS) {
+    try {
+      const resp = await fetchWithTimeout(
+        `${endpoint}/api/match-labels`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            labels,
+            catalog: catalog.map(item => ({ id: item.id, label: item.label })),
+          }),
+        },
+        45000,
+        options.signal,
+      );
+      if (!resp.ok) {
+        errors.push({ endpoint, status: resp.status, message: await readErrorMessage(resp) });
+        continue;
+      }
+      const payload = (await resp.json()) as { matches?: { label?: string; catalogId?: string | null; catalogLabel?: string | null }[] };
+      if (!Array.isArray(payload.matches)) {
+        errors.push({ endpoint, message: "响应缺少 matches 字段" });
+        continue;
+      }
+      return payload.matches
+        .filter((m): m is { label: string; catalogId: string | null; catalogLabel: string | null } =>
+          typeof m.label === "string" && m.label.length > 0)
+        .map(m => ({
+          label: m.label,
+          catalogId: typeof m.catalogId === "string" ? m.catalogId : null,
+          catalogLabel: typeof m.catalogLabel === "string" ? m.catalogLabel : null,
+        }));
+    } catch (error) {
+      errors.push({
+        endpoint,
+        message: describeFetchError(error, 45000),
+      });
+    }
+  }
+  console.warn("[OCR] AI 指标匹配不可用，已降级为手动命名", summarizeAttemptErrors(errors));
+  return null;
 }

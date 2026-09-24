@@ -50,8 +50,9 @@
 | **UI 组件** | Radix UI (shadcn/ui) + TailwindCSS |
 | **图表** | Recharts |
 | **认证** | Supabase Auth |
-| **后端解析** | FastAPI + PaddleOCR + LLM 结构化 |
+| **后端解析** | FastAPI 薄代理 + 多模态大模型（GLM-4V-Flash） |
 | **云存储** | Google Drive API |
+| **部署** | Vercel（前端 + OCR Serverless 函数同域） |
 | **测试** | Vitest + Playwright |
 
 ---
@@ -118,10 +119,10 @@ VITE_REPORT_PARSER_URLS=https://essentialsa-health-data-ocr.onrender.com,http://
 7. 复制 `Client Secret` → `VITE_GOOGLE_DRIVE_CLIENT_SECRET`
 
 **OCR 服务地址配置：**
-1. 仅本机使用：配置 `VITE_REPORT_PARSER_URLS=http://127.0.0.1:8000`
-2. 想在其他地方访问网页也能 OCR：把 `report-parser` 部署到 Render
-3. 当前 Render Blueprint 预设地址：`https://essentialsa-health-data-ocr.onrender.com`
-4. 推荐配置：`公网地址,本地地址`，例如 `https://essentialsa-health-data-ocr.onrender.com,http://127.0.0.1:8000`
+1. 生产环境：OCR 薄代理已随 Vercel 同域部署（`/api/parse`），在 Vercel 环境变量设置
+   `VITE_REPORT_PARSER_URLS=https://你的域名` 与 `VISION_LLM_API_KEY`（智谱开放平台免费申请）即可
+2. 仅本机使用：`./start_local.sh` 启动本地后端，配置 `VITE_REPORT_PARSER_URLS=http://127.0.0.1:8000`
+3. 推荐配置：`公网地址,本地地址`，云端不可用时自动兜底本地
 
 ### 构建生产版本
 
