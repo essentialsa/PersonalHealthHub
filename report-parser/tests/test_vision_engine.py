@@ -311,10 +311,9 @@ def test_partial_empty_page_returns_success(monkeypatch):
 
     monkeypatch.setattr(ve.httpx, "post", fake_post)
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
-    engine._render_pdf_pages = lambda content: [
-        ("image/png", b"p0" + b"\x00" * 2000),
-        ("image/png", b"p1" + b"\x00" * 2000),
-    ]
+    engine._open_pdf = lambda content: (
+        2, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
     result = engine.parse_pdf(b"fake-pdf", "report.pdf")
     assert result["success"] is True
     assert len(result["indicators"]) == 1
@@ -359,9 +358,15 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     # 6 页 = 2 个 chunk（4 页 + 2 页）：首个提交，第二个被预算拦下
-    engine._render_pdf_pages = lambda content: [
-        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(6)
-    ]
+    rendered: list = []
+
+    def fake_open(content):
+        def get_page(index):
+            rendered.append(index)
+            return ("image/png", f"p{index}".encode() + b"\x00" * 2000)
+        return 6, get_page
+
+    engine._open_pdf = fake_open
     result = engine.parse_pdf(b"fake-pdf", "report.pdf")
 
     # 仅首批 1 个 chunk 发起模型调用，后 2 页被跳过；已解析部分正常返回
@@ -369,6 +374,8 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
     assert result["success"] is True
     assert result["pageCount"] == 6
     assert len(result["indicators"]) == 1
+    # 惰性渲染：超预算 chunk 的页（4/5）从未被渲染
+    assert rendered == [0, 1, 2, 3]
 
 
 def test_all_pages_parsed_in_parallel(monkeypatch):
@@ -410,9 +417,9 @@ def test_all_pages_parsed_in_parallel(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
-    engine._render_pdf_pages = lambda content: [
-        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(23)
-    ]
+    engine._open_pdf = lambda content: (
+        23, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
     result = engine.parse_pdf(b"fake-pdf", "report.pdf")
 
     # 全部 6 个 chunk（offset 0/4/8/12/16/20）都被调用，末块 3 页
@@ -464,9 +471,9 @@ def test_single_chunk_failure_degrades(monkeypatch):
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     # 8 页 = 2 个 chunk：offset 0 成功，offset 4 失败
-    engine._render_pdf_pages = lambda content: [
-        ("image/png", f"p{i}".encode() + b"\x00" * 2000) for i in range(8)
-    ]
+    engine._open_pdf = lambda content: (
+        8, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
     result = engine.parse_pdf(b"fake-pdf", "report.pdf")
 
     assert failed_offsets  # 失败 chunk 确实被请求过（含主备两次尝试）
