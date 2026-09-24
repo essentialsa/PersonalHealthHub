@@ -71,8 +71,9 @@ METADATA_KEYWORDS = (
 # 每个请求最多带 4 张图片：多图输入降低单次往返开销，
 # 结合分块并行在总预算内覆盖更多页
 MAX_IMAGES_PER_REQUEST = 4
-# PDF 渲染缩放（1.0 = 72dpi；报告正文 144dpi 足够清晰且体积可控）
-PDF_RENDER_SCALE = 2.0
+# PDF 渲染缩放（1.0 = 72dpi；108dpi 对打印体表格的 VLM 直读足够清晰，
+# 且显著降低渲染耗时与 base64 体积——Serverless 60s 预算内更稳）
+PDF_RENDER_SCALE = 1.5
 # PDF 最大处理页数（防止异常大文件拖垮请求）
 MAX_PDF_PAGES = 40
 # 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页
@@ -267,28 +268,35 @@ class VisionEngine:
         lower = (filename or "").lower()
         is_pdf = lower.endswith(".pdf") or "application/pdf" in (filename or "")
         if is_pdf:
-            pages = self._render_pdf_pages(content)
+            page_count, get_page = self._open_pdf(content)
+            if page_count == 0:
+                return {
+                    "success": False, "pageCount": 0, "reportDate": None,
+                    "tables": [], "indicators": [], "markdown": "",
+                    "error": "无法从文件中读取到页面内容",
+                }
+            if page_count > MAX_PDF_PAGES:
+                logger.warning(
+                    "vision_pdf_pages_truncated total=%d max=%d", page_count, MAX_PDF_PAGES,
+                )
+                page_count = MAX_PDF_PAGES
         else:
             mime = "image/png" if lower.endswith(".png") else "image/jpeg"
-            pages = [(mime, content)]
+            page_count, get_page = 1, lambda _index: (mime, content)
 
-        if not pages:
+        # 空文件检测：惰性渲染无法前置检查全部页，检查首页渲染结果
+        first_page = get_page(0)
+        if len(first_page[1]) < 1000:
             return {
-                "success": False, "pageCount": 0, "reportDate": None,
-                "tables": [], "indicators": [], "markdown": "",
-                "error": "无法从文件中读取到页面内容",
-            }
-        if all(len(blob) < 1000 for _, blob in pages):
-            return {
-                "success": False, "pageCount": len(pages), "reportDate": None,
+                "success": False, "pageCount": page_count, "reportDate": None,
                 "tables": [], "indicators": [], "markdown": "",
                 "error": "文件内容为空或已损坏，请重新拍照/导出后再试",
             }
-        if len(pages) > MAX_PDF_PAGES:
-            pages = pages[:MAX_PDF_PAGES]
+        first_chunk = [first_page] + [
+            get_page(p) for p in range(1, min(MAX_IMAGES_PER_REQUEST, page_count))
+        ]
 
         chunk_size = MAX_IMAGES_PER_REQUEST
-        chunks = [(pages[i:i + chunk_size], i) for i in range(0, len(pages), chunk_size)]
         indicators: List[Dict[str, Any]] = []
         report_date = ""
         skipped_pages = 0
@@ -296,15 +304,20 @@ class VisionEngine:
         try:
             with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = []
-                for chunk, offset in chunks:
+                for idx, offset in enumerate(range(0, page_count, chunk_size)):
                     # 提交前预算检查：超预算停止提交剩余 chunk，保住已解析部分
                     if time.monotonic() - started > PARSE_DEADLINE_SEC:
-                        skipped_pages = len(pages) - offset
+                        skipped_pages = page_count - offset
                         logger.warning(
                             "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
                             time.monotonic() - started, PARSE_DEADLINE_SEC, skipped_pages,
                         )
                         break
+                    # 惰性渲染：只渲染当前 chunk 的页（主线程），VLM 调用才进线程池并行
+                    if idx == 0:
+                        chunk = first_chunk
+                    else:
+                        chunk = [get_page(p) for p in range(offset, min(offset + chunk_size, page_count))]
                     futures.append(pool.submit(self._request_chunk, chunk, offset))
                 last_chunk_error: Optional[VisionEngineError] = None
                 for future in futures:
@@ -332,14 +345,14 @@ class VisionEngine:
             logger.exception("vision_parse_unexpected_error")
             raise VisionEngineError(f"报告解析失败：{exc}") from exc
 
-        deduped = self._dedupe(indicators, page_count=len(pages))
+        deduped = self._dedupe(indicators, page_count=page_count)
         if not deduped:
             # 模型调用成功但一个指标都没识别出来：显式失败，禁止静默返回空结果
             raise VisionEngineError("未识别到任何指标，请检查图片清晰度或重试")
         markdown_lines = [f"- {item['rawLabel']}：{item['value']} {item['unit']}（参考 {item['referenceRange'] or '无'}）" for item in deduped]
         return {
             "success": True,
-            "pageCount": len(pages),
+            "pageCount": page_count,
             "reportDate": report_date or None,
             "tables": [],
             "indicators": deduped,
@@ -353,7 +366,13 @@ class VisionEngine:
         return self._normalize_result(payload, page_count=len(chunk) + page_offset)
 
     # ------------------------------------------------------------------
-    def _render_pdf_pages(self, content: bytes) -> List[tuple]:
+    def _open_pdf(self, content: bytes) -> tuple:
+        """打开 PDF 返回 (page_count, get_page)；get_page(index) 惰性渲染指定页。
+
+        惰性渲染：只在提交 chunk 前渲染该 chunk 的页，避免几十页全量前置
+        渲染耗尽 Serverless 60s 预算。get_page 仅在主线程调用（PyMuPDF
+        Document 非线程安全），工作线程只做 VLM HTTP 调用。
+        """
         try:
             import pymupdf as fitz  # PyMuPDF（新版本推荐入口）
         except ImportError:
@@ -361,12 +380,14 @@ class VisionEngine:
                 import fitz  # 旧版本 PyMuPDF
             except ImportError as exc:  # pragma: no cover
                 raise VisionEngineError("服务端缺少 PDF 渲染依赖（PyMuPDF）") from exc
-        pages: List[tuple] = []
-        with fitz.open(stream=content, filetype="pdf") as doc:
-            for page in doc:
-                pix = page.get_pixmap(matrix=fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE))
-                pages.append(("image/png", pix.tobytes("png")))
-        return pages
+        doc = fitz.open(stream=content, filetype="pdf")
+
+        def get_page(index: int) -> tuple:
+            page = doc.load_page(index)
+            pix = page.get_pixmap(matrix=fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE))
+            return ("image/png", pix.tobytes("png"))
+
+        return len(doc), get_page
 
     def _request_structured_json(self, images: List[tuple], *, page_offset: int) -> Dict[str, Any]:
         if not self.api_key and not self.fallback_api_key:
