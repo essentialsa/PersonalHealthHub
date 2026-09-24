@@ -61,6 +61,7 @@ class ExtractedIndicator(BaseModel):
     value: float
     unit: str
     referenceRange: Optional[str] = None
+    reportCategory: Optional[str] = None
     pageIndex: int
 
 

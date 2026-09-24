@@ -164,6 +164,8 @@ export interface ExtractedIndicator {
   unit: string;
   referenceRange?: string;
   pageIndex: number;
+  /** 报告原生分类（如「肝功能」），未命中指标库时用于分组 */
+  reportCategory?: string;
 }
 
 export interface ParseResult {
@@ -609,6 +611,8 @@ export interface ResolvedIndicator {
   unit: string;
   referenceRange?: string;
   pageIndex: number;
+  /** 报告原生分类（如「肝功能」），未命中指标库时用于分组 */
+  reportCategory?: string;
   // 匹配结果
   systemId?: string;
   systemLabel?: string;
@@ -823,6 +827,72 @@ export function clusterUnnamedIndicators(unnamed: ResolvedIndicator[]): UnnamedC
   return clusters;
 }
 
+/** 未命名指标簇的分组：按报告分组 → AI 建议分类 → 未分组 三级来源 */
+export interface UnnamedGroup {
+  /** 组名（报告分组名或 AI 建议分类名）；未分组固定为「未分组」 */
+  name: string;
+  /** 分组依据来源 */
+  source: 'report' | 'ai' | 'none';
+  clusters: UnnamedCluster[];
+}
+
+/**
+ * 把未命名簇按类别分组：
+ * 1. 簇内第一条非空 reportCategory 的指标决定该簇的报告分组（组 source='report'）；
+ * 2. 无报告分组的簇查 aiCategoryMap（cluster.key → AI 建议分类名，source='ai'）；
+ * 3. 都没有的归入「未分组」（source='none'），排列在所有具名组之后；
+ * 4. AI 建议分类名与已有报告分组名归一化相同（normalizeIndicatorText 相等）时并入该报告组；
+ * 5. 具名组按组内首簇在输入中的出现顺序排列。
+ */
+export function groupUnnamedClusters(
+  clusters: UnnamedCluster[],
+  aiCategoryMap: Record<string, string>,
+): UnnamedGroup[] {
+  const groups: UnnamedGroup[] = [];
+  const groupIndexByNormalizedKey = new Map<string, number>();
+  const ungrouped: UnnamedCluster[] = [];
+
+  const firstNonEmptyReportCategory = (cluster: UnnamedCluster): string | null => {
+    for (const item of cluster.items) {
+      const category = item.reportCategory;
+      if (category && category.trim()) {
+        return category;
+      }
+    }
+    return null;
+  };
+
+  const appendToNamedGroup = (name: string, source: 'report' | 'ai', cluster: UnnamedCluster): void => {
+    const normalizedKey = normalizeIndicatorText(name);
+    const existingIndex = groupIndexByNormalizedKey.get(normalizedKey);
+    if (existingIndex !== undefined) {
+      groups[existingIndex].clusters.push(cluster);
+      return;
+    }
+    groups.push({ name, source, clusters: [cluster] });
+    groupIndexByNormalizedKey.set(normalizedKey, groups.length - 1);
+  };
+
+  for (const cluster of clusters) {
+    const reportCategory = firstNonEmptyReportCategory(cluster);
+    if (reportCategory) {
+      appendToNamedGroup(reportCategory, 'report', cluster);
+      continue;
+    }
+    const aiCategory = aiCategoryMap[cluster.key];
+    if (aiCategory && aiCategory.trim()) {
+      appendToNamedGroup(aiCategory, 'ai', cluster);
+      continue;
+    }
+    ungrouped.push(cluster);
+  }
+
+  if (ungrouped.length > 0) {
+    groups.push({ name: '未分组', source: 'none', clusters: ungrouped });
+  }
+  return groups;
+}
+
 export interface LabelMatchCatalogEntry {
   id: string;
   label: string;
@@ -832,6 +902,8 @@ export interface LabelMatchSuggestion {
   label: string;
   catalogId: string | null;
   catalogLabel: string | null;
+  /** AI 建议的指标分类名；未给出时为 null */
+  suggestedCategory?: string | null;
 }
 
 /**
@@ -867,18 +939,19 @@ export async function matchUnnamedLabels(
         errors.push({ endpoint, status: resp.status, message: await readErrorMessage(resp) });
         continue;
       }
-      const payload = (await resp.json()) as { matches?: { label?: string; catalogId?: string | null; catalogLabel?: string | null }[] };
+      const payload = (await resp.json()) as { matches?: { label?: string; catalogId?: string | null; catalogLabel?: string | null; suggestedCategory?: string | null }[] };
       if (!Array.isArray(payload.matches)) {
         errors.push({ endpoint, message: "响应缺少 matches 字段" });
         continue;
       }
       return payload.matches
-        .filter((m): m is { label: string; catalogId: string | null; catalogLabel: string | null } =>
+        .filter((m): m is { label: string; catalogId: string | null; catalogLabel: string | null; suggestedCategory?: string | null } =>
           typeof m.label === "string" && m.label.length > 0)
         .map(m => ({
           label: m.label,
           catalogId: typeof m.catalogId === "string" ? m.catalogId : null,
           catalogLabel: typeof m.catalogLabel === "string" ? m.catalogLabel : null,
+          suggestedCategory: typeof m.suggestedCategory === "string" ? m.suggestedCategory : null,
         }));
     } catch (error) {
       errors.push({

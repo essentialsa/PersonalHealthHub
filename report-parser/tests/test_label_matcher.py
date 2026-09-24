@@ -38,8 +38,8 @@ def test_mock_mode_returns_null_suggestions():
     from parser.label_matcher import match_labels
     matches = match_labels(LABELS, CATALOG, use_mock=True)
     assert matches == [
-        {"label": "血清甘油三酯", "catalogId": None, "catalogLabel": None},
-        {"label": "白细胞", "catalogId": None, "catalogLabel": None},
+        {"label": "血清甘油三酯", "catalogId": None, "catalogLabel": None, "suggestedCategory": None},
+        {"label": "白细胞", "catalogId": None, "catalogLabel": None, "suggestedCategory": None},
     ]
 
 
@@ -74,10 +74,44 @@ def test_request_construction_and_response_normalization(monkeypatch):
 
     # 请求外的 label 剔除；catalogId 不存在的降级为未匹配（保留条目）
     assert matches == [
-        {"label": "血清甘油三酯", "catalogId": "item_1", "catalogLabel": "甘油三酯"},
-        {"label": "白细胞", "catalogId": None, "catalogLabel": None},
-        {"label": "白细胞", "catalogId": None, "catalogLabel": None},
+        {"label": "血清甘油三酯", "catalogId": "item_1", "catalogLabel": "甘油三酯", "suggestedCategory": None},
+        {"label": "白细胞", "catalogId": None, "catalogLabel": None, "suggestedCategory": None},
+        {"label": "白细胞", "catalogId": None, "catalogLabel": None, "suggestedCategory": None},
     ]
+
+
+def test_suggested_category_passthrough_on_hit_and_miss(monkeypatch):
+    """响应带 suggestedCategory 时透传：命中与未命中两种都保留。"""
+    content = json.dumps({"matches": [
+        # 命中 catalog 条目 + 建议"血脂"
+        {"label": "血清甘油三酯", "catalogId": "item_1", "catalogLabel": "甘油三酯",
+         "suggestedCategory": "血脂"},
+        # 未命中 + 建议"血常规"
+        {"label": "白细胞", "catalogId": None, "catalogLabel": None,
+         "suggestedCategory": "血常规"},
+    ]})
+    lm = make_matcher(monkeypatch, VISION_LLM_API_KEY="test-key")
+    monkeypatch.setattr(lm.httpx, "post", lambda *a, **k: ok_response(content))
+    matches = lm.match_labels(LABELS, CATALOG)
+    assert matches[0]["catalogId"] == "item_1"
+    assert matches[0]["suggestedCategory"] == "血脂"
+    assert matches[1]["catalogId"] is None
+    assert matches[1]["suggestedCategory"] == "血常规"
+
+
+def test_suggested_category_invalid_values_become_none(monkeypatch):
+    """suggestedCategory 为异常类型（数字/空串）时置 None。"""
+    content = json.dumps({"matches": [
+        {"label": "血清甘油三酯", "catalogId": "item_1", "catalogLabel": "甘油三酯",
+         "suggestedCategory": 123},
+        {"label": "白细胞", "catalogId": None, "catalogLabel": None,
+         "suggestedCategory": "   "},
+    ]})
+    lm = make_matcher(monkeypatch, VISION_LLM_API_KEY="test-key")
+    monkeypatch.setattr(lm.httpx, "post", lambda *a, **k: ok_response(content))
+    matches = lm.match_labels(LABELS, CATALOG)
+    assert matches[0]["suggestedCategory"] is None
+    assert matches[1]["suggestedCategory"] is None
 
 
 def test_code_fence_and_timeout(monkeypatch):

@@ -8,6 +8,7 @@ import {
   resolveIndicators,
   groupByAction,
   clusterUnnamedIndicators,
+  groupUnnamedClusters,
   type ResolvedIndicator,
   type ParsedTable,
   type ExtractedIndicator,
@@ -265,6 +266,97 @@ describe("clusterUnnamedIndicators（未命名指标聚类）", () => {
     const single = clusterUnnamedIndicators(makeUnnamed("肌钙蛋白I"));
     expect(single).toHaveLength(1);
     expect(single[0].items).toHaveLength(1);
+  });
+});
+
+describe("groupUnnamedClusters（未命名簇按类别分组）", () => {
+  const makeIndicator = (rawLabel: string, reportCategory?: string): ResolvedIndicator => ({
+    rawLabel,
+    value: 1,
+    unit: "mmol/L",
+    pageIndex: 0,
+    matchType: "none" as const,
+    confidence: { level: "low" as const, score: 0, reasons: [] },
+    userItemFound: false,
+    action: "unnamed" as const,
+    reportCategory,
+  });
+
+  it("报告分组优先：reportCategory 各成一 report 组，顺序按首簇出现顺序", () => {
+    const clusters = clusterUnnamedIndicators([
+      makeIndicator("血清前白蛋白", "肝功能"),
+      makeIndicator("嗜碱性粒细胞计数", "血常规"),
+    ]);
+    const groups = groupUnnamedClusters(clusters, {});
+    expect(groups.map(g => ({ name: g.name, source: g.source }))).toEqual([
+      { name: "肝功能", source: "report" },
+      { name: "血常规", source: "report" },
+    ]);
+    expect(groups[0].clusters).toHaveLength(1);
+    expect(groups[1].clusters).toHaveLength(1);
+  });
+
+  it("无 reportCategory 时用 aiCategoryMap 兜底（source='ai'）", () => {
+    const clusters = clusterUnnamedIndicators([makeIndicator("血清胱抑素C")]);
+    const groups = groupUnnamedClusters(clusters, { [clusters[0].key]: "肾功能" });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe("肾功能");
+    expect(groups[0].source).toBe("ai");
+    expect(groups[0].clusters).toHaveLength(1);
+  });
+
+  it("AI 建议分类名与报告分组名归一化相同时并入 report 组", () => {
+    const clusters = clusterUnnamedIndicators([
+      makeIndicator("血清前白蛋白", "肝功能"),
+      makeIndicator("视黄醇结合蛋白"),
+    ]);
+    const groups = groupUnnamedClusters(clusters, { [clusters[1].key]: "肝 功 能" });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe("肝功能");
+    expect(groups[0].source).toBe("report");
+    expect(groups[0].clusters).toHaveLength(2);
+  });
+
+  it("既无 reportCategory 又无 AI 建议的簇归入「未分组」且排在最后", () => {
+    const clusters = clusterUnnamedIndicators([
+      makeIndicator("血清前白蛋白", "肝功能"),
+      makeIndicator("维生素B12"),
+      makeIndicator("嗜碱性粒细胞计数", "血常规"),
+    ]);
+    const groups = groupUnnamedClusters(clusters, {});
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toMatchObject({ name: "肝功能", source: "report" });
+    expect(groups[1]).toMatchObject({ name: "血常规", source: "report" });
+    expect(groups[2]).toMatchObject({ name: "未分组", source: "none" });
+    expect(groups[2].clusters).toHaveLength(1);
+  });
+
+  it("簇内多条指标时取第一条非空 reportCategory", () => {
+    const clusters = clusterUnnamedIndicators([
+      makeIndicator("某项复合指标"),
+      makeIndicator("某项复合指标", ""),
+      makeIndicator("某项复合指标", "血脂"),
+    ]);
+    expect(clusters).toHaveLength(1);
+    const groups = groupUnnamedClusters(clusters, {});
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ name: "血脂", source: "report" });
+    expect(groups[0].clusters).toHaveLength(1);
+  });
+
+  it("不同簇的 AI 建议归一化同名时合并为一组", () => {
+    const clusters = clusterUnnamedIndicators([
+      makeIndicator("缺铁性贫血因子"),
+      makeIndicator("网织红细胞比例"),
+    ]);
+    const groups = groupUnnamedClusters(clusters, {
+      [clusters[0].key]: "肾功能",
+      [clusters[1].key]: "肾 功能",
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe("肾功能");
+    expect(groups[0].source).toBe("ai");
+    expect(groups[0].clusters).toHaveLength(2);
   });
 });
 

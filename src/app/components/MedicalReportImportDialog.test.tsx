@@ -49,6 +49,17 @@ const mockGrouped = {
 
 const mockImportRecords = vi.fn();
 
+/** 打开对话框并完成一次文件解析，进入预览 tab */
+const openAndParseReport = async () => {
+  fireEvent.click(screen.getByText("报告导入"));
+  const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: [file], writable: false });
+  fireEvent.change(input);
+  await waitFor(() => expect(screen.getByText("开始解析")).toBeInTheDocument());
+  fireEvent.click(screen.getByText("开始解析"));
+};
+
 describe("MedicalReportImportDialog E2E", () => {
   beforeEach(() => {
     vi.mocked(medicalReport.checkParserService).mockResolvedValue({
@@ -433,6 +444,171 @@ describe("MedicalReportImportDialog E2E", () => {
       vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
       vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
       vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+    }
+  });
+
+  it("未命名指标按报告分组、AI 建议、未分组三档展示", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "鸟嘌呤脱氨酶", value: 3, unit: "U/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "甘胆酸", value: 2.1, unit: "mg/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "未知糖链抗原Z", value: 15, unit: "U/mL", referenceRange: "", pageIndex: 0 },
+        { rawLabel: "神秘因子Q", value: 0.5, unit: "g/L", referenceRange: "", pageIndex: 0 },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue([
+      { label: "鸟嘌呤脱氨酶", catalogId: null, catalogLabel: null, suggestedCategory: "肝功能" },
+      { label: "甘胆酸", catalogId: null, catalogLabel: null, suggestedCategory: "肝功能" },
+      { label: "未知糖链抗原Z", catalogId: null, catalogLabel: null, suggestedCategory: "肿瘤标志物" },
+      { label: "神秘因子Q", catalogId: null, catalogLabel: null, suggestedCategory: null },
+    ]);
+
+    try {
+      render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+      await openAndParseReport();
+
+      // 报告分组「肝功能」与「报告分组」徽标
+      await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
+      expect(screen.getByText("报告分组")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("鸟嘌呤脱氨酶")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("甘胆酸")).toBeInTheDocument();
+
+      // AI 建议分组（二次匹配异步返回后出现）
+      await waitFor(() => expect(screen.getByText("肿瘤标志物")).toBeInTheDocument(), { timeout: 5000 });
+      expect(screen.getByText("AI 建议")).toBeInTheDocument();
+
+      // 未分组：组名 + 徽标各出现一次
+      expect(screen.getAllByText("未分组").length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByDisplayValue("神秘因子Q")).toBeInTheDocument();
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+    }
+  });
+
+  it("整组新增为分类：确认后建库并导入整组记录，组内条目从未命名区消失", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "鸟嘌呤脱氨酶", value: 3, unit: "U/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "甘胆酸", value: 2.1, unit: "mg/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "神秘因子Q", value: 0.5, unit: "g/L", referenceRange: "", pageIndex: 0 },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+
+    const onEnsureCategoryItems = vi.fn().mockReturnValue({
+      "鸟嘌呤脱氨酶": "new_item_1",
+      "甘胆酸": "new_item_2",
+    });
+
+    try {
+      render(
+        <MedicalReportImportDialog
+          onImportRecords={mockImportRecords}
+          onEnsureCategoryItems={onEnsureCategoryItems}
+        />,
+      );
+      await openAndParseReport();
+
+      await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
+      // 仅具名组（报告分组/AI 建议）提供整组导入入口，未分组没有
+      expect(screen.getAllByRole("button", { name: "整组新增为分类" })).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: "整组新增为分类" }));
+
+      // 组头出现可编辑组名输入框（默认组名）
+      expect(screen.getByDisplayValue("肝功能")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "确认导入" }));
+
+      // 建库回调：组名 + 每簇一项（canonicalLabel + 首条 unit）
+      await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
+      expect(onEnsureCategoryItems).toHaveBeenCalledWith("肝功能", [
+        { label: "鸟嘌呤脱氨酶", unit: "U/L" },
+        { label: "甘胆酸", unit: "mg/L" },
+      ]);
+
+      // 每条指标记录各自导入，indicatorType 为映射后的 id
+      await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+      const records = mockImportRecords.mock.calls[0][0];
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({ indicatorType: "new_item_1", value: 3, unit: "U/L", date: "2024-01-15" });
+      expect(records[1]).toMatchObject({ indicatorType: "new_item_2", value: 2.1, unit: "mg/L", date: "2024-01-15" });
+
+      // 组内条目从未命名区消失，其余未分组指标保留
+      await waitFor(() => expect(screen.queryByText("肝功能")).not.toBeInTheDocument());
+      expect(screen.queryByDisplayValue("鸟嘌呤脱氨酶")).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue("神秘因子Q")).toBeInTheDocument();
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+    }
+  });
+
+  it("整组导入前可编辑组名，确认后使用编辑后的组名建库", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "鸟嘌呤脱氨酶", value: 3, unit: "U/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "甘胆酸", value: 2.1, unit: "mg/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+
+    const onEnsureCategoryItems = vi.fn().mockReturnValue({
+      "鸟嘌呤脱氨酶": "new_item_1",
+      "甘胆酸": "new_item_2",
+    });
+
+    try {
+      render(
+        <MedicalReportImportDialog
+          onImportRecords={mockImportRecords}
+          onEnsureCategoryItems={onEnsureCategoryItems}
+        />,
+      );
+      await openAndParseReport();
+
+      await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
+      fireEvent.click(screen.getByRole("button", { name: "整组新增为分类" }));
+
+      // 组名输入框可编辑，改名后确认
+      const nameInput = screen.getByDisplayValue("肝功能");
+      fireEvent.change(nameInput, { target: { value: "肝功能全套" } });
+      fireEvent.click(screen.getByRole("button", { name: "确认导入" }));
+
+      await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
+      expect(onEnsureCategoryItems).toHaveBeenCalledWith("肝功能全套", [
+        { label: "鸟嘌呤脱氨酶", unit: "U/L" },
+        { label: "甘胆酸", unit: "mg/L" },
+      ]);
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
     }
   });
 });

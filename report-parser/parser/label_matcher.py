@@ -23,8 +23,11 @@ SYSTEM_PROMPT = """
 2. 不确定就返回 null，绝不猜；语义不同的指标（如"白细胞"对"白细胞酯酶"）必须返回 null。
 3. 只在给定的 catalog 里选，不得编造新条目。
 4. label 原样返回输入的名称，不要改写。
-5. 只返回一个 JSON 对象，格式：
-   {"matches": [{"label": "输入名称", "catalogId": "条目id或null", "catalogLabel": "条目名或null"}]}
+5. 每个元素都要给出 suggestedCategory：依据医学常识为该指标给出的建议分类名，优先使用常规
+   体检分类名（如"肝功能"、"肾功能"、"血常规"、"血脂"、"电解质"、"甲状腺功能"等）；无法判断时
+   为 null；即匹配到 catalog 条目也要给出 suggestedCategory。
+6. 只返回一个 JSON 对象，格式：
+   {"matches": [{"label": "输入名称", "catalogId": "条目id或null", "catalogLabel": "条目名或null", "suggestedCategory": "建议分类名或null"}]}
 """.strip()
 
 
@@ -74,7 +77,7 @@ def match_labels(
 ) -> List[Dict[str, Any]]:
     if use_mock:
         return [
-            {"label": label, "catalogId": None, "catalogLabel": None}
+            {"label": label, "catalogId": None, "catalogLabel": None, "suggestedCategory": None}
             for label in labels
         ]
 
@@ -160,12 +163,24 @@ def match_labels(
             continue
         catalog_id = item.get("catalogId")
         catalog_label = item.get("catalogLabel")
+        suggested_category = item.get("suggestedCategory")
+        # 只接受非空字符串，其余（数字/空串/null/缺失）一律置 None
+        if isinstance(suggested_category, str) and suggested_category.strip():
+            suggested_category = suggested_category.strip()
+        else:
+            suggested_category = None
         if isinstance(catalog_id, str) and catalog_id in valid_ids:
             matches.append({
                 "label": label,
                 "catalogId": catalog_id,
                 "catalogLabel": str(catalog_label or valid_ids[catalog_id]["label"]),
+                "suggestedCategory": suggested_category,
             })
         else:
-            matches.append({"label": label, "catalogId": None, "catalogLabel": None})
+            matches.append({
+                "label": label,
+                "catalogId": None,
+                "catalogLabel": None,
+                "suggestedCategory": suggested_category,
+            })
     return matches

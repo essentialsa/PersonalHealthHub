@@ -31,6 +31,7 @@ REPORT_SCHEMA: Dict[str, Any] = {
                     "value": {"type": "number", "description": "纯数值，去掉箭头/星号/H/L 修饰"},
                     "unit": {"type": "string"},
                     "referenceRange": {"type": "string", "description": "参考范围，没有为空字符串"},
+                    "reportCategory": {"type": "string", "description": "该指标在报告中所属的检验分组/项目名称，如'肝功能'、'血常规'；报告无分组为空字符串"},
                     "pageIndex": {"type": "integer", "description": "从 0 开始的页码"},
                 },
                 "required": ["rawLabel", "value", "unit", "referenceRange", "pageIndex"],
@@ -49,11 +50,12 @@ SYSTEM_PROMPT = """
 3. value 必须是纯数字；源文本中的箭头、星号、H/L、<、> 等修饰一律去掉，只保留数值本身。
 4. unit 保留原报告单位；没有单位返回空字符串。referenceRange 保留原报告参考范围；没有返回空字符串。
 5. pageIndex 从 0 开始，对应所给图片的序号。
-6. 不要把日期、报告号、条码号、身份证号、手机号、医院名称等误识别成指标；不确定的指标不要输出。
-7. 同页完全重复的指标行只保留一条。
-8. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
-9. 输出必须严格是如下结构（indicators 是数组，每个指标一个对象）：
-   {"reportDate": "YYYY-MM-DD 或空", "indicators": [{"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L", "referenceRange": "3.9-6.1", "pageIndex": 0}]}
+6. 每条指标输出 reportCategory：该指标在报告图片中所属的检验分组/项目标题（如“肝功能”、“血常规”、“尿常规”）；报告没有分组标题或无法判断时输出空字符串；分组标题本身不是指标，不要作为指标输出。
+7. 不要把日期、报告号、条码号、身份证号、手机号、医院名称等误识别成指标；不确定的指标不要输出。
+8. 同页完全重复的指标行只保留一条。
+9. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
+10. 输出必须严格是如下结构（indicators 是数组，每个指标一个对象）：
+   {"reportDate": "YYYY-MM-DD 或空", "indicators": [{"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "", "pageIndex": 0}]}
    不要把指标组织成以指标名为 key 的字典。
 """.strip()
 
@@ -76,9 +78,9 @@ MAX_PDF_PAGES = 8
 PARSE_DEADLINE_SEC = 55.0
 
 MOCK_INDICATORS = [
-    {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "pageIndex": 0},
-    {"rawLabel": "舒张压", "value": 76, "unit": "mmHg", "referenceRange": "60-89", "pageIndex": 0},
-    {"rawLabel": "空腹血糖", "value": 5.2, "unit": "mmol/L", "referenceRange": "3.9-6.1", "pageIndex": 0},
+    {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "pageIndex": 0},
+    {"rawLabel": "舒张压", "value": 76, "unit": "mmHg", "referenceRange": "60-89", "reportCategory": "体征检查", "pageIndex": 0},
+    {"rawLabel": "空腹血糖", "value": 5.2, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "血糖", "pageIndex": 0},
 ]
 
 MOCK_REPORT_DATE = "2026-01-15"
@@ -482,6 +484,7 @@ class VisionEngine:
                 "value": raw_value,
                 "unit": value.get("unit", ""),
                 "referenceRange": value.get("referenceRange", value.get("range", "")),
+                "reportCategory": value.get("reportCategory", ""),
                 "pageIndex": value.get("pageIndex", 0),
             })
         return {"reportDate": payload.get("reportDate", ""), "indicators": indicators}
@@ -516,6 +519,8 @@ class VisionEngine:
                 continue
             unit = str(item.get("unit", "")).strip()
             reference_range = str(item.get("referenceRange", "")).strip()
+            report_category_raw = item.get("reportCategory")
+            report_category = report_category_raw.strip() if isinstance(report_category_raw, str) else ""
             try:
                 page_index = int(item.get("pageIndex", 0))
             except (TypeError, ValueError):
@@ -528,6 +533,7 @@ class VisionEngine:
                 "value": value,
                 "unit": unit,
                 "referenceRange": reference_range,
+                "reportCategory": report_category,
                 "pageIndex": page_index,
             })
         for item in indicators:
