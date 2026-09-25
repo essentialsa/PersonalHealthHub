@@ -260,7 +260,7 @@ class VisionEngine:
         self.max_output_tokens = int(status["max_output_tokens"])
         self.api_key = _first_env("VISION_LLM_API_KEY", "OCR_LLM_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY") or ""
 
-    def parse_pdf(self, content: bytes, filename: str) -> Dict[str, Any]:
+    def parse_pdf(self, content: bytes, filename: str, page_range: Optional[str] = None) -> Dict[str, Any]:
         """入口：接收 PDF 或图片字节，返回与原解析引擎相同结构的结果。"""
         if self.use_mock:
             return self._mock_result(filename)
@@ -284,8 +284,19 @@ class VisionEngine:
             mime = "image/png" if lower.endswith(".png") else "image/jpeg"
             page_count, get_page = 1, lambda _index: (mime, content)
 
+        # 页范围参数：前端分段请求（start-end 为绝对页码，含两端），缺省全文档
+        range_start, range_end = 0, page_count - 1
+        if page_range is not None:
+            match = re.fullmatch(r"(\d+)-(\d+)", page_range.strip())
+            if not match:
+                raise VisionEngineError("页范围参数格式错误")
+            range_start = int(match.group(1))
+            range_end = min(int(match.group(2)), page_count - 1)
+            if range_start > range_end:
+                raise VisionEngineError("页范围参数格式错误")
+
         # 空文件检测：惰性渲染无法前置检查全部页，检查首页渲染结果
-        first_page = get_page(0)
+        first_page = get_page(range_start)
         if len(first_page[1]) < 1000:
             return {
                 "success": False, "pageCount": page_count, "reportDate": None,
@@ -293,7 +304,7 @@ class VisionEngine:
                 "error": "文件内容为空或已损坏，请重新拍照/导出后再试",
             }
         first_chunk = [first_page] + [
-            get_page(p) for p in range(1, min(MAX_IMAGES_PER_REQUEST, page_count))
+            get_page(p) for p in range(range_start + 1, min(range_start + MAX_IMAGES_PER_REQUEST, range_end + 1))
         ]
 
         chunk_size = MAX_IMAGES_PER_REQUEST
@@ -301,13 +312,16 @@ class VisionEngine:
         report_date = ""
         skipped_pages = 0
         started = time.monotonic()
+        # 已覆盖区间右端：仅在 chunk 成功收集后推进，前端按区间继续下一段
+        parsed_end = range_start - 1
         try:
             with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = []
-                for idx, offset in enumerate(range(0, page_count, chunk_size)):
-                    # 提交前预算检查：超预算停止提交剩余 chunk，保住已解析部分
+                chunk_meta: List[tuple] = []
+                for idx, offset in enumerate(range(range_start, range_end + 1, chunk_size)):
+                    # 提交前预算检查：超预算停止提交剩余 chunk，本段返回已解析部分
                     if time.monotonic() - started > PARSE_DEADLINE_SEC:
-                        skipped_pages = page_count - offset
+                        skipped_pages = range_end + 1 - offset
                         logger.warning(
                             "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
                             time.monotonic() - started, PARSE_DEADLINE_SEC, skipped_pages,
@@ -317,10 +331,11 @@ class VisionEngine:
                     if idx == 0:
                         chunk = first_chunk
                     else:
-                        chunk = [get_page(p) for p in range(offset, min(offset + chunk_size, page_count))]
+                        chunk = [get_page(p) for p in range(offset, min(offset + chunk_size, range_end + 1))]
                     futures.append(pool.submit(self._request_chunk, chunk, offset))
+                    chunk_meta.append((offset, len(chunk)))
                 last_chunk_error: Optional[VisionEngineError] = None
-                for future in futures:
+                for future, (chunk_offset, chunk_len) in zip(futures, chunk_meta):
                     try:
                         normalized = future.result()
                     except VisionEngineError as exc:
@@ -336,6 +351,7 @@ class VisionEngine:
                         logger.warning("vision_page_empty_indicators")
                     indicators.extend(normalized["indicators"])
                     report_date = report_date or normalized["reportDate"]
+                    parsed_end = max(parsed_end, chunk_offset + chunk_len - 1)
                 if not indicators and futures and last_chunk_error is not None:
                     # 所有提交过的 chunk 都失败：上抛原始可读错误，禁止静默空结果
                     raise last_chunk_error
@@ -352,7 +368,9 @@ class VisionEngine:
         markdown_lines = [f"- {item['rawLabel']}：{item['value']} {item['unit']}（参考 {item['referenceRange'] or '无'}）" for item in deduped]
         return {
             "success": True,
-            "pageCount": page_count,
+            "pageCount": parsed_end - range_start + 1,
+            "parsedRange": [range_start, parsed_end],
+            "totalPages": page_count,
             "reportDate": report_date or None,
             "tables": [],
             "indicators": deduped,

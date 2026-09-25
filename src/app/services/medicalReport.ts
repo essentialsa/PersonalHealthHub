@@ -175,6 +175,10 @@ export interface ParseResult {
   tables: ParsedTable[];
   indicators: ExtractedIndicator[];
   markdown: string;
+  /** 本次实际解析的绝对页区间（0-based 两端含）；老后端可能不返回 */
+  parsedRange?: [number, number];
+  /** 全文档总页数（图片为 1）；老后端可能不返回 */
+  totalPages?: number;
 }
 
 export interface ParserServiceStatus {
@@ -199,11 +203,16 @@ export interface MatchedIndicator extends ExtractedIndicator {
 export interface ParseRequestOptions {
   /** 对话框等调用方的取消信号：abort 后在途请求立即取消 */
   signal?: AbortSignal;
+  /** 分段解析进度回调：已解析页数（绝对页数，非 0 起算之外的计数）与全文档总页数（老后端为 null） */
+  onProgress?: (parsedPages: number, totalPages: number | null) => void;
 }
 
 export async function parseMedicalReport(file: File, options: ParseRequestOptions = {}): Promise<ParseResult> {
+  const SEGMENT_PAGES = 12;
   const errors: EndpointAttemptError[] = [];
   let parameterError: Error | null = null;
+  let firstPayload: (ParseResult & { error?: string }) | null = null;
+  let activeEndpoint = "";
 
   for (const endpoint of PARSER_ENDPOINTS) {
     try {
@@ -221,7 +230,9 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
           errors.push({ endpoint, message });
           continue;
         }
-        return payload;
+        firstPayload = payload;
+        activeEndpoint = endpoint;
+        break;
       }
 
       const message = await readErrorMessage(resp);
@@ -241,10 +252,92 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
     }
   }
 
-  if (parameterError) {
-    throw parameterError;
+  if (!firstPayload) {
+    if (parameterError) {
+      throw parameterError;
+    }
+    throw new Error(summarizeAttemptErrors(errors));
   }
-  throw new Error(summarizeAttemptErrors(errors));
+
+  // 老后端不返回 totalPages/parsedRange → 不进分段循环，直接返回（单轮兼容）
+  if (typeof firstPayload.totalPages !== "number" || !Array.isArray(firstPayload.parsedRange)) {
+    return firstPayload;
+  }
+
+  // 分段循环：按 SEGMENT_PAGES 续传请求，直到覆盖全部页
+  const dedupeKey = (i: ExtractedIndicator) =>
+    `${i.pageIndex}|${i.rawLabel}|${i.value}|${i.unit}|${i.referenceRange ?? ""}`;
+  const mergedIndicators = new Map<string, ExtractedIndicator>();
+  for (const indicator of firstPayload.indicators) {
+    const key = dedupeKey(indicator);
+    if (!mergedIndicators.has(key)) {
+      mergedIndicators.set(key, indicator);
+    }
+  }
+  let reportDate = firstPayload.reportDate;
+  let payload = firstPayload;
+
+  while (
+    typeof payload.totalPages === "number" &&
+    Array.isArray(payload.parsedRange) &&
+    payload.parsedRange[1] + 1 <= payload.totalPages - 1
+  ) {
+    const next = payload.parsedRange[1] + 1;
+    const rangeEnd = Math.min(next + SEGMENT_PAGES - 1, payload.totalPages - 1);
+
+    let resp: Response;
+    try {
+      const form = createUploadFormData(file);
+      form.append("page_range", `${next}-${rangeEnd}`);
+      resp = await fetchWithTimeout(
+        `${activeEndpoint}/api/parse`,
+        { method: "POST", body: form },
+        PARSE_TIMEOUT_MS,
+        options.signal,
+      );
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw new DOMException("请求已取消", "AbortError");
+      }
+      throw new Error(describeFetchError(error, PARSE_TIMEOUT_MS));
+    }
+
+    if (!resp.ok) {
+      throw new Error(await readErrorMessage(resp));
+    }
+    const segment = (await resp.json()) as ParseResult & { error?: string };
+    if (!segment.success) {
+      throw new Error(segment.error || "OCR 解析失败");
+    }
+
+    // 本轮未前进（服务端未推进解析区间）→ 视为超时，避免无限循环
+    if (Array.isArray(segment.parsedRange) && segment.parsedRange[1] < next) {
+      throw new Error("解析超时：该段页未能完成，请稍后重试");
+    }
+
+    for (const indicator of segment.indicators) {
+      const key = dedupeKey(indicator);
+      if (!mergedIndicators.has(key)) {
+        mergedIndicators.set(key, indicator);
+      }
+    }
+    if (!reportDate && segment.reportDate) {
+      reportDate = segment.reportDate;
+    }
+
+    payload = segment;
+    const parsedUpTo = Array.isArray(segment.parsedRange) ? segment.parsedRange[1] + 1 : rangeEnd + 1;
+    options.onProgress?.(parsedUpTo, segment.totalPages ?? null);
+  }
+
+  options.onProgress?.(mergedIndicators.size, payload.totalPages ?? null);
+
+  return {
+    ...payload,
+    indicators: Array.from(mergedIndicators.values()),
+    pageCount: payload.totalPages ?? payload.pageCount,
+    reportDate,
+  };
 }
 
 export async function checkParserService(): Promise<ParserServiceStatus> {

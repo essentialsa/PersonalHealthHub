@@ -1,5 +1,5 @@
 """体检报告解析服务 - FastAPI 薄代理（多模态大模型直读）。"""
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -77,6 +77,8 @@ class LabelMatchResponse(BaseModel):
 class ParseResponse(BaseModel):
     success: bool
     pageCount: int
+    parsedRange: Optional[List[int]] = None
+    totalPages: Optional[int] = None
     reportDate: Optional[str] = None
     tables: List[dict]
     indicators: List[ExtractedIndicator]
@@ -187,7 +189,7 @@ async def ocr_ready_check():
 
 
 @app.post("/api/parse", response_model=ParseResponse)
-async def parse_report(file: UploadFile = File(...)):
+async def parse_report(file: UploadFile = File(...), page_range: Optional[str] = Form(None)):
     """解析体检报告 PDF/图片：图片直发多模态大模型。"""
     started_at = time.perf_counter()
     allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
@@ -210,7 +212,7 @@ async def parse_report(file: UploadFile = File(...)):
             content_type or "unknown",
             len(content),
         )
-        result = get_engine().parse_pdf(content, file.filename or "unknown")
+        result = get_engine().parse_pdf(content, file.filename or "unknown", page_range)
         logger.info(
             "parse_done filename=%s success=%s elapsed_sec=%.2f page_count=%s indicator_count=%s",
             file.filename or "unknown",
