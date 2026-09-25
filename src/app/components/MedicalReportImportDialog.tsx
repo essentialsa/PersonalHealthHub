@@ -177,6 +177,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [error, setError] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [parseProgressText, setParseProgressText] = useState<string | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [matched, setMatched] = useState<ResolvedIndicator[]>([]);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
@@ -309,14 +310,18 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (!file) return;
     setParsing(true);
     setProgress(0);
+    setParseProgressText(null);
     setTab("preview");
     abortRef.current = new AbortController();
 
-    // 解析耗时主要取决于报告页数与模型响应，进度只表示等待状态。
-    const timer = setInterval(() => setProgress(p => Math.min(p + (p < 70 ? Math.random() * 4 : Math.random() * 1.2), 92)), 1200);
-
     try {
-      const r = await parseMedicalReport(file, { signal: abortRef.current.signal });
+      const r = await parseMedicalReport(file, {
+        signal: abortRef.current.signal,
+        onProgress: (parsed, total) => {
+          setProgress(total ? Math.min(96, Math.round((parsed / total) * 100)) : 92);
+          setParseProgressText(total ? `${parsed}/${total} 页` : null);
+        },
+      });
       const nextExtracted =
         Array.isArray(r.indicators) && r.indicators.length > 0
           ? r.indicators
@@ -331,11 +336,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
 
-      clearInterval(timer);
       setProgress(100);
       setResult(r);
     } catch (e) {
-      clearInterval(timer);
       // 关闭对话框导致的取消：不再弹错误提示
       if (abortRef.current?.signal.aborted) {
         return;
@@ -428,6 +431,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setMatched([]);
     setExtracted([]);
     setProgress(0);
+    setParseProgressText(null);
     setPendingCategories([]);
     setCategoryDialogOpen(false);
     setServiceStatus(null);
@@ -670,6 +674,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" /> 正在解析体检报告...
+                  {parseProgressText && <span className="text-xs text-muted-foreground">（{parseProgressText}）</span>}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   首次使用需要唤醒云端 OCR 服务，多页或高清报告可能需要 1-3 分钟。

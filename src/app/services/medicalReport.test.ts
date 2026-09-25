@@ -449,6 +449,90 @@ describe("parseMedicalReport 网络行为", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
   });
 
+  it("分段循环：按 page_range 续段请求直到覆盖全部页并合并指标", async () => {
+    const ranges: (string | FormDataEntryValue | null)[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const form = init?.body as FormData;
+      ranges.push(form.get("page_range"));
+      if (ranges.length === 1) {
+        return makeResponse(200, {
+          success: true,
+          pageCount: 12,
+          reportDate: "2026-01-15",
+          tables: [],
+          markdown: "",
+          indicators: [{ rawLabel: "A", value: 1, unit: "u", pageIndex: 0 }],
+          parsedRange: [0, 11],
+          totalPages: 23,
+        });
+      }
+      return makeResponse(200, {
+        success: true,
+        pageCount: 11,
+        tables: [],
+        markdown: "",
+        indicators: [
+          { rawLabel: "B", value: 2, unit: "u", pageIndex: 12 },
+          { rawLabel: "C", value: 3, unit: "u", pageIndex: 22 },
+        ],
+        parsedRange: [12, 22],
+        totalPages: 23,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const progressCalls: [number, number | null][] = [];
+    const result = await mod.parseMedicalReport(file, {
+      onProgress: (parsed, total) => progressCalls.push([parsed, total]),
+    });
+
+    expect(ranges).toEqual([null, "12-22"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.indicators).toHaveLength(3);
+    expect(result.indicators.map(i => i.rawLabel)).toEqual(["A", "B", "C"]);
+    expect(result.totalPages).toBe(23);
+    expect(result.pageCount).toBe(23);
+    expect(progressCalls.length).toBeGreaterThanOrEqual(2);
+    expect(progressCalls[0]).toEqual([23, 23]);
+    expect(progressCalls[progressCalls.length - 1]).toEqual([3, 23]);
+  });
+
+  it("续段未前进时报错且不无限循环", async () => {
+    const fetchMock = vi.fn(async () =>
+      makeResponse(200, {
+        success: true,
+        pageCount: 12,
+        tables: [],
+        markdown: "",
+        indicators: [],
+        parsedRange: [0, 11],
+        totalPages: 23,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+
+    await expect(mod.parseMedicalReport(file)).rejects.toThrow("解析超时");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("老后端（无 totalPages）单轮返回且不发起第二轮请求", async () => {
+    const fetchMock = vi.fn(async () => makeResponse(200, successPayload));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.png", { type: "image/png" });
+
+    const result = await mod.parseMedicalReport(file);
+    expect(result.success).toBe(true);
+    expect(result.indicators).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("超时错误文案包含等待秒数且不引用已下线的 Render", async () => {
     const fetchMock = vi.fn(() =>
       Promise.reject(new DOMException("请求超时", "AbortError")),

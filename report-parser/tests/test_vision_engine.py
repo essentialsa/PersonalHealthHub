@@ -372,10 +372,111 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
     # 仅首批 1 个 chunk 发起模型调用，后 2 页被跳过；已解析部分正常返回
     assert len(post_calls) == 1
     assert result["success"] is True
-    assert result["pageCount"] == 6
+    # pageCount 为本次解析页数（已覆盖区间），totalPages 为全文档页数
+    assert result["pageCount"] == 4
+    assert result["totalPages"] == 6
     assert len(result["indicators"]) == 1
     # 惰性渲染：超预算 chunk 的页（4/5）从未被渲染
     assert rendered == [0, 1, 2, 3]
+
+
+def test_budget_returns_partial_with_parsed_range(monkeypatch):
+    """超预算返回部分结果：parsedRange 表示已覆盖区间，供前端续段。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "pageIndex": 0},
+                ],
+            })}}]}
+
+    monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
+
+    # 假时钟：入口 0s，第 1 个 chunk 提交前 10s（放行），
+    # 第 2 个 chunk 提交前 60s（超 55s 预算停止）
+    clock = iter([0.0, 10.0, 60.0, 60.0])
+    monkeypatch.setattr(ve.time, "monotonic", lambda: next(clock))
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._open_pdf = lambda content: (
+        6, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf")
+
+    assert result["success"] is True
+    assert result["parsedRange"] == [0, 3]
+    assert result["totalPages"] == 6
+    assert result["pageCount"] == 4
+
+
+def test_page_range_slice(monkeypatch):
+    """page_range 分段：只提交区间内的 chunk，指标页码为绝对值，返回区间元数据。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def __init__(self, indicators):
+            self._indicators = indicators
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15", "indicators": self._indicators,
+            })}}]}
+
+    recorded = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        body = json
+        offset = _chunk_offset_from_body(body)
+        recorded.append(offset)
+        return FakeResponse([{
+            "rawLabel": f"指标{offset}", "value": 1.0 + offset, "unit": "u",
+            "referenceRange": "1-100", "reportCategory": "分组", "pageIndex": offset,
+        }])
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    rendered: list = []
+
+    def fake_open(content):
+        def get_page(index):
+            rendered.append(index)
+            return ("image/png", f"p{index}".encode() + b"\x00" * 2000)
+        return 23, get_page
+
+    engine._open_pdf = fake_open
+    result = engine.parse_pdf(b"fake-pdf", "report.pdf", page_range="8-19")
+
+    # 区间 8-19 = 3 个 chunk（4页×3），只调用 8/12/16
+    assert sorted(recorded) == [8, 12, 16]
+    # 惰性渲染只渲染区间内的页
+    assert rendered == [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+    assert result["success"] is True
+    assert result["parsedRange"] == [8, 19]
+    assert result["totalPages"] == 23
+    assert result["pageCount"] == 12
+    # 指标 pageIndex 为绝对页码且落在区间内
+    assert {item["pageIndex"] for item in result["indicators"]} == {8, 12, 16}
+    assert all(8 <= item["pageIndex"] <= 19 for item in result["indicators"])
+
+
+def test_page_range_invalid_raises(monkeypatch):
+    """page_range 格式非法或起止倒置：显式报错，不静默忽略。"""
+    from parser.vision_engine import VisionEngineError
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._open_pdf = lambda content: (
+        6, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
+    for bad_range in ("abc", "5-2"):
+        with pytest.raises(VisionEngineError):
+            engine.parse_pdf(b"fake-pdf", "report.pdf", page_range=bad_range)
 
 
 def test_all_pages_parsed_in_parallel(monkeypatch):
@@ -429,6 +530,8 @@ def test_all_pages_parsed_in_parallel(monkeypatch):
 
     assert result["success"] is True
     assert result["pageCount"] == 23
+    assert result["parsedRange"] == [0, 22]
+    assert result["totalPages"] == 23
     # 6 个不同指标聚合，首块重复行被去重
     assert len(result["indicators"]) == 6
     assert {item["rawLabel"] for item in result["indicators"]} == set(LABELS.values())
@@ -478,7 +581,10 @@ def test_single_chunk_failure_degrades(monkeypatch):
 
     assert failed_offsets  # 失败 chunk 确实被请求过（含主备两次尝试）
     assert result["success"] is True
-    assert result["pageCount"] == 8
+    # 失败 chunk 不计入已覆盖区间：仅首块 4 页成功
+    assert result["parsedRange"] == [0, 3]
+    assert result["pageCount"] == 4
+    assert result["totalPages"] == 8
     assert len(result["indicators"]) == 2
     assert {item["rawLabel"] for item in result["indicators"]} == {"空腹血糖", "白细胞(WBC)"}
 
