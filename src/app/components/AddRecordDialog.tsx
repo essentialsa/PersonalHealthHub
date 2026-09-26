@@ -40,6 +40,8 @@ export interface HealthRecord {
   unit: string;
   operationAt?: string;
   attachmentId?: string;
+  /** 报告原始异常标记：H=偏高/↑，L=偏低/↓ */
+  abnormalFlag?: "H" | "L";
 }
 
 interface AddRecordDialogProps {

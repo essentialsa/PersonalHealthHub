@@ -366,6 +366,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         indicatorType: (m.userItemId || m.systemId)!,
         value: m.value,
         unit: m.unit,
+        abnormalFlag: m.abnormalFlag === "H" || m.abnormalFlag === "L" ? m.abnormalFlag : undefined,
         operationAt: new Date().toISOString(),
       }));
 
@@ -517,6 +518,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           indicatorType: itemId,
           value: item.value,
           unit: item.unit,
+          abnormalFlag: item.abnormalFlag === "H" || item.abnormalFlag === "L" ? item.abnormalFlag : undefined,
           operationAt: new Date().toISOString(),
         });
       }
@@ -556,6 +558,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
   }).length;
   const suggestedCount = groupedCounts.createCategory.length + groupedCounts.createItem.length;
+  const abnormalCount = matched.filter(m => m.abnormalFlag === "H" || m.abnormalFlag === "L").length;
 
   const confColor: Record<string, "default" | "secondary" | "destructive"> = { high: "default", medium: "secondary", low: "destructive" };
   const confLabel: Record<string, string> = { high: "高", medium: "中", low: "低" };
@@ -591,11 +594,18 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           {triggerLabel ?? "报告导入"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-5xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-purple-600" />
             报告导入
+            {result && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{result.pageCount} 页</span>
+                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{result.reportDate || "未识别日期"}</span>
+                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{matched.length} 项指标</span>
+              </div>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -685,12 +695,6 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
 
             {result && !parsing && (
               <>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>📄 {result.pageCount} 页</span>
-                  <span>📅 {result.reportDate || "未识别日期"}</span>
-                  <span>📊 {matched.length} 项指标</span>
-                </div>
-
                 {/* 筛选 */}
                 <div className="flex gap-2">
                   {(["all", "high", "medium", "low"] as const).map(f => (
@@ -721,9 +725,13 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       const isDuplicate = m.action === "import" && dupKey !== null && existingDuplicateKeys.has(dupKey);
                       const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
                       return (
-                      <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
+                      <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : (m.abnormalFlag === "H" || m.abnormalFlag === "L") ? "bg-red-50/40" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
                         <TableCell className="font-medium min-w-[7rem] break-words">{m.rawLabel}</TableCell>
-                        <TableCell className="text-right">{m.value}</TableCell>
+                        <TableCell className="text-right">
+                          {m.value}
+                          {m.abnormalFlag === "H" && <Badge variant="destructive" className="ml-1 text-[10px]">↑</Badge>}
+                          {m.abnormalFlag === "L" && <Badge variant="secondary" className="ml-1 text-[10px] text-blue-600">↓</Badge>}
+                        </TableCell>
                         <TableCell>{m.unit}</TableCell>
                         <TableCell className="text-muted-foreground text-xs">{m.referenceRange || "-"}</TableCell>
                         <TableCell>
@@ -864,6 +872,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   {duplicateCount > 0 && <span className="text-red-600">疑似重复: {duplicateCount}（默认跳过）</span>}
                   <span>建议维护: {suggestedCount}</span>
                   <span>未命名: {groupedCounts.unnamed.length}</span>
+                  {abnormalCount > 0 && <span className="text-red-600">异常: {abnormalCount}</span>}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -877,11 +886,15 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   </label>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="sticky bottom-0 z-10 -mx-6 mt-4 border-t bg-white/95 px-6 pt-3 pb-1 backdrop-blur flex justify-end gap-2">
                   <Button variant="outline" onClick={() => { setTab("upload"); setResult(null); setMatched([]); }}>
                     <RefreshCw className="w-4 h-4 mr-1" /> 重新上传
                   </Button>
-                  <Button onClick={handleImport} disabled={importableCount === 0}>
+                  <Button
+                    onClick={handleImport}
+                    disabled={importableCount === 0}
+                    className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white shadow-lg shadow-violet-200"
+                  >
                     <CheckCircle className="w-4 h-4 mr-1" />
                     确认导入 ({importableCount} 条)
                   </Button>

@@ -33,6 +33,7 @@ REPORT_SCHEMA: Dict[str, Any] = {
                     "unit": {"type": "string"},
                     "referenceRange": {"type": "string", "description": "参考范围，没有为空字符串"},
                     "reportCategory": {"type": "string", "description": "该指标在报告中所属的检验分组/项目名称，如'肝功能'、'血常规'；报告无分组为空字符串"},
+                    "abnormalFlag": {"type": "string", "description": "报告原始异常标记：偏高或↑为 H，偏低或↓为 L，正常或无标记为空字符串"},
                     "pageIndex": {"type": "integer", "description": "从 0 开始的页码"},
                 },
                 "required": ["rawLabel", "value", "unit", "referenceRange", "pageIndex"],
@@ -48,7 +49,7 @@ SYSTEM_PROMPT = """
 严格遵守以下规则：
 1. 只提取检验指标、体征指标，不要输出姓名、性别、年龄、日期、时间、编号、条码、结论、建议、表头、页脚。
 2. 同一指标同时出现中文名和英文缩写时，rawLabel 优先输出“中文名(缩写)”，例如“白细胞(WBC)”；没有中文名时只保留英文缩写，例如“ALT”。
-3. value 必须是纯数字；源文本中的箭头、星号、H/L、<、> 等修饰一律去掉，只保留数值本身。
+3. value 必须是纯数字；源文本中的箭头（↑/↓）、星号等修饰一律去掉，只保留数值本身；但数值旁的异常方向记入 abnormalFlag：↑或H→"H"，↓或L→"L"，无标记→空字符串。
 4. unit 保留原报告单位；没有单位返回空字符串。referenceRange 保留原报告参考范围；没有返回空字符串。
 5. pageIndex 从 0 开始，对应所给图片的序号。
 6. reportCategory 必填：每页报告通常都有检验分组/项目标题（如'肝功能'、'血常规'、'尿常规'、'一般检查'、'人体成分分析'、'骨密度测量室'），分组标题可能出现在表格上方、左侧栏或页眉；务必为每条指标填写其所属分组名；只有确实找不到任何分组线索时才输出空字符串。
@@ -56,7 +57,7 @@ SYSTEM_PROMPT = """
 8. 同页完全重复的指标行只保留一条。
 9. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
 10. 输出必须严格是如下结构（indicators 是数组，每个指标一个对象）：
-   {"reportDate": "YYYY-MM-DD 或空", "indicators": [{"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "", "pageIndex": 0}]}
+   {"reportDate": "YYYY-MM-DD 或空", "indicators": [{"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "", "abnormalFlag": "", "pageIndex": 0}]}
    不要把指标组织成以指标名为 key 的字典。
 """.strip()
 
@@ -80,9 +81,9 @@ MAX_PDF_PAGES = 40
 PARSE_DEADLINE_SEC = 55.0
 
 MOCK_INDICATORS = [
-    {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "pageIndex": 0},
-    {"rawLabel": "舒张压", "value": 76, "unit": "mmHg", "referenceRange": "60-89", "reportCategory": "体征检查", "pageIndex": 0},
-    {"rawLabel": "空腹血糖", "value": 5.2, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "血糖", "pageIndex": 0},
+    {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "abnormalFlag": "", "pageIndex": 0},
+    {"rawLabel": "舒张压", "value": 76, "unit": "mmHg", "referenceRange": "60-89", "reportCategory": "体征检查", "abnormalFlag": "", "pageIndex": 0},
+    {"rawLabel": "空腹血糖", "value": 5.2, "unit": "mmol/L", "referenceRange": "3.9-6.1", "reportCategory": "血糖", "abnormalFlag": "H", "pageIndex": 0},
 ]
 
 MOCK_REPORT_DATE = "2026-01-15"
@@ -147,6 +148,17 @@ def _normalize_unit(value: str) -> str:
         .replace("／", "/")
         .replace(" ", "")
     )
+
+
+def _normalize_abnormal_flag(value):
+    if not isinstance(value, str):
+        return ""
+    v = value.strip().upper()
+    if v in ("H", "↑", "HIGH", "偏高", "+"):
+        return "H"
+    if v in ("L", "↓", "LOW", "偏低", "-"):
+        return "L"
+    return ""
 
 
 def _normalize_label(value: str) -> str:
@@ -552,6 +564,7 @@ class VisionEngine:
                 "unit": value.get("unit", ""),
                 "referenceRange": value.get("referenceRange", value.get("range", "")),
                 "reportCategory": value.get("reportCategory", ""),
+                "abnormalFlag": value.get("abnormalFlag", ""),
                 "pageIndex": value.get("pageIndex", 0),
             })
         return {"reportDate": payload.get("reportDate", ""), "indicators": indicators}
@@ -588,6 +601,7 @@ class VisionEngine:
             reference_range = str(item.get("referenceRange", "")).strip()
             report_category_raw = item.get("reportCategory")
             report_category = report_category_raw.strip() if isinstance(report_category_raw, str) else ""
+            abnormal_flag = _normalize_abnormal_flag(item.get("abnormalFlag"))
             try:
                 page_index = int(item.get("pageIndex", 0))
             except (TypeError, ValueError):
@@ -601,6 +615,7 @@ class VisionEngine:
                 "unit": unit,
                 "referenceRange": reference_range,
                 "reportCategory": report_category,
+                "abnormalFlag": abnormal_flag,
                 "pageIndex": page_index,
             })
         for item in indicators:
