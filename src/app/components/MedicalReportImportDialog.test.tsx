@@ -764,6 +764,43 @@ describe("MedicalReportImportDialog E2E", () => {
     await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
   });
 
+  it("解析挂起期间进度条随时间实时增长（平滑动画）", async () => {
+    // 解析永不返回：模拟长耗时解析，验证进度不卡 0%
+    vi.mocked(medicalReport.parseMedicalReport).mockImplementation(
+      (() => new Promise(() => {})) as unknown as typeof medicalReport.parseMedicalReport,
+    );
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    fireEvent.click(screen.getByText("报告导入"));
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [file], writable: false });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText("开始解析")).toBeInTheDocument(), { timeout: 5000 });
+
+    // 对话框打开后再启用假定时器，避免影响 Radix 挂载动画
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByText("开始解析"));
+      // 初始 0%
+      expect(screen.getByText("0%")).toBeInTheDocument();
+
+      // 推进 30 秒（60 个 500ms tick）：指数趋近约到 21%
+      await vi.advanceTimersByTimeAsync(30000);
+      const value = Number((screen.getByText(/^\d+%$/).textContent || "").replace("%", ""));
+      expect(value).toBeGreaterThanOrEqual(15);
+      expect(value).toBeLessThan(96);
+
+      // 继续推进：进度只增不减
+      await vi.advanceTimersByTimeAsync(30000);
+      const later = Number((screen.getByText(/^\d+%$/).textContent || "").replace("%", ""));
+      expect(later).toBeGreaterThan(value);
+      expect(later).toBeLessThan(97);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("导入命中指标库的记录按维护单位换算数值", async () => {
     const matchedGlucose = [
       { rawLabel: "空腹血糖", value: 90, unit: "mg/dL", referenceRange: "70-100", pageIndex: 0, systemId: "glucose_item", userItemId: "glucose_item", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "import" as const, userItemFound: true },
