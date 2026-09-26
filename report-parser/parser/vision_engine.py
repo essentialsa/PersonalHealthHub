@@ -118,7 +118,9 @@ def get_vision_status() -> Dict[str, Any]:
         "fallback_model": fallback_model,
         "fallback_base_url": fallback_base_url.rstrip("/"),
         "fallback_api_key_configured": bool(fallback_api_key),
-        "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "15")))),
+        # 单次模型调用超时：VLM 多图推理常需 20-40s，15s 会把正常请求误判超时
+        # 而静默降级到备用模型；chunk 并行 + 55s 总预算已约束整体耗时
+        "timeout_sec": max(10, int(os.getenv("VISION_LLM_TIMEOUT_SEC", os.getenv("OCR_LLM_TIMEOUT_SEC", "45")))),
         "max_output_tokens": _resolve_max_output_tokens(model),
         "max_pdf_pages": MAX_PDF_PAGES,
         "max_images_per_request": MAX_IMAGES_PER_REQUEST,
