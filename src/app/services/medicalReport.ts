@@ -509,6 +509,18 @@ export const normalizeUnit = (value: string): string =>
     .replace(/／/g, "/")
     .replace(/\s+/g, "");
 
+/** 去除报告标签常见的样本/方法前缀，保留核心指标名（如「血清总胆固醇」→「总胆固醇」） */
+const stripLabelSpecifiers = (label: string): string =>
+  label.replace(/^(血清|血浆|全血|空腹|餐后|随机)+/, "");
+
+/**
+ * 毫秒类时间单位：心电图间期（QT/QTc 362ms、P-R 156ms）不应误配到生化指标。
+ * 注意不含「秒」——凝血功能 PT/APTT 合法使用「秒」，不可误伤。
+ */
+const TIME_LIKE_UNITS = ["ms", "msec", "毫秒"];
+export const isTimeLikeUnit = (unit: string): boolean =>
+  TIME_LIKE_UNITS.includes(normalizeUnit(unit));
+
 /* ── 单位换算 ── */
 
 /**
@@ -590,6 +602,16 @@ const mappingAliasValues = (mapping: IndicatorMapping): string[] => [
   ...mapping.aliases.map(item => item.alias),
 ];
 
+/** 「非X」与「X」是不同指标（非高密度脂蛋白胆固醇 ≠ 高密度脂蛋白胆固醇），禁止互配 */
+const isNegatedVariant = (a: string, b: string): boolean =>
+  (a.startsWith("非") && a.slice(1) === b) || (b.startsWith("非") && b.slice(1) === a);
+
+/** 短 token 在长 token 中的出现位置前若带「非」字，视为不同指标（如 非[高密度脂蛋白]胆固醇） */
+const isNegatedContainment = (longer: string, shorter: string): boolean => {
+  const idx = longer.indexOf(shorter);
+  return idx >= 1 && longer[idx - 1] === "非";
+};
+
 const bestTokenScore = (rawTokens: string[], candidateTokens: string[]) => {
   let best = { score: 0, matchType: "none" as "exact" | "fuzzy" | "none", similarity: undefined as number | undefined };
 
@@ -601,18 +623,36 @@ const bestTokenScore = (rawTokens: string[], candidateTokens: string[]) => {
       if (raw === candidate) {
         return { score: 1, matchType: "exact" as const, similarity: 1 };
       }
+      if (isNegatedVariant(raw, candidate)) {
+        continue;
+      }
 
       const minLength = Math.min(raw.length, candidate.length);
       const maxLength = Math.max(raw.length, candidate.length);
-      if (minLength >= 2 && (raw.includes(candidate) || candidate.includes(raw))) {
-        const score = Math.max(0.88, minLength / maxLength);
-        if (score > best.score) {
-          best = { score, matchType: "fuzzy", similarity: score };
+      // 仅允许「前缀包含」：短词出现在长词的开头（如 血红蛋白浓度 → 血红蛋白）。
+      // 中文医学术语限定词在前、中心词在后，后缀/中间包含（低密度脂蛋白[胆固醇]、
+      // 糖化[血红蛋白]）几乎都是不同指标，一律拒绝。
+      if (minLength >= 3 && (raw.startsWith(candidate) || candidate.startsWith(raw))) {
+        // 「非X」包含「X」但语义相反：拒绝（非高密度脂蛋白胆固醇 ⊃ 高密度脂蛋白）
+        const negated = raw.length >= candidate.length
+          ? isNegatedContainment(raw, candidate)
+          : isNegatedContainment(candidate, raw);
+        const containment = minLength / maxLength;
+        if (!negated && containment >= 0.6) {
+          const score = Math.max(0.87, containment);
+          if (score > best.score) {
+            best = { score, matchType: "fuzzy", similarity: score };
+          }
         }
         continue;
       }
 
       if (minLength <= 2) {
+        continue;
+      }
+      // 编辑距离分支同样拒绝「非X」与「X」：二者仅差一个「非」字，
+      // 相似度极高（如 0.94）但语义相反，必须排除。
+      if (isNegatedVariant(raw, candidate)) {
         continue;
       }
 
@@ -669,28 +709,41 @@ function similarity(a: string, b: string): number {
   return max === 0 ? 1 : 1 - levenshtein(a, b) / max;
 }
 
-export function matchIndicator(rawLabel: string, mappings: IndicatorMapping[] = DEFAULT_MAPPINGS): Omit<MatchedIndicator, 'value' | 'unit' | 'referenceRange' | 'pageIndex' | 'rawLabel' | 'confidence'> {
-  const rawTokens = collectIndicatorTokens(rawLabel);
-  let best = 0, result: ReturnType<typeof matchIndicator> = { matchType: 'none' };
+export function matchIndicator(rawLabel: string, mappings: IndicatorMapping[] = DEFAULT_MAPPINGS, observedUnit?: string): Omit<MatchedIndicator, 'value' | 'unit' | 'referenceRange' | 'pageIndex' | 'rawLabel' | 'confidence'> {
+  const none: ReturnType<typeof matchIndicator> = { matchType: 'none' };
+  // 时间类单位（ms/秒 等）不可能是生化指标值：心电图 QT/QTc、P-R 间期等直接拒绝，杜绝误配
+  if (observedUnit && isTimeLikeUnit(observedUnit)) {
+    return none;
+  }
+  const rawTokens = [
+    ...new Set([
+      ...collectIndicatorTokens(rawLabel),
+      ...collectIndicatorTokens(stripLabelSpecifiers(rawLabel)),
+    ]),
+  ];
+  let best = 0;
+  let bestExact = false;
+  let result: ReturnType<typeof matchIndicator> = { matchType: 'none' };
 
   for (const m of mappings) {
     const score = bestTokenScore(rawTokens, collectIndicatorTokens(...mappingAliasValues(m)));
-    if (score.matchType === 'exact') {
-      return { systemId: m.systemId, systemLabel: m.systemLabel, categoryId: m.categoryId, matchType: 'exact' };
-    }
     if (score.score > best) {
       best = score.score;
+      bestExact = score.matchType === 'exact';
       result = {
         systemId: m.systemId,
         systemLabel: m.systemLabel,
         categoryId: m.categoryId,
-        matchType: 'fuzzy',
+        matchType: score.matchType,
         similarity: score.similarity,
       };
     }
   }
 
-  return best > 0.82 ? result : { matchType: 'none' };
+  if (bestExact) {
+    return { systemId: result.systemId!, systemLabel: result.systemLabel!, categoryId: result.categoryId!, matchType: 'exact' };
+  }
+  return best >= 0.85 ? result : none;
 }
 
 export function calcConfidence(match: { matchType: string; similarity?: number }, value: number): { level: 'high' | 'medium' | 'low'; score: number; reasons: string[] } {
@@ -703,7 +756,7 @@ export function calcConfidence(match: { matchType: string; similarity?: number }
 
 export function matchAllIndicators(indicators: ExtractedIndicator[]): MatchedIndicator[] {
   return indicators.map(ind => {
-    const m = matchIndicator(ind.rawLabel);
+    const m = matchIndicator(ind.rawLabel, DEFAULT_MAPPINGS, ind.unit);
     return { ...ind, ...m, confidence: calcConfidence(m, ind.value) };
   });
 }
@@ -776,7 +829,16 @@ const matchUserIndicator = (
   userCategories: UserIndicatorCategory[],
   mappings: IndicatorMapping[],
 ) => {
-  const rawTokens = collectIndicatorTokens(indicator.rawLabel);
+  // 时间类单位（ms/秒 等）不可能是生化指标值：直接拒绝用户库匹配，避免误入库
+  if (isTimeLikeUnit(indicator.unit)) {
+    return null;
+  }
+  const rawTokens = [
+    ...new Set([
+      ...collectIndicatorTokens(indicator.rawLabel),
+      ...collectIndicatorTokens(stripLabelSpecifiers(indicator.rawLabel)),
+    ]),
+  ];
   let best:
     | {
         category: UserIndicatorCategory;
@@ -819,7 +881,8 @@ const matchUserIndicator = (
     }
   }
 
-  return best && best.score >= 0.82 ? best : null;
+  // 与 bestTokenScore 的包含占比阈值（0.85）对齐：短 token 子串不再低分命中
+  return best && best.score >= 0.85 ? best : null;
 };
 
 /**
@@ -859,7 +922,7 @@ export function resolveIndicators(
     }
 
     // 第二步：用户库没有该指标，用标准词典做候选建议，但不直接导入。
-    const match = matchIndicator(ind.rawLabel, mappings);
+    const match = matchIndicator(ind.rawLabel, mappings, ind.unit);
     const baseConfidence = calcConfidence(match, ind.value);
     const confidence = {
       ...baseConfidence,
