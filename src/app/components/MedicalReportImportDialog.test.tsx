@@ -747,4 +747,113 @@ describe("MedicalReportImportDialog E2E", () => {
 
     await waitFor(() => expect(screen.getByText("异常: 1")).toBeInTheDocument(), { timeout: 5000 });
   });
+
+  it("解析中显示进度百分比", async () => {
+    let resolveParse: ((value: typeof mockParseResult) => void) | undefined;
+    vi.mocked(medicalReport.parseMedicalReport).mockImplementation(
+      (() => new Promise(resolve => { resolveParse = resolve; })) as unknown as typeof medicalReport.parseMedicalReport,
+    );
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    // 解析中：进度条旁显示百分比文本
+    await waitFor(() => expect(screen.getByText(/^\d+%$/)).toBeInTheDocument(), { timeout: 5000 });
+
+    resolveParse!(mockParseResult);
+    await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
+  });
+
+  it("导入命中指标库的记录按维护单位换算数值", async () => {
+    const matchedGlucose = [
+      { rawLabel: "空腹血糖", value: 90, unit: "mg/dL", referenceRange: "70-100", pageIndex: 0, systemId: "glucose_item", userItemId: "glucose_item", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "import" as const, userItemFound: true },
+    ];
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue(matchedGlucose);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ import: matchedGlucose, createCategory: [], createItem: [], unnamed: [] });
+
+    const existingCategories = [
+      { id: "cat_glucose", name: "血糖", code: "", items: [{ id: "glucose_item", label: "血糖", unit: "mmol/L", code: "", referenceRange: "3.9-6.1", aliases: [] }] },
+    ];
+
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        existingCategories={existingCategories as unknown as Parameters<typeof MedicalReportImportDialog>[0]["existingCategories"]}
+      />,
+    );
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText(/确认导入/)).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText(/确认导入/));
+
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    expect(records).toHaveLength(1);
+    expect(records[0].indicatorType).toBe("glucose_item");
+    // 90 mg/dL ÷ 18.02 ≈ 4.99 mmol/L（保留两位）
+    expect(records[0].value).toBe(Math.round((90 / 18.02) * 100) / 100);
+    expect(records[0].unit).toBe("mmol/L");
+  });
+
+  it("建议项默认随确认导入，勾选排除后不导入", async () => {
+    const importItem = { rawLabel: "收缩压", value: 120, unit: "mmHg", referenceRange: "90-140", pageIndex: 0, systemId: "bp_item", userItemId: "bp_item", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "import" as const, userItemFound: true };
+    const suggestedItem = { rawLabel: "血尿酸", value: 420, unit: "μmol/L", referenceRange: "150-420", pageIndex: 0, systemId: "uric_acid", systemLabel: "尿酸", categoryId: "cat_kidney", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "create_item" as const, userItemFound: false };
+    const matchedWithSuggestion = [importItem, suggestedItem];
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue(matchedWithSuggestion);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ import: [importItem], createCategory: [], createItem: [suggestedItem], unnamed: [] });
+
+    const existingCategories = [
+      { id: "cat_kidney", name: "肾功能", code: "", items: [{ id: "kidney_item_1", label: "肌酐", unit: "μmol/L", code: "", referenceRange: "44-133", aliases: [] }] },
+    ];
+    const onEnsureCategoryItems = vi.fn().mockReturnValue({ "尿酸": "new_item_ua" });
+
+    // 默认不勾选排除：建议项随确认导入（先建库再生成记录）
+    const { unmount } = render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onEnsureCategoryItems={onEnsureCategoryItems}
+        existingCategories={existingCategories as unknown as Parameters<typeof MedicalReportImportDialog>[0]["existingCategories"]}
+      />,
+    );
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText(/将随确认导入（1 项，勾选排除的不导入）/)).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.getByText(/以下项目默认随「确认导入」一并创建分类\/指标并导入/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/确认导入 \(2 条\)/));
+
+    await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
+    expect(onEnsureCategoryItems).toHaveBeenCalledWith("肾功能", [{ label: "尿酸", unit: "μmol/L" }]);
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    expect(records).toHaveLength(2);
+    expect(records.some((r: { indicatorType: string; value: number; unit: string }) =>
+      r.indicatorType === "new_item_ua" && r.value === 420 && r.unit === "μmol/L",
+    )).toBe(true);
+    unmount();
+    mockImportRecords.mockClear();
+    onEnsureCategoryItems.mockClear();
+
+    // 勾选排除后确认：建议项不导入、不建库
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onEnsureCategoryItems={onEnsureCategoryItems}
+        existingCategories={existingCategories as unknown as Parameters<typeof MedicalReportImportDialog>[0]["existingCategories"]}
+      />,
+    );
+    await openAndParseReport();
+    await waitFor(() => expect(screen.getByText(/将随确认导入（1 项，勾选排除的不导入）/)).toBeInTheDocument(), { timeout: 5000 });
+
+    // 建议区块的「排除」勾选框（位于保留附件勾选框之前）
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    await waitFor(() => expect(screen.getByText(/将随确认导入（0 项，勾选排除的不导入）/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText(/确认导入 \(1 条\)/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const recordsAfterExclude = mockImportRecords.mock.calls[0][0];
+    expect(recordsAfterExclude).toHaveLength(1);
+    expect(recordsAfterExclude[0].indicatorType).toBe("bp_item");
+    expect(onEnsureCategoryItems).not.toHaveBeenCalled();
+  });
 });
