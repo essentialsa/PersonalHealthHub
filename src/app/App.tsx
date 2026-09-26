@@ -77,6 +77,7 @@ import {
   bytesToDataUrl,
 } from "@/app/services/attachment";
 import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
+import { isTimeLikeUnit } from "@/app/services/medicalReport";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -214,6 +215,18 @@ const buildUserStorageKey = (baseKey: string, userId: string | null) => {
     return baseKey;
   }
   return `${baseKey}__${userId}`;
+};
+
+/**
+ * 一次性清理 2026-09 报告导入数据失真产生的脏数据（幂等，重复执行无副作用）。
+ * 只删除能确定为误映射的毫秒单位记录（心电图 QT/QTc、P-R 间期被错配成胆固醇/血压）；
+ * 同日重复记录不自动删除——可能是用户合法的同值测量，修复后重新导入会自动去重。
+ */
+const cleanupMisImportedRecords = (records: HealthRecord[]): { records: HealthRecord[]; changed: boolean } => {
+  const cleaned = records.filter(
+    record => !(typeof record.unit === "string" && isTimeLikeUnit(record.unit)),
+  );
+  return { records: cleaned, changed: cleaned.length !== records.length };
 };
 
 const getSupabaseClient = () => {
@@ -3000,10 +3013,17 @@ export default function App() {
         setAuthConfig({});
         setIndicatorCategories(DEFAULT_INDICATOR_CATEGORIES);
 
-        // 1. Records
+        // 1. Records（加载后幂等清理 2026-09 导入失真产生的 ms 误配记录与同日重复记录）
         const recordsData = readWithFallback(STORAGE_KEY, LEGACY_STORAGE_KEY);
         if (Array.isArray(recordsData)) {
-          setRecords(recordsData);
+          const { records: cleanedRecords, changed } = cleanupMisImportedRecords(recordsData as HealthRecord[]);
+          setRecords(cleanedRecords);
+          if (changed) {
+            console.log("[数据迁移] 已清理报告导入失真产生的脏数据：", {
+              before: recordsData.length,
+              after: cleanedRecords.length,
+            });
+          }
         }
 
         // 2. Categories

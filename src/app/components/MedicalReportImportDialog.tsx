@@ -427,8 +427,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (!labelToItemId) {
       return null;
     }
-    // 3. 簇内每条记录各自成记录；同日期+同指标+同数值的疑似重复默认跳过
+    // 3. 簇内每条记录各自成记录；同日期+同指标+同数值的疑似重复默认跳过，组内互重只保留一条
     const records: HealthRecord[] = [];
+    const groupSeenKeys = new Set<string>();
     for (const cluster of group.clusters) {
       const def = defByKey.get(normalizeIndicatorText(cluster.canonicalLabel));
       const itemId = def ? labelToItemId[def.label] : undefined;
@@ -440,6 +441,10 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         if (existingDuplicateKeys.has(dupKey) && !forcedDuplicates.has(dupKey)) {
           continue;
         }
+        if (groupSeenKeys.has(dupKey)) {
+          continue;
+        }
+        groupSeenKeys.add(dupKey);
         records.push(toImportableRecord(item, date, itemId));
       }
     }
@@ -449,6 +454,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const handleImport = () => {
     if (!result) return;
     const date = importDate;
+    // 批次内去重键集合：同一报告多页重复出现的指标（同日期+同指标+同数值）只入库一条；
+    // 与库存量去重共享口径，三条导入路径（已匹配/建议项/未命名组）共用，互不重复
+    const batchSeenKeys = new Set<string>();
     // 本次将随确认导入的未命名具名组（报告分组 / AI 建议；未配置建库能力时不导入）
     const includedGroups = onEnsureCategoryItems
       ? unnamedGroups.filter(group => group.source !== "none" && !excludedGroups.has(groupKeyOf(group)))
@@ -460,7 +468,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         if (excludedImports.has(index)) return false;
         // 疑似重复（同日期+同指标+同数值）默认跳过，用户勾选后方可强制导入
         const dupKey = recordDuplicateKey({ date, indicatorType: (m.userItemId || m.systemId)!, value: m.value });
-        return !existingDuplicateKeys.has(dupKey) || forcedDuplicates.has(dupKey);
+        const isExistingDup = existingDuplicateKeys.has(dupKey);
+        const isBatchDup = batchSeenKeys.has(dupKey);
+        if ((isExistingDup || isBatchDup) && !forcedDuplicates.has(dupKey)) return false;
+        batchSeenKeys.add(dupKey);
+        return true;
       })
       .map(({ m }) => toImportableRecord(m, date, (m.userItemId || m.systemId)!));
 
@@ -507,6 +519,12 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
             if (!itemId) {
               continue;
             }
+            // 批次内去重：同日期+同指标+同数值只入库一条（新建项无换算，直接按报告单位判重）
+            const dupKey = recordDuplicateKey({ date, indicatorType: itemId, value: g.value });
+            if (batchSeenKeys.has(dupKey)) {
+              continue;
+            }
+            batchSeenKeys.add(dupKey);
             // 新建指标项的单位即报告单位，无需换算
             records.push(toImportableRecord(g, date, itemId));
           }
@@ -683,12 +701,21 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     const key = duplicateKeyOf(m);
     return key !== null && existingDuplicateKeys.has(key);
   }).length;
-  const importableCount = groupedCounts.import.filter(m => {
-    const key = duplicateKeyOf(m);
-    const idx = matched.indexOf(m);
-    if (idx >= 0 && excludedImports.has(idx)) return false;
-    return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
-  }).length;
+  const importableCount = (() => {
+    // 与 handleImport 口径一致：库存量重复 + 批次内重复都默认跳过（强制勾选除外）
+    const seen = new Set<string>();
+    return groupedCounts.import.filter(m => {
+      const key = duplicateKeyOf(m);
+      const idx = matched.indexOf(m);
+      if (idx >= 0 && excludedImports.has(idx)) return false;
+      if (key === null) return true;
+      const isExistingDup = existingDuplicateKeys.has(key);
+      const isBatchDup = seen.has(key);
+      if ((isExistingDup || isBatchDup) && !forcedDuplicates.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).length;
+  })();
   const suggestedCount = groupedCounts.createCategory.length + groupedCounts.createItem.length;
   const suggestedImportCount = matched.filter(
     (m, index) => (m.action === "create_item" || m.action === "create_category") && !excludedSuggested.has(index),

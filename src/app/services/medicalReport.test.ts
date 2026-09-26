@@ -43,6 +43,42 @@ describe("matchIndicator", () => {
     const r = matchIndicator("  血糖  ");
     expect(r.matchType).toBe("exact");
   });
+
+  // ── 2026-09 数据失真 bug 回归：误映射/塌缩防线 ──
+
+  it("低密度脂蛋白胆固醇精确匹配到 LDL 而非总胆固醇", () => {
+    const r = matchIndicator("低密度脂蛋白胆固醇", undefined, "mmol/L");
+    expect(r.systemId).toBe("ldl_cholesterol");
+    expect(r.matchType).toBe("exact");
+  });
+
+  it("高密度脂蛋白胆固醇精确匹配到 HDL 而非总胆固醇", () => {
+    const r = matchIndicator("高密度脂蛋白胆固醇", undefined, "mmol/L");
+    expect(r.systemId).toBe("hdl_cholesterol");
+    expect(r.matchType).toBe("exact");
+  });
+
+  it("非高密度脂蛋白胆固醇不误配到 HDL（非X≠X）", () => {
+    const r = matchIndicator("非高密度脂蛋白胆固醇", undefined, "mmol/L");
+    expect(r.systemId).not.toBe("hdl_cholesterol");
+    expect(r.matchType).toBe("none");
+  });
+
+  it("短子串不再靠包含关系误命中（QT/QTc 不得命中胆固醇别名 TC）", () => {
+    const r = matchIndicator("QT/QTc间期", undefined, "mmol/L");
+    expect(r.systemId).not.toBe("total_cholesterol");
+  });
+
+  it("毫秒单位的心电图间期直接拒绝匹配（QT/QTc 362ms）", () => {
+    expect(matchIndicator("QT/QTc", undefined, "ms").matchType).toBe("none");
+    expect(matchIndicator("P-R间期", undefined, "ms").matchType).toBe("none");
+    expect(matchIndicator("P-R间期", undefined, "毫秒").matchType).toBe("none");
+  });
+
+  it("凝血功能使用「秒」单位不受毫秒守卫影响", () => {
+    const r = matchIndicator("凝血酶原时间", undefined, "秒");
+    expect(r.systemId).toBe("pt");
+  });
 });
 
 describe("calcConfidence", () => {
