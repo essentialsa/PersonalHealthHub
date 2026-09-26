@@ -710,4 +710,41 @@ describe("MedicalReportImportDialog E2E", () => {
       vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
     }
   });
+
+  it("导入记录携带异常标记且预览表格显示 ↑ 徽标", async () => {
+    const matchedWithAbnormal = [
+      { ...mockMatched[0], abnormalFlag: "H" },
+      mockMatched[1],
+    ];
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue(matchedWithAbnormal);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ ...mockGrouped, import: matchedWithAbnormal });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    // 预览表格中偏高指标出现 ↑ 徽标
+    await waitFor(() => expect(screen.getAllByText("↑").length).toBeGreaterThan(0), { timeout: 5000 });
+
+    fireEvent.click(screen.getByText(/确认导入/));
+
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({ indicatorType: "blood_pressure_systolic", value: 120, abnormalFlag: "H" });
+    expect(records[1].abnormalFlag).toBeUndefined();
+  });
+
+  it("统计栏显示异常指标数量", async () => {
+    const matchedWithAbnormal = [
+      { ...mockMatched[0], abnormalFlag: "H" },
+      mockMatched[1],
+    ];
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue(matchedWithAbnormal);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ ...mockGrouped, import: matchedWithAbnormal });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText("异常: 1")).toBeInTheDocument(), { timeout: 5000 });
+  });
 });

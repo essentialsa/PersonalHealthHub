@@ -163,9 +163,11 @@ export interface ExtractedIndicator {
   value: number;
   unit: string;
   referenceRange?: string;
-  pageIndex: number;
   /** 报告原生分类（如「肝功能」），未命中指标库时用于分组 */
   reportCategory?: string;
+  /** 报告原始异常标记：H=偏高/↑，L=偏低/↓，正常为空 */
+  abnormalFlag?: string;
+  pageIndex: number;
 }
 
 export interface ParseResult {
@@ -707,6 +709,8 @@ export interface ResolvedIndicator {
   pageIndex: number;
   /** 报告原生分类（如「肝功能」），未命中指标库时用于分组 */
   reportCategory?: string;
+  /** 报告原始异常标记：H=偏高/↑，L=偏低/↓，正常为空 */
+  abnormalFlag?: string;
   // 匹配结果
   systemId?: string;
   systemLabel?: string;

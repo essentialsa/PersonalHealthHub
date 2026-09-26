@@ -35,6 +35,10 @@ def test_mock_mode_returns_structured_result():
     # mock 模式下各条指标都携带检验分组示例
     assert all(i["reportCategory"] for i in result["indicators"])
     assert result["indicators"][2]["reportCategory"] == "血糖"
+    # mock 模式下各条指标都携带异常标记示例（空腹血糖偏高）
+    assert all("abnormalFlag" in i for i in result["indicators"])
+    assert result["indicators"][0]["abnormalFlag"] == ""
+    assert result["indicators"][2]["abnormalFlag"] == "H"
 
 
 def test_missing_api_key_raises_user_facing_error():
@@ -113,6 +117,44 @@ def test_report_category_passthrough(monkeypatch):
     result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert result["success"] is True
     assert result["indicators"][0]["reportCategory"] == "肝功能"
+
+
+def test_abnormal_flag_normalization(monkeypatch):
+    """模型输出 abnormalFlag 的多种写法归一化为 H/L；缺字段/非字符串归为空。"""
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "血红蛋白", "value": 158, "unit": "g/L",
+                     "referenceRange": "130-175", "abnormalFlag": "↑", "pageIndex": 0},
+                    {"rawLabel": "谷丙转氨酶(ALT)", "value": 62, "unit": "U/L",
+                     "referenceRange": "9-50", "abnormalFlag": "H", "pageIndex": 0},
+                    {"rawLabel": "血小板", "value": 95, "unit": "×10^9/L",
+                     "referenceRange": "125-350", "abnormalFlag": "low", "pageIndex": 0},
+                    {"rawLabel": "白蛋白", "value": 38, "unit": "g/L",
+                     "referenceRange": "40-55", "abnormalFlag": "偏低", "pageIndex": 0},
+                    {"rawLabel": "白细胞(WBC)", "value": 6.5, "unit": "×10^9/L",
+                     "referenceRange": "3.5-9.5", "pageIndex": 0},
+                    {"rawLabel": "红细胞", "value": 4.8, "unit": "×10^12/L",
+                     "referenceRange": "4.3-5.8", "abnormalFlag": 1, "pageIndex": 0},
+                ],
+            })}}]}
+
+    import parser.vision_engine as ve
+    monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    assert result["success"] is True
+    assert result["indicators"][0]["abnormalFlag"] == "H"
+    assert result["indicators"][1]["abnormalFlag"] == "H"
+    assert result["indicators"][2]["abnormalFlag"] == "L"
+    assert result["indicators"][3]["abnormalFlag"] == "L"
+    # 缺字段与非字符串类型均为空字符串
+    assert result["indicators"][4]["abnormalFlag"] == ""
+    assert result["indicators"][5]["abnormalFlag"] == ""
 
 
 def test_report_category_missing_or_invalid_defaults_to_empty(monkeypatch):

@@ -62,6 +62,7 @@ class ExtractedIndicator(BaseModel):
     unit: str
     referenceRange: Optional[str] = None
     reportCategory: Optional[str] = None
+    abnormalFlag: Optional[str] = None
     pageIndex: int
 
 

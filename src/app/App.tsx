@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type FormEvent, type ChangeEvent } from "react";
 import { AddRecordDialog, HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 import { RecordTable } from "@/app/components/RecordTable";
 import { ImportRecordsDialog } from "@/app/components/ImportRecordsDialog";
@@ -2864,6 +2864,11 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [dataListPage, setDataListPage] = useState(1);
+  const [anomalyOnly, setAnomalyOnly] = useState(false);
+  const effectiveRecords = useMemo(
+    () => anomalyOnly ? records.filter(r => r.abnormalFlag === "H" || r.abnormalFlag === "L") : records,
+    [records, anomalyOnly],
+  );
 
   // 自动备份：保存最新 state 的 ref，供防抖回调读取，避免闭包拿到过期数据
   const cloudPayloadRef = useRef({ records, indicatorCategories, changeLogs, indicatorChangeLogs, attachments });
@@ -3330,7 +3335,7 @@ export default function App() {
       return [];
     }
     const rowsByDate = new Map<string, Record<string, unknown>>();
-    records
+    effectiveRecords
       .filter(record => indicatorDataIds.includes(record.indicatorType))
       .forEach(record => {
         const existing = rowsByDate.get(record.date) || { date: record.date };
@@ -3361,8 +3366,8 @@ export default function App() {
     : indicatorItems.map(item => item.id);
   const maintenanceIndicators = maintenanceCategory ? maintenanceCategory.items : indicatorItems;
   const maintenanceRecords = maintenanceCategory
-    ? records.filter(record => maintenanceIndicatorIds.includes(record.indicatorType))
-    : records;
+    ? effectiveRecords.filter(record => maintenanceIndicatorIds.includes(record.indicatorType))
+    : effectiveRecords;
   const maintenanceLogs = maintenanceCategory
     ? changeLogs.filter(log => {
         const typeId = log.after?.indicatorType ?? log.before?.indicatorType ?? "";
@@ -4253,17 +4258,17 @@ export default function App() {
       alert("请先在云同步中选择云存储平台。");
       return;
     }
-    let effectiveRecords = records;
+    let syncRecords = records;
     let effectiveCategories = indicatorCategories;
     let effectiveChangeLogs = changeLogs;
     let effectiveIndicatorChangeLogs = indicatorChangeLogs;
-    if (effectiveRecords.length === 0) {
+    if (syncRecords.length === 0) {
       try {
         const saved = localStorage.getItem(buildUserStorageKey(STORAGE_KEY, activeUserId));
         if (saved) {
           const parsed = JSON.parse(saved) as HealthRecord[];
           if (Array.isArray(parsed) && parsed.length > 0) {
-            effectiveRecords = parsed;
+            syncRecords = parsed;
           }
         }
       } catch (error) {
@@ -4309,7 +4314,7 @@ export default function App() {
         console.error("[CloudSync] failed to load indicator logs from storage for manual sync", error);
       }
     }
-    if (effectiveRecords.length === 0) {
+    if (syncRecords.length === 0) {
       alert("暂无数据可同步。");
       return;
     }
@@ -4331,7 +4336,7 @@ export default function App() {
       const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
       const snapshot = buildCloudSnapshot(
         {
-          records: effectiveRecords,
+          records: syncRecords,
           categories: effectiveCategories,
           changeLogs: effectiveChangeLogs,
           indicatorChangeLogs: effectiveIndicatorChangeLogs,
@@ -4999,15 +5004,15 @@ export default function App() {
     format: "xlsx" | "csv",
     onProgress?: (value: number) => void,
   ) => {
-    if (records.length === 0) {
+    if (effectiveRecords.length === 0) {
       alert("暂无数据可导出");
       return;
     }
 
     const baseRecords =
       indicatorIds && indicatorIds.length > 0
-        ? records.filter(record => indicatorIds.includes(record.indicatorType))
-        : records;
+        ? effectiveRecords.filter(record => indicatorIds.includes(record.indicatorType))
+        : effectiveRecords;
 
     if (baseRecords.length === 0) {
       alert("所选指标暂无可导出的数据");
@@ -5384,7 +5389,7 @@ export default function App() {
         <ConsultationBriefDialog
           key="consultation-brief"
           categories={indicatorCategories}
-          records={records}
+          records={effectiveRecords}
           triggerClassName={sidebarItemClass}
         />,
       ],
@@ -5562,7 +5567,7 @@ export default function App() {
         <main className="flex-1 p-4 lg:p-8">
 
         {/* 统计卡片 */}
-        <StatsCards records={records} categoriesCount={indicatorCategories.length} />
+        <StatsCards records={effectiveRecords} categoriesCount={indicatorCategories.length} />
 
         {/* 主内容区 */}
         <Tabs
@@ -5570,26 +5575,35 @@ export default function App() {
           onValueChange={value => setActiveTab(value as "table" | "chart" | "maintenance")}
           className="space-y-6"
         >
-          <TabsList className="bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1 rounded-full max-w-full overflow-x-auto">
-            <TabsTrigger
-              value="table"
-              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
-            >
-              数据列表
-            </TabsTrigger>
-            <TabsTrigger
-              value="chart"
-              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-pink-500 data-[state=active]:text-white"
-            >
-              图表分析
-            </TabsTrigger>
-            <TabsTrigger
-              value="maintenance"
-              className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
-            >
-              数据维护
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TabsList className="bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1 rounded-full max-w-full overflow-x-auto">
+              <TabsTrigger
+                value="table"
+                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
+              >
+                数据列表
+              </TabsTrigger>
+              <TabsTrigger
+                value="chart"
+                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-pink-500 data-[state=active]:text-white"
+              >
+                图表分析
+              </TabsTrigger>
+              <TabsTrigger
+                value="maintenance"
+                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
+              >
+                数据维护
+              </TabsTrigger>
+            </TabsList>
+            <div className="flex items-center gap-2 rounded-full bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1">
+              <button onClick={() => setAnomalyOnly(false)} className={cn("rounded-full px-4 py-1.5 text-sm font-medium transition-all", !anomalyOnly ? "bg-gradient-to-r from-violet-500 to-blue-500 text-white shadow" : "text-gray-600 hover:bg-white/60")}>所有指标</button>
+              <button onClick={() => setAnomalyOnly(true)} className={cn("rounded-full px-4 py-1.5 text-sm font-medium transition-all", anomalyOnly ? "bg-gradient-to-r from-red-500 to-rose-500 text-white shadow" : "text-gray-600 hover:bg-white/60")}>异常指标</button>
+            </div>
+          </div>
+          {anomalyOnly && effectiveRecords.length === 0 && (
+            <div className="rounded-xl border border-red-100 bg-red-50/60 px-4 py-3 text-sm text-red-600">当前无异常指标记录（旧导入数据不含异常标记，重新导入报告后可用）</div>
+          )}
 
           <TabsContent value="table">
             <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
@@ -5719,7 +5733,7 @@ export default function App() {
 
            <TabsContent value="chart">
             <ChartAnalysisPage
-              records={records}
+              records={effectiveRecords}
               categories={indicatorCategories}
               searchQuery={searchQuery}
             />
