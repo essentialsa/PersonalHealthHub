@@ -181,6 +181,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [progress, setProgress] = useState(0);
   const [parseProgressText, setParseProgressText] = useState<string | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
+  const [importDate, setImportDate] = useState("");
   const [matched, setMatched] = useState<ResolvedIndicator[]>([]);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [pendingCategories, setPendingCategories] = useState<{ categoryId: string; categoryName: string; indicators: ResolvedIndicator[] }[]>([]);
@@ -353,6 +354,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
 
       setProgress(100);
       setResult(r);
+      setImportDate(r.reportDate || new Date().toISOString().split("T")[0]);
     } catch (e) {
       // 关闭对话框导致的取消：不再弹错误提示
       if (abortRef.current?.signal.aborted) {
@@ -446,7 +448,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
 
   const handleImport = () => {
     if (!result) return;
-    const date = result.reportDate || new Date().toISOString().split("T")[0];
+    const date = importDate;
     // 本次将随确认导入的未命名具名组（报告分组 / AI 建议；未配置建库能力时不导入）
     const includedGroups = onEnsureCategoryItems
       ? unnamedGroups.filter(group => group.source !== "none" && !excludedGroups.has(groupKeyOf(group)))
@@ -598,6 +600,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setFile(null);
     setError(null);
     setResult(null);
+    setImportDate("");
     setMatched([]);
     setExtracted([]);
     setProgress(0);
@@ -644,9 +647,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (!onEnsureCategoryItems) {
       return;
     }
-    const date = result?.reportDate || new Date().toISOString().split("T")[0];
     const prevMatchedCount = group.clusters.reduce((sum, cluster) => sum + cluster.items.length, 0);
-    const records = buildGroupRecords(group, groupName, date);
+    const records = buildGroupRecords(group, groupName, importDate);
     if (records === null) {
       window.alert("导入失败：无法创建分类或指标项，请稍后重试。");
       return;
@@ -671,7 +673,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const filtered = matched.filter(m => filter === "all" || m.confidence.level === filter);
   const counts = { all: matched.length, high: matched.filter(m => m.confidence.level === "high").length, medium: matched.filter(m => m.confidence.level === "medium").length, low: matched.filter(m => m.confidence.level === "low").length };
   const groupedCounts = groupByAction(matched);
-  const previewDate = result?.reportDate || new Date().toISOString().split("T")[0];
+  const previewDate = importDate;
   // 预览用重复键：与 handleImport 的过滤口径一致
   const duplicateKeyOf = (m: ResolvedIndicator) =>
     m.userItemId || m.systemId
@@ -741,7 +743,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
             {result && (
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{result.pageCount} 页</span>
-                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{result.reportDate || "未识别日期"}</span>
+                <input type="date" value={importDate} onChange={e => setImportDate(e.target.value)}
+                  className="text-xs bg-muted text-gray-700 rounded-full px-2.5 py-1 border-0 focus:outline-1 focus:outline-violet-400" />
                 <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{matched.length} 项指标</span>
               </div>
             )}

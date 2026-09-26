@@ -963,4 +963,34 @@ describe("MedicalReportImportDialog E2E", () => {
       vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
     }
   });
+
+  it("报告日期缺失时日期输入默认今天，修改后导入记录使用修改后的日期", async () => {
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      reportDate: "",
+    });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    // 解析完成后日期输入默认为今天
+    const today = new Date().toISOString().split("T")[0];
+    const dateInput = await waitFor(() => {
+      const el = document.querySelector('input[type="date"]') as HTMLInputElement;
+      expect(el).not.toBeNull();
+      return el;
+    }, { timeout: 5000 });
+    expect(dateInput.value).toBe(today);
+
+    // 修改日期后确认导入 → 所有记录使用修改后的日期
+    fireEvent.change(dateInput, { target: { value: "2025-01-01" } });
+    fireEvent.click(screen.getByText(/确认导入/));
+
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    expect(records.length).toBeGreaterThan(0);
+    records.forEach((r: { date: string }) => {
+      expect(r.date).toBe("2025-01-01");
+    });
+  });
 });
