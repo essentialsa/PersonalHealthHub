@@ -472,6 +472,11 @@ class VisionEngine:
             ],
             "response_format": {"type": "json_object"},
         }
+        # DeepSeek V4 系列思考模式默认开启：思考链会消耗输出预算，
+        # JSON 提取任务关闭思考更快更稳（content 不再为空）。
+        # 仅对 deepseek 模型加该参数，避免其他 provider 不识别报 400。
+        if "deepseek" in model.lower():
+            body["thinking"] = {"type": "disabled"}
         try:
             response = httpx.post(
                 url,
