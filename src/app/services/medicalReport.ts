@@ -279,6 +279,11 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
   let reportDate = firstPayload.reportDate;
   let payload = firstPayload;
 
+  // 首段解析完成也上报一次进度，避免长时间停留在 0%
+  if (Array.isArray(firstPayload.parsedRange)) {
+    options.onProgress?.(firstPayload.parsedRange[1] + 1, firstPayload.totalPages ?? null);
+  }
+
   while (
     typeof payload.totalPages === "number" &&
     Array.isArray(payload.parsedRange) &&
@@ -331,8 +336,6 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
     const parsedUpTo = Array.isArray(segment.parsedRange) ? segment.parsedRange[1] + 1 : rangeEnd + 1;
     options.onProgress?.(parsedUpTo, segment.totalPages ?? null);
   }
-
-  options.onProgress?.(mergedIndicators.size, payload.totalPages ?? null);
 
   return {
     ...payload,

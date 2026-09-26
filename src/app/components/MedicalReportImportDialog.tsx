@@ -318,6 +318,22 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     }
   };
 
+  // 平滑进度动画：分段解析的进度只在每段请求返回时上报，期间可能长达 1 分钟无变化；
+  // 用时间驱动的指数趋近让进度条实时增长（永不回退、不超过 96%），
+  // 分段返回的真实进度以「取最大值」方式叠加，保证视觉上只进不退。
+  useEffect(() => {
+    if (!parsing) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 96) return prev;
+        return Math.min(96, prev + (96 - prev) * 0.008);
+      });
+    }, 500);
+    return () => clearInterval(timer);
+  }, [parsing]);
+
   const handleParse = async () => {
     if (!file) return;
     setParsing(true);
@@ -330,7 +346,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       const r = await parseMedicalReport(file, {
         signal: abortRef.current.signal,
         onProgress: (parsed, total) => {
-          setProgress(total ? Math.min(96, Math.round((parsed / total) * 100)) : 92);
+          // 分段完成里程碑：只允许向前推进，避免与平滑动画叠加时回退
+          const milestone = total ? Math.min(96, Math.round((parsed / total) * 100)) : 92;
+          setProgress(prev => Math.max(prev, milestone));
           setParseProgressText(total ? `${parsed}/${total} 页` : null);
         },
       });

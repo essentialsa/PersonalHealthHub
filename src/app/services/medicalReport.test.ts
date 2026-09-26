@@ -531,8 +531,9 @@ describe("parseMedicalReport 网络行为", () => {
     expect(result.totalPages).toBe(23);
     expect(result.pageCount).toBe(23);
     expect(progressCalls.length).toBeGreaterThanOrEqual(2);
-    expect(progressCalls[0]).toEqual([23, 23]);
-    expect(progressCalls[progressCalls.length - 1]).toEqual([3, 23]);
+    // 首段完成即上报（12/23 页），最后一段完成到 23/23
+    expect(progressCalls[0]).toEqual([12, 23]);
+    expect(progressCalls[progressCalls.length - 1]).toEqual([23, 23]);
   });
 
   it("续段未前进时报错且不无限循环", async () => {
