@@ -141,8 +141,13 @@ def match_labels(
         raise LabelMatcherError("模型未返回可解析内容")
 
     text = _strip_code_fences(content)
-    start = text.find("{")
-    json_text = text[start:] if start >= 0 else text
+    # 括号配平提取首个完整 JSON 对象：模型输出带前后杂质（解释文字/尾随内容）时
+    # 朴素截断 text[start:] 会解析失败，与 vision_engine 共用同一提取器
+    from parser.vision_engine import _extract_first_json_object
+
+    json_text = _extract_first_json_object(text)
+    if json_text is None:
+        raise LabelMatcherError("模型返回的内容无法解析为 JSON")
     try:
         parsed = json.loads(json_text)
     except json.JSONDecodeError as exc:
