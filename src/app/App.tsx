@@ -218,14 +218,49 @@ const buildUserStorageKey = (baseKey: string, userId: string | null) => {
 };
 
 /**
- * 一次性清理 2026-09 报告导入数据失真产生的脏数据（幂等，重复执行无副作用）。
- * 只删除能确定为误映射的毫秒单位记录（心电图 QT/QTc、P-R 间期被错配成胆固醇/血压）；
- * 同日重复记录不自动删除——可能是用户合法的同值测量，修复后重新导入会自动去重。
+ * 2026-09 数据失真事故批次标识：2025-12-18 体检报告于 2026-09-26 21:06（北京时间）
+ * 一次性导入的全部记录。清理只作用于该批次，不影响用户其他合法数据。
+ */
+const MISIMPORT_INCIDENT_BATCH_PREFIX = "2026-09-26T13:06:16";
+/**
+ * 事故批次中被旧版模糊匹配塌缩进「总胆固醇」项的错值（线上实测确认 7 条）：
+ * 低密度脂蛋白胆固醇 4.01×2、非高密度脂蛋白胆固醇 4.5×2、高密度脂蛋白胆固醇 1.36×1。
+ * 总胆固醇合法值 5.86×2 保留一条（批内去重）。清理后重新导入会以正确指标项入库。
+ */
+const MISIMPORT_COLLAPSED_CHOLESTEROL_VALUES = new Set([4.01, 4.5, 1.36]);
+
+/**
+ * 一次性清理 2026-09 报告导入数据失真产生的脏数据（幂等，重复执行无副作用）：
+ * 1. 全局防御：ms 单位记录（心电图间期误配）——当前库实测 0 条，仅作防线；
+ * 2. 事故批次内：删除塌缩进「总胆固醇」的错值；
+ * 3. 事故批次内：同日期+同指标+同数值只保留首条（报告多页重复导致）。
+ * 批次外记录原样保留，不会误删用户日后录入的合法同值记录。
  */
 const cleanupMisImportedRecords = (records: HealthRecord[]): { records: HealthRecord[]; changed: boolean } => {
-  const cleaned = records.filter(
-    record => !(typeof record.unit === "string" && isTimeLikeUnit(record.unit)),
-  );
+  const seen = new Set<string>();
+  const cleaned: HealthRecord[] = [];
+  for (const record of records) {
+    if (typeof record.unit === "string" && isTimeLikeUnit(record.unit)) {
+      continue;
+    }
+    const inIncidentBatch =
+      typeof record.operationAt === "string" &&
+      record.operationAt.startsWith(MISIMPORT_INCIDENT_BATCH_PREFIX);
+    if (inIncidentBatch) {
+      if (
+        record.indicatorType === "cholesterol" &&
+        MISIMPORT_COLLAPSED_CHOLESTEROL_VALUES.has(record.value)
+      ) {
+        continue;
+      }
+      const dupKey = `${record.date}::${record.indicatorType}::${record.value}`;
+      if (seen.has(dupKey)) {
+        continue;
+      }
+      seen.add(dupKey);
+    }
+    cleaned.push(record);
+  }
   return { records: cleaned, changed: cleaned.length !== records.length };
 };
 
