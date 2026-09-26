@@ -394,15 +394,15 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前检查 10s（放行），
-    # 第 2 个 chunk 提交前检查 60s（超 55s 预算，停止提交），60s 供日志复用。
-    # 线程感知：worker 线程内的预算时钟调用返回常量 60s（剩余预算 45s，允许调用），
+    # 第 2 个 chunk 提交前检查 60s（超 52s 预算，停止提交），60s 供日志复用。
+    # 线程感知：worker 线程内的预算时钟调用返回常量 10s（与提交时刻一致，剩余 42s 允许调用），
     # 主线程按脚本序列消费，避免并行实现下迭代器耗尽
     import threading
     main_id = threading.get_ident()
     clock = iter([0.0, 10.0, 60.0, 60.0])
 
     def fake_monotonic():
-        return next(clock) if threading.get_ident() == main_id else 60.0
+        return next(clock) if threading.get_ident() == main_id else 10.0
 
     monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
 
@@ -448,14 +448,14 @@ def test_budget_returns_partial_with_parsed_range(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前 10s（放行），
-    # 第 2 个 chunk 提交前 60s（超 55s 预算停止）。
-    # 线程感知：worker 线程的预算时钟调用返回常量 60s，主线程按脚本序列消费
+    # 第 2 个 chunk 提交前 60s（超 52s 预算停止）。
+    # 线程感知：worker 线程的预算时钟调用返回常量 10s（剩余 42s 允许调用），主线程按脚本序列消费
     import threading
     main_id = threading.get_ident()
     clock = iter([0.0, 10.0, 60.0, 60.0])
 
     def fake_monotonic():
-        return next(clock) if threading.get_ident() == main_id else 60.0
+        return next(clock) if threading.get_ident() == main_id else 10.0
 
     monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
 
@@ -497,12 +497,12 @@ def test_fallback_timeout_capped_by_remaining_budget(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s]；
-    # worker 线程 [预算基准 10s（deadline=10+45=55）, 主模型剩余检查 10s（剩 45→timeout 45）,
-    # 备用模型剩余检查 52s（剩 3→timeout 封顶 3）]
+    # worker 线程 [预算基准 10s（deadline=10+42=52）, 主模型剩余检查 10s（剩 42→timeout 42）,
+    # 备用模型剩余检查 49s（剩 3→timeout 封顶 3）]
     import threading
     main_id = threading.get_ident()
     main_clock = iter([0.0, 10.0])
-    worker_clock = iter([10.0, 10.0, 52.0])
+    worker_clock = iter([10.0, 10.0, 49.0])
 
     def fake_monotonic():
         return next(main_clock) if threading.get_ident() == main_id else next(worker_clock)
@@ -517,8 +517,8 @@ def test_fallback_timeout_capped_by_remaining_budget(monkeypatch):
 
     assert result["success"] is True
     assert len(recorded) == 2
-    assert recorded[0][1] == 45  # 主模型用默认 45s
-    assert recorded[1][1] == 3   # 备用模型被剩余预算（65-62）封顶到 3s
+    assert recorded[0][1] == 42  # 主模型被剩余预算（52-10）封顶到 42s
+    assert recorded[1][1] == 3   # 备用模型被剩余预算（52-49）封顶到 3s
 
 
 def test_fallback_skipped_when_budget_exhausted(monkeypatch):
@@ -533,8 +533,8 @@ def test_fallback_skipped_when_budget_exhausted(monkeypatch):
     import threading
     main_id = threading.get_ident()
     main_clock = iter([0.0, 10.0])
-    # worker：预算基准 10s（deadline=55），主模型剩余检查 10s，备用剩余检查 53s（剩 2 < 3 跳过）
-    worker_clock = iter([10.0, 10.0, 53.0])
+    # worker：预算基准 10s（deadline=52），主模型剩余检查 10s，备用剩余检查 50s（剩 2 < 3 跳过）
+    worker_clock = iter([10.0, 10.0, 50.0])
 
     def fake_monotonic():
         return next(main_clock) if threading.get_ident() == main_id else next(worker_clock)
