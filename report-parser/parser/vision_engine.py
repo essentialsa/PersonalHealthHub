@@ -79,6 +79,8 @@ PDF_RENDER_SCALE = 1.5
 MAX_PDF_PAGES = 40
 # 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页
 PARSE_DEADLINE_SEC = 55.0
+# 单次模型调用的最小剩余预算：低于该值不再发起调用（避免无意义的超时等待）
+MIN_MODEL_CALL_BUDGET_SEC = 3.0
 
 MOCK_INDICATORS = [
     {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "abnormalFlag": "", "pageIndex": 0},
@@ -328,52 +330,62 @@ class VisionEngine:
         started = time.monotonic()
         # 已覆盖区间右端：仅在 chunk 成功收集后推进，前端按区间继续下一段
         parsed_end = range_start - 1
+        pool = ThreadPoolExecutor(max_workers=4)
         try:
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = []
-                chunk_meta: List[tuple] = []
-                for idx, offset in enumerate(range(range_start, range_end + 1, chunk_size)):
-                    # 提交前预算检查：超预算停止提交剩余 chunk，本段返回已解析部分
-                    if time.monotonic() - started > PARSE_DEADLINE_SEC:
-                        skipped_pages = range_end + 1 - offset
-                        logger.warning(
-                            "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
-                            time.monotonic() - started, PARSE_DEADLINE_SEC, skipped_pages,
-                        )
-                        break
-                    # 惰性渲染：只渲染当前 chunk 的页（主线程），VLM 调用才进线程池并行
-                    if idx == 0:
-                        chunk = first_chunk
-                    else:
-                        chunk = [get_page(p) for p in range(offset, min(offset + chunk_size, range_end + 1))]
-                    futures.append(pool.submit(self._request_chunk, chunk, offset))
-                    chunk_meta.append((offset, len(chunk)))
-                last_chunk_error: Optional[VisionEngineError] = None
-                for future, (chunk_offset, chunk_len) in zip(futures, chunk_meta):
-                    try:
-                        normalized = future.result()
-                    except VisionEngineError as exc:
-                        # 单 chunk 失败降级跳过，保住其余结果（与部分成功语义一致）
-                        last_chunk_error = exc
-                        logger.warning("vision_chunk_failed error=%s", exc)
-                        continue
-                    except Exception as exc:
-                        last_chunk_error = VisionEngineError(f"报告解析失败：{exc}")
-                        logger.warning("vision_chunk_unexpected_error error=%s", exc)
-                        continue
-                    if not normalized["indicators"]:
-                        logger.warning("vision_page_empty_indicators")
-                    indicators.extend(normalized["indicators"])
-                    report_date = report_date or normalized["reportDate"]
-                    parsed_end = max(parsed_end, chunk_offset + chunk_len - 1)
-                if not indicators and futures and last_chunk_error is not None:
-                    # 所有提交过的 chunk 都失败：上抛原始可读错误，禁止静默空结果
-                    raise last_chunk_error
+            futures = []
+            chunk_meta: List[tuple] = []
+            for idx, offset in enumerate(range(range_start, range_end + 1, chunk_size)):
+                # 提交前预算检查：超预算停止提交剩余 chunk，本段返回已解析部分
+                elapsed = time.monotonic() - started
+                if elapsed > PARSE_DEADLINE_SEC:
+                    skipped_pages = range_end + 1 - offset
+                    logger.warning(
+                        "vision_parse_deadline_exceeded elapsed=%.1fs budget=%.1fs skipped_pages=%d",
+                        elapsed, PARSE_DEADLINE_SEC, skipped_pages,
+                    )
+                    break
+                # 惰性渲染：只渲染当前 chunk 的页（主线程），VLM 调用才进线程池并行
+                if idx == 0:
+                    chunk = first_chunk
+                else:
+                    chunk = [get_page(p) for p in range(offset, min(offset + chunk_size, range_end + 1))]
+                # 提交时剩余预算随 chunk 传入：worker 内主/备模型调用都被该预算封顶，
+                # 保证单段总耗时不超过 Serverless 60s 硬限（主 45s + 备 45s 的无封顶链被杜绝）
+                remaining = PARSE_DEADLINE_SEC - elapsed
+                futures.append(pool.submit(self._request_chunk, chunk, offset, remaining))
+                chunk_meta.append((offset, len(chunk)))
+            last_chunk_error: Optional[VisionEngineError] = None
+            for future, (chunk_offset, chunk_len) in zip(futures, chunk_meta):
+                try:
+                    # 固定上限略大于单 chunk 预算封顶值；worker 内已被预算约束，
+                    # 此处仅作最终保险，超时按降级跳过处理
+                    normalized = future.result(timeout=PARSE_DEADLINE_SEC + 5)
+                except VisionEngineError as exc:
+                    # 单 chunk 失败降级跳过，保住其余结果（与部分成功语义一致）
+                    last_chunk_error = exc
+                    logger.warning("vision_chunk_failed error=%s", exc)
+                    continue
+                except Exception as exc:
+                    last_chunk_error = VisionEngineError(f"报告解析失败：{exc}")
+                    logger.warning("vision_chunk_unexpected_error error=%s", exc)
+                    continue
+                if not normalized["indicators"]:
+                    logger.warning("vision_page_empty_indicators")
+                indicators.extend(normalized["indicators"])
+                report_date = report_date or normalized["reportDate"]
+                parsed_end = max(parsed_end, chunk_offset + chunk_len - 1)
+            if not indicators and futures and last_chunk_error is not None:
+                # 所有提交过的 chunk 都失败：上抛原始可读错误，禁止静默空结果
+                raise last_chunk_error
         except VisionEngineError:
             raise
         except Exception as exc:  # 防御：任何意外错误转为用户可读信息
             logger.exception("vision_parse_unexpected_error")
             raise VisionEngineError(f"报告解析失败：{exc}") from exc
+        finally:
+            # 不等待未完成的 worker 线程：预算已封顶单 chunk 耗时，
+            # 主线程收集完即返回，避免 Serverless 60s 硬限被挂起线程拖垮
+            pool.shutdown(wait=False, cancel_futures=True)
 
         deduped = self._dedupe(indicators, page_count=page_count)
         if not deduped:
@@ -392,9 +404,13 @@ class VisionEngine:
             "error": None,
         }
 
-    def _request_chunk(self, chunk: List[tuple], page_offset: int) -> Dict[str, Any]:
-        """单 chunk（多页图）请求 + 归一化；异常上抛由调用方降级处理。"""
-        payload = self._request_structured_json(chunk, page_offset=page_offset)
+    def _request_chunk(self, chunk: List[tuple], page_offset: int, budget_sec: float = PARSE_DEADLINE_SEC) -> Dict[str, Any]:
+        """单 chunk（多页图）请求 + 归一化；异常上抛由调用方降级处理。
+
+        budget_sec 为该 chunk 的剩余时间预算：主/备模型调用共享该预算，
+        杜绝「主 45s 超时 + 备 45s 超时 = 90s」超出 Serverless 60s 硬限。
+        """
+        payload = self._request_structured_json(chunk, page_offset=page_offset, budget_sec=budget_sec)
         return self._normalize_result(payload, page_count=len(chunk) + page_offset)
 
     # ------------------------------------------------------------------
@@ -421,7 +437,7 @@ class VisionEngine:
 
         return len(doc), get_page
 
-    def _request_structured_json(self, images: List[tuple], *, page_offset: int) -> Dict[str, Any]:
+    def _request_structured_json(self, images: List[tuple], *, page_offset: int, budget_sec: float = PARSE_DEADLINE_SEC) -> Dict[str, Any]:
         if not self.api_key and not self.fallback_api_key:
             raise VisionEngineError(
                 "模型服务未配置 API Key：请设置 VISION_LLM_API_KEY 环境变量后重试"
@@ -452,11 +468,22 @@ class VisionEngine:
                 "api_key": self.fallback_api_key,
             })
 
+        # 预算封顶：主/备模型调用共享 chunk 预算（deadline 绝对时刻），
+        # 杜绝「主 45s 超时 + 备 45s 超时 = 90s」超出 Serverless 60s 硬限
+        deadline = time.monotonic() + max(0.0, budget_sec)
         last_error: Optional[str] = None
         for config in model_configs:
+            remaining = deadline - time.monotonic()
+            if remaining < MIN_MODEL_CALL_BUDGET_SEC:
+                logger.warning(
+                    "vision_model_call_skipped_budget model=%s remaining=%.1fs",
+                    config["model"], remaining,
+                )
+                continue
             try:
                 return self._call_chat_completions(
                     config["model"], config["base_url"], config["api_key"], content,
+                    timeout=min(self.timeout_sec, remaining),
                 )
             except VisionEngineError as exc:
                 last_error = str(exc)
@@ -471,7 +498,8 @@ class VisionEngine:
         model: str,
         base_url: str,
         api_key: str,
-        content: List[Dict[str, Any]],
+        content: List[Any],
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         url = f"{base_url.rstrip('/')}/chat/completions"
         body: Dict[str, Any] = {
@@ -489,6 +517,7 @@ class VisionEngine:
         # 仅对 deepseek 模型加该参数，避免其他 provider 不识别报 400。
         if "deepseek" in model.lower():
             body["thinking"] = {"type": "disabled"}
+        effective_timeout = timeout if timeout is not None else self.timeout_sec
         try:
             response = httpx.post(
                 url,
@@ -497,11 +526,11 @@ class VisionEngine:
                     "Content-Type": "application/json",
                 },
                 json=body,
-                timeout=self.timeout_sec,
+                timeout=effective_timeout,
             )
         except httpx.TimeoutException as exc:
             raise VisionEngineError(
-                f"模型服务响应超时（>{self.timeout_sec}s），请稍后重试"
+                f"模型服务响应超时（>{effective_timeout:.0f}s），请稍后重试"
             ) from exc
         except httpx.HTTPError as exc:
             raise VisionEngineError("无法连接模型服务，请检查网络后重试") from exc
