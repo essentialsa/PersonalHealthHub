@@ -394,9 +394,17 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前检查 10s（放行），
-    # 第 2 个 chunk 提交前检查 60s（超 55s 预算，停止提交），60s 供日志复用
+    # 第 2 个 chunk 提交前检查 60s（超 55s 预算，停止提交），60s 供日志复用。
+    # 线程感知：worker 线程内的预算时钟调用返回常量 60s（剩余预算 45s，允许调用），
+    # 主线程按脚本序列消费，避免并行实现下迭代器耗尽
+    import threading
+    main_id = threading.get_ident()
     clock = iter([0.0, 10.0, 60.0, 60.0])
-    monkeypatch.setattr(ve.time, "monotonic", lambda: next(clock))
+
+    def fake_monotonic():
+        return next(clock) if threading.get_ident() == main_id else 60.0
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     # 6 页 = 2 个 chunk（4 页 + 2 页）：首个提交，第二个被预算拦下
@@ -440,9 +448,16 @@ def test_budget_returns_partial_with_parsed_range(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前 10s（放行），
-    # 第 2 个 chunk 提交前 60s（超 55s 预算停止）
+    # 第 2 个 chunk 提交前 60s（超 55s 预算停止）。
+    # 线程感知：worker 线程的预算时钟调用返回常量 60s，主线程按脚本序列消费
+    import threading
+    main_id = threading.get_ident()
     clock = iter([0.0, 10.0, 60.0, 60.0])
-    monkeypatch.setattr(ve.time, "monotonic", lambda: next(clock))
+
+    def fake_monotonic():
+        return next(clock) if threading.get_ident() == main_id else 60.0
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     engine._open_pdf = lambda content: (
@@ -454,6 +469,86 @@ def test_budget_returns_partial_with_parsed_range(monkeypatch):
     assert result["parsedRange"] == [0, 3]
     assert result["totalPages"] == 6
     assert result["pageCount"] == 4
+
+
+def test_fallback_timeout_capped_by_remaining_budget(monkeypatch):
+    """主模型超时后，备用模型调用的 timeout 被剩余预算封顶（杜绝 45+45=90s 链）。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "空腹血糖", "value": 5.3, "unit": "mmol/L",
+                     "referenceRange": "3.9-6.1", "pageIndex": 0},
+                ],
+            })}}]}
+
+    recorded = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        recorded.append((json["model"], timeout))
+        if len(recorded) == 1:
+            raise ve.httpx.TimeoutException("primary timeout")
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s]；
+    # worker 线程 [预算基准 10s（deadline=10+45=55）, 主模型剩余检查 10s（剩 45→timeout 45）,
+    # 备用模型剩余检查 52s（剩 3→timeout 封顶 3）]
+    import threading
+    main_id = threading.get_ident()
+    main_clock = iter([0.0, 10.0])
+    worker_clock = iter([10.0, 10.0, 52.0])
+
+    def fake_monotonic():
+        return next(main_clock) if threading.get_ident() == main_id else next(worker_clock)
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
+
+    engine = make_engine(
+        monkeypatch, VISION_LLM_API_KEY="test-key", VISION_LLM_FALLBACK_API_KEY="fb-key",
+    )
+    engine._open_pdf = lambda content: (4, lambda i: ("image/png", b"x" * 2000))
+    result = engine.parse_pdf(b"fake", "r.pdf")
+
+    assert result["success"] is True
+    assert len(recorded) == 2
+    assert recorded[0][1] == 45  # 主模型用默认 45s
+    assert recorded[1][1] == 3   # 备用模型被剩余预算（65-62）封顶到 3s
+
+
+def test_fallback_skipped_when_budget_exhausted(monkeypatch):
+    """主模型超时且剩余预算不足 3s 时，备用模型调用被跳过，chunk 降级失败而非拖死 60s。"""
+    import parser.vision_engine as ve
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        raise ve.httpx.TimeoutException("primary timeout")
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    import threading
+    main_id = threading.get_ident()
+    main_clock = iter([0.0, 10.0])
+    # worker：预算基准 10s（deadline=55），主模型剩余检查 10s，备用剩余检查 53s（剩 2 < 3 跳过）
+    worker_clock = iter([10.0, 10.0, 53.0])
+
+    def fake_monotonic():
+        return next(main_clock) if threading.get_ident() == main_id else next(worker_clock)
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
+
+    engine = make_engine(
+        monkeypatch, VISION_LLM_API_KEY="test-key", VISION_LLM_FALLBACK_API_KEY="fb-key",
+    )
+    engine._open_pdf = lambda content: (4, lambda i: ("image/png", b"x" * 2000))
+
+    import pytest
+    with pytest.raises(ve.VisionEngineError):
+        engine.parse_pdf(b"fake", "r.pdf")
 
 
 def test_page_range_slice(monkeypatch):
