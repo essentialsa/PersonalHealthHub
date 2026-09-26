@@ -219,11 +219,12 @@ const buildUserStorageKey = (baseKey: string, userId: string | null) => {
 
 /**
  * 2026-09 数据失真事故批次标识：2025-12-18 体检报告于 2026-09-26 21:06（北京时间）
- * 一次性导入的全部记录。清理只作用于该批次，不影响用户其他合法数据。
+ * 一次性导入的全部记录，以及修复验证时的重新导入批次（23:10）。
+ * 清理只作用于这两个批次，不影响用户其他合法数据。
  */
-const MISIMPORT_INCIDENT_BATCH_PREFIX = "2026-09-26T13:06:16";
+const MISIMPORT_BATCH_PREFIXES = ["2026-09-26T13:06:16", "2026-09-26T15:10:55"];
 /**
- * 事故批次中被旧版模糊匹配塌缩进「总胆固醇」项的错值（线上实测确认 7 条）：
+ * 事故批次中被旧版模糊匹配塌缩进「总胆固醇」项的错值（线上实测确认）：
  * 低密度脂蛋白胆固醇 4.01×2、非高密度脂蛋白胆固醇 4.5×2、高密度脂蛋白胆固醇 1.36×1。
  * 总胆固醇合法值 5.86×2 保留一条（批内去重）。清理后重新导入会以正确指标项入库。
  */
@@ -231,13 +232,21 @@ const MISIMPORT_COLLAPSED_CHOLESTEROL_VALUES = new Set([4.01, 4.5, 1.36]);
 
 /**
  * 一次性清理 2026-09 报告导入数据失真产生的脏数据（幂等，重复执行无副作用）：
- * 1. 全局防御：ms 单位记录（心电图间期误配）——当前库实测 0 条，仅作防线；
+ * 1. 全局防御：ms 单位记录（心电图间期误配）；
  * 2. 事故批次内：删除塌缩进「总胆固醇」的错值；
- * 3. 事故批次内：同日期+同指标+同数值只保留首条（报告多页重复导致）。
- * 批次外记录原样保留，不会误删用户日后录入的合法同值记录。
+ * 3. 事故批次内：删除误配进「心率」的血管硬度值（baPWV 1251/1285 cm/s）；
+ * 4. 事故批次内：同日期+同指标+同数值只保留首条（报告多页重复导致）；
+ * 5. 事故批次内：删除孤儿 custom_* 记录——其指标项因建库闭包 bug 被覆盖丢失，
+ *    原始标签已不可恢复（库中只剩 ID），属无法归类的死数据；
+ *    清理前已把原始记录完整备份到 *_pre_cleanup_backup key，可随时恢复。
+ * 批次外记录原样保留，不会误删用户其他合法数据。
  */
-const cleanupMisImportedRecords = (records: HealthRecord[]): { records: HealthRecord[]; changed: boolean } => {
+export const cleanupMisImportedRecords = (
+  records: HealthRecord[],
+  categories: IndicatorCategory[],
+): { records: HealthRecord[]; changed: boolean } => {
   const seen = new Set<string>();
+  const knownIndicatorIds = new Set(categories.flatMap(category => category.items.map(item => item.id)));
   const cleaned: HealthRecord[] = [];
   for (const record of records) {
     if (typeof record.unit === "string" && isTimeLikeUnit(record.unit)) {
@@ -245,12 +254,20 @@ const cleanupMisImportedRecords = (records: HealthRecord[]): { records: HealthRe
     }
     const inIncidentBatch =
       typeof record.operationAt === "string" &&
-      record.operationAt.startsWith(MISIMPORT_INCIDENT_BATCH_PREFIX);
+      MISIMPORT_BATCH_PREFIXES.some(prefix => record.operationAt!.startsWith(prefix));
     if (inIncidentBatch) {
       if (
         record.indicatorType === "cholesterol" &&
         MISIMPORT_COLLAPSED_CHOLESTEROL_VALUES.has(record.value)
       ) {
+        continue;
+      }
+      // 心率合法单位只有 bpm / 次/分；cm/s 等是 baPWV 血管硬度误配进来的
+      if (record.indicatorType === "heartRate" && typeof record.unit === "string" && record.unit.includes("cm")) {
+        continue;
+      }
+      // 孤儿 custom_* 记录：指标项未持久化成功，仅剩 ID 无法展示与归类
+      if (record.indicatorType.startsWith("custom_") && !knownIndicatorIds.has(record.indicatorType)) {
         continue;
       }
       const dupKey = `${record.date}::${record.indicatorType}::${record.value}`;
@@ -2892,6 +2909,13 @@ export default function App() {
 
   const [records, setRecords] = useState<HealthRecord[]>([]);
   const [indicatorCategories, setIndicatorCategories] = useState<IndicatorCategory[]>(DEFAULT_INDICATOR_CATEGORIES);
+  // handleEnsureCategoryItems 在同一轮导入中会被连续调用多次（建议项多个分类 + 未命名组），
+  // 直接读 indicatorCategories 闭包会拿到过期状态导致互相覆盖、只有最后一组存活；
+  // 用 ref 在每次写入时同步累积，保证连续调用之间读到最新分类树。
+  const indicatorCategoriesRef = useRef<IndicatorCategory[]>(DEFAULT_INDICATOR_CATEGORIES);
+  useEffect(() => {
+    indicatorCategoriesRef.current = indicatorCategories;
+  }, [indicatorCategories]);
   const [historyStack, setHistoryStack] = useState<HealthRecord[][]>([]);
   const [futureStack, setFutureStack] = useState<HealthRecord[][]>([]);
   const [changeLogs, setChangeLogs] = useState<RecordChangeLogEntry[]>([]);
@@ -3048,23 +3072,35 @@ export default function App() {
         setAuthConfig({});
         setIndicatorCategories(DEFAULT_INDICATOR_CATEGORIES);
 
-        // 1. Records（加载后幂等清理 2026-09 导入失真产生的 ms 误配记录与同日重复记录）
-        const recordsData = readWithFallback(STORAGE_KEY, LEGACY_STORAGE_KEY);
-        if (Array.isArray(recordsData)) {
-          const { records: cleanedRecords, changed } = cleanupMisImportedRecords(recordsData as HealthRecord[]);
-          setRecords(cleanedRecords);
-          if (changed) {
-            console.log("[数据迁移] 已清理报告导入失真产生的脏数据：", {
-              before: recordsData.length,
-              after: cleanedRecords.length,
-            });
-          }
-        }
-
-        // 2. Categories
+        // 1. Categories（先读并同步 ref，供建库能力与记录清理判断孤儿指标）
         const categoriesData = readWithFallback(INDICATOR_STORAGE_KEY, LEGACY_INDICATOR_STORAGE_KEY);
         if (Array.isArray(categoriesData) && categoriesData.length > 0) {
           setIndicatorCategories(categoriesData);
+          indicatorCategoriesRef.current = categoriesData;
+        }
+
+        // 2. Records（加载后幂等清理 2026-09 导入失真产生的脏数据；清理前备份原始数据）
+        const recordsData = readWithFallback(STORAGE_KEY, LEGACY_STORAGE_KEY);
+        if (Array.isArray(recordsData)) {
+          const cleaned = cleanupMisImportedRecords(
+            recordsData as HealthRecord[],
+            indicatorCategoriesRef.current,
+          );
+          if (cleaned.changed) {
+            // 清理前把原始记录完整备份，可随时恢复
+            const backupKey = scopedKey(`${STORAGE_KEY}_pre_cleanup_backup`);
+            if (!localStorage.getItem(backupKey)) {
+              safeSetItem(backupKey, JSON.stringify(recordsData));
+            }
+            setRecords(cleaned.records);
+            console.log("[数据迁移] 已清理报告导入失真产生的脏数据：", {
+              before: recordsData.length,
+              after: cleaned.records.length,
+              backup: backupKey,
+            });
+          } else {
+            setRecords(recordsData as HealthRecord[]);
+          }
         }
 
         // 3. Change Logs
@@ -4857,8 +4893,9 @@ export default function App() {
   /**
    * 报告导入-整组新增为分类：确保名为 groupName 的分类存在（不存在则新建），
    * 并把 items 逐个并入（label trim 相同则复用已有指标 id）。返回 label → itemId
-   * 映射，失败返回 null。setIndicatorCategories 是异步的，这里基于当前 state
-   * 本地先算出全部新 id 并一次性写回整棵树，确保返回映射与实际写入一致。
+   * 映射，失败返回 null。
+   * 基于 indicatorCategoriesRef 读当前分类树并在写回时同步更新该 ref，
+   * 保证同一轮导入中连续多次调用（多个分类/分组）不会互相覆盖。
    */
   const handleEnsureCategoryItems = (groupName: string, items: { label: string; unit: string }[]): Record<string, string> | null => {
     const trimmedGroupName = groupName.trim();
@@ -4867,7 +4904,8 @@ export default function App() {
     }
     const timestamp = Date.now();
     const newId = () => `custom_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
-    const existingCategory = indicatorCategories.find(category => category.name.trim() === trimmedGroupName);
+    const currentCategories = indicatorCategoriesRef.current;
+    const existingCategory = currentCategories.find(category => category.name.trim() === trimmedGroupName);
     const nextItems: IndicatorItem[] = [...(existingCategory?.items ?? [])];
     const labelToItemId: Record<string, string> = {};
     for (const item of items) {
@@ -4885,10 +4923,12 @@ export default function App() {
       labelToItemId[item.label] = newItem.id;
     }
     const nextCategories: IndicatorCategory[] = existingCategory
-      ? indicatorCategories.map(category =>
+      ? currentCategories.map(category =>
           category.id === existingCategory.id ? { ...category, items: nextItems } : category,
         )
-      : [...indicatorCategories, { id: newId(), name: trimmedGroupName, items: nextItems }];
+      : [...currentCategories, { id: newId(), name: trimmedGroupName, items: nextItems }];
+    // 先同步更新 ref（下一次连续调用立即可见），再提交 state
+    indicatorCategoriesRef.current = nextCategories;
     setIndicatorCategories(nextCategories);
     triggerAutoBackup("categories-updated");
     return labelToItemId;
