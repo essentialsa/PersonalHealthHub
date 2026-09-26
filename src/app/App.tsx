@@ -3322,10 +3322,20 @@ export default function App() {
   }, [attachments, supabaseEnabled, activeUserId]);
 
   const indicatorItems: IndicatorItem[] = indicatorCategories.flatMap((category) => category.items);
-  const indicatorDataCategory =
-    indicatorCategories.find(category => category.id === indicatorDataCategoryId) ??
-    indicatorCategories[0] ??
-    null;
+  const anomalyCategoryIds = useMemo(() => {
+    const ids = new Set(effectiveRecords.map(r => r.indicatorType));
+    return new Set(indicatorCategories.filter(c => c.items.some(i => ids.has(i.id))).map(c => c.id));
+  }, [effectiveRecords, indicatorCategories]);
+  const displayDataCategories = anomalyOnly
+    ? indicatorCategories.filter(c => anomalyCategoryIds.has(c.id))
+    : indicatorCategories;
+  const indicatorDataCategory = anomalyOnly
+    ? displayDataCategories.find(category => category.id === indicatorDataCategoryId) ??
+      displayDataCategories[0] ??
+      null
+    : indicatorCategories.find(category => category.id === indicatorDataCategoryId) ??
+      indicatorCategories[0] ??
+      null;
   const indicatorDataItems = indicatorDataCategory
     ? indicatorDataCategory.items.filter(item => item.enabled !== false)
     : [];
@@ -5620,7 +5630,7 @@ export default function App() {
                     <SelectValue placeholder="选择检验指标种类" />
                   </SelectTrigger>
                   <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
-                    {indicatorCategories.map((category) => (
+                    {displayDataCategories.map((category) => (
                       <SelectItem key={category.id} value={category.id}>
                         {category.name}
                       </SelectItem>

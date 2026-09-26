@@ -499,7 +499,7 @@ export const normalizeIndicatorText = (value: string): string =>
     .replace(/[·•]/g, "")
     .replace(/[\s_：:()（）[\]【】{}<>《》,，、;；/\\|+\-.]/g, "");
 
-const normalizeUnit = (value: string): string =>
+export const normalizeUnit = (value: string): string =>
   value
     .normalize("NFKC")
     .trim()
@@ -508,6 +508,52 @@ const normalizeUnit = (value: string): string =>
     .replace(/[×*]/g, "x")
     .replace(/／/g, "/")
     .replace(/\s+/g, "");
+
+/* ── 单位换算 ── */
+
+/**
+ * 常见临床单位换算规则（指标名关键词 + 单位对）。
+ * from/to 为 normalizeUnit 归一化后的单位；factor 为源单位 → 目标单位的乘数，
+ * 反向换算取其倒数。
+ */
+const UNIT_CONVERSION_RULES: { keywords: string[]; from: string; to: string; factor: number }[] = [
+  // 血糖/葡萄糖：mg/dL → mmol/L ÷18.02
+  { keywords: ["血糖", "葡萄糖", "glucose"], from: "mg/dl", to: "mmol/l", factor: 1 / 18.02 },
+  // 尿酸：mg/dL → µmol/L ×59.48
+  { keywords: ["尿酸"], from: "mg/dl", to: "umol/l", factor: 59.48 },
+  // 肌酐：mg/dL → µmol/L ×88.4
+  { keywords: ["肌酐"], from: "mg/dl", to: "umol/l", factor: 88.4 },
+  // 尿素氮/尿素：mg/dL → mmol/L ÷2.8
+  { keywords: ["尿素氮", "尿素"], from: "mg/dl", to: "mmol/l", factor: 1 / 2.8 },
+  // 胆固醇/低密度/高密度：mg/dL → mmol/L ÷38.67
+  { keywords: ["胆固醇", "低密度", "高密度", "ldl", "hdl"], from: "mg/dl", to: "mmol/l", factor: 1 / 38.67 },
+  // 甘油三酯：mg/dL → mmol/L ÷88.57
+  { keywords: ["甘油三酯"], from: "mg/dl", to: "mmol/l", factor: 1 / 88.57 },
+  // 胆红素：mg/dL → µmol/L ×17.1
+  { keywords: ["胆红素"], from: "mg/dl", to: "umol/l", factor: 17.1 },
+];
+
+/** 常见临床单位换算系数（目标单位 ← 源单位）；无已知系数返回 null（不换算，避免错换） */
+export function convertUnitValue(value: number, fromUnit: string, toUnit: string, label: string): number | null {
+  const from = normalizeUnit(fromUnit);
+  const to = normalizeUnit(toUnit);
+  if (!from || !to || from === to) {
+    return null;
+  }
+  const normalizedLabel = normalizeIndicatorText(label);
+  for (const rule of UNIT_CONVERSION_RULES) {
+    if (!rule.keywords.some(keyword => normalizedLabel.includes(keyword))) {
+      continue;
+    }
+    if (from === rule.from && to === rule.to) {
+      return value * rule.factor;
+    }
+    if (from === rule.to && to === rule.from) {
+      return value / rule.factor;
+    }
+  }
+  return null;
+}
 
 const collectIndicatorTokens = (...values: Array<string | undefined>): string[] => {
   const tokens = new Set<string>();

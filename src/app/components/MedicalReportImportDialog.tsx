@@ -24,6 +24,8 @@ import {
   groupUnnamedClusters,
   matchUnnamedLabels,
   normalizeIndicatorText,
+  normalizeUnit,
+  convertUnitValue,
   type ParseResult,
   type ParserServiceStatus,
   type ResolvedIndicator,
@@ -188,6 +190,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [retainReport, setRetainReport] = useState(true);
   // 用户勾选强制导入的"疑似重复"记录键（同日期+同指标+同数值）
   const [forcedDuplicates, setForcedDuplicates] = useState<Set<string>>(new Set());
+  // 用户勾选排除的建议项（matched 中的 index）；未勾选的建议项默认随确认导入
+  const [excludedSuggested, setExcludedSuggested] = useState<Set<number>>(new Set());
   const serviceOnline = serviceStatus?.online ?? null;
 
   // 解析原始提取结果：未命名指标改名后整表重跑 resolveIndicators 用
@@ -333,6 +337,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       setAiCategories({});
       setAiCategoryMissed(false);
       setForcedDuplicates(new Set());
+      setExcludedSuggested(new Set());
       aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
 
@@ -350,6 +355,35 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     }
   };
 
+  /**
+   * 已维护指标的单位换算：报告单位与维护单位归一化不同时，按常见临床系数换算
+   * （无已知系数则保持原值原单位，避免错换）。
+   */
+  const toImportableRecord = (m: ResolvedIndicator, date: string, indicatorType: string): HealthRecord => {
+    let value = m.value;
+    let unit = m.unit;
+    const maintainedItem = existingCategories
+      .flatMap(c => c.items)
+      .find(item => item.id === m.userItemId);
+    const maintainedUnit = maintainedItem?.unit?.trim() || "";
+    if (maintainedUnit && normalizeUnit(maintainedUnit) !== normalizeUnit(m.unit)) {
+      const converted = convertUnitValue(m.value, m.unit, maintainedUnit, m.rawLabel);
+      if (converted !== null) {
+        value = Math.round(converted * 100) / 100;
+        unit = maintainedUnit;
+      }
+    }
+    return {
+      id: `${Date.now()}_${indicatorType}_${Math.random().toString(36).slice(2, 8)}`,
+      date,
+      indicatorType,
+      value,
+      unit,
+      abnormalFlag: m.abnormalFlag === "H" || m.abnormalFlag === "L" ? m.abnormalFlag : undefined,
+      operationAt: new Date().toISOString(),
+    };
+  };
+
   const handleImport = () => {
     if (!result) return;
     const date = result.reportDate || new Date().toISOString().split("T")[0];
@@ -360,15 +394,60 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         const dupKey = recordDuplicateKey({ date, indicatorType: (m.userItemId || m.systemId)!, value: m.value });
         return !existingDuplicateKeys.has(dupKey) || forcedDuplicates.has(dupKey);
       })
-      .map(m => ({
-        id: `${Date.now()}_${m.userItemId || m.systemId}_${Math.random().toString(36).slice(2, 8)}`,
-        date,
-        indicatorType: (m.userItemId || m.systemId)!,
-        value: m.value,
-        unit: m.unit,
-        abnormalFlag: m.abnormalFlag === "H" || m.abnormalFlag === "L" ? m.abnormalFlag : undefined,
-        operationAt: new Date().toISOString(),
-      }));
+      .map(m => toImportableRecord(m, date, (m.userItemId || m.systemId)!));
+
+    // 建议项默认随确认导入：先确保分类与指标项存在，再按映射 id 生成记录
+    const includedSuggested = matched
+      .map((m, index) => ({ m, index }))
+      .filter(({ m, index }) => (m.action === "create_item" || m.action === "create_category") && !excludedSuggested.has(index));
+    if (includedSuggested.length > 0) {
+      if (!onEnsureCategoryItems) {
+        window.alert("未配置指标库维护能力，建议项本次不会导入。");
+      } else {
+        const categoryNameById = new Map(getCategoriesToCreate(matched).map(c => [c.categoryId, c.categoryName] as const));
+        const groups = new Map<string, ResolvedIndicator[]>();
+        for (const { m } of includedSuggested) {
+          let categoryName = "";
+          if (m.action === "create_item") {
+            categoryName =
+              existingCategories.find(c => c.id === m.categoryId)?.name || m.systemLabel || "报告导入";
+          } else {
+            categoryName =
+              (m.categoryId ? categoryNameById.get(m.categoryId) : undefined) || m.systemLabel || "报告导入";
+          }
+          if (!groups.has(categoryName)) {
+            groups.set(categoryName, []);
+          }
+          groups.get(categoryName)!.push(m);
+        }
+        const failedGroups: string[] = [];
+        for (const [categoryName, groupItems] of groups) {
+          const itemDefs = groupItems.map(g => ({ label: g.systemLabel || g.rawLabel, unit: g.unit }));
+          let labelToItemId: Record<string, string> | null = null;
+          try {
+            labelToItemId = onEnsureCategoryItems(categoryName, itemDefs);
+          } catch (error) {
+            console.error("[报告导入] 建立分类或指标项失败", error);
+          }
+          if (!labelToItemId) {
+            failedGroups.push(categoryName);
+            continue;
+          }
+          for (const g of groupItems) {
+            const label = g.systemLabel || g.rawLabel;
+            const itemId = labelToItemId[label];
+            if (!itemId) {
+              continue;
+            }
+            // 新建指标项的单位即报告单位，无需换算
+            records.push(toImportableRecord(g, date, itemId));
+          }
+        }
+        if (failedGroups.length > 0) {
+          window.alert(`以下分类创建失败，已跳过对应建议项：${failedGroups.join("、")}`);
+        }
+      }
+    }
 
     // 保留原始报告作为附件
     if (retainReport && file) {
@@ -439,6 +518,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setServiceChecking(false);
     setRetainReport(true);
     setForcedDuplicates(new Set());
+    setExcludedSuggested(new Set());
     setImportingGroupKey(null);
     setAiCategoryMissed(false);
   };
@@ -512,15 +592,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           skippedCount += 1;
           continue;
         }
-        records.push({
-          id: `${Date.now()}_${itemId}_${Math.random().toString(36).slice(2, 8)}`,
-          date,
-          indicatorType: itemId,
-          value: item.value,
-          unit: item.unit,
-          abnormalFlag: item.abnormalFlag === "H" || item.abnormalFlag === "L" ? item.abnormalFlag : undefined,
-          operationAt: new Date().toISOString(),
-        });
+        records.push(toImportableRecord(item, date, itemId));
       }
     }
     if (skippedCount > 0) {
@@ -558,6 +630,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
   }).length;
   const suggestedCount = groupedCounts.createCategory.length + groupedCounts.createItem.length;
+  const suggestedImportCount = matched.filter(
+    (m, index) => (m.action === "create_item" || m.action === "create_category") && !excludedSuggested.has(index),
+  ).length;
   const abnormalCount = matched.filter(m => m.abnormalFlag === "H" || m.abnormalFlag === "L").length;
 
   const confColor: Record<string, "default" | "secondary" | "destructive"> = { high: "default", medium: "secondary", low: "destructive" };
@@ -689,7 +764,10 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                 <p className="text-xs text-muted-foreground">
                   首次使用需要唤醒云端 OCR 服务，多页或高清报告可能需要 1-3 分钟。
                 </p>
-                <Progress value={progress} />
+                <div className="flex items-center gap-2">
+                  <Progress value={progress} className="flex-1" />
+                  <span className="text-xs text-muted-foreground shrink-0">{Math.round(progress)}%</span>
+                </div>
               </div>
             )}
 
@@ -778,20 +856,41 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   <div className="mt-4 border rounded-lg p-4 bg-blue-50/50">
                     <div className="flex items-center gap-2 mb-3">
                       <AlertCircle className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-medium text-blue-800">建议维护到指标库（{suggestedCount} 项）</h4>
+                      <h4 className="font-medium text-blue-800">将随确认导入（{suggestedImportCount} 项，勾选排除的不导入）</h4>
                     </div>
                     <div className="space-y-2 text-sm text-blue-900">
-                      {[...groupedCounts.createItem, ...groupedCounts.createCategory].map((m, i) => (
-                        <div key={`suggestion-${i}`} className="rounded-md bg-white px-3 py-2">
-                          {m.rawLabel} → {m.systemLabel || "待确认"}
-                          <span className="ml-2 text-xs text-blue-500">
-                            {m.action === "create_item" ? "已有分类，建议新增指标" : "建议新增分类"}
-                          </span>
-                        </div>
-                      ))}
+                      {matched.map((m, index) => ({ m, index }))
+                        .filter(({ m }) => m.action === "create_item" || m.action === "create_category")
+                        .map(({ m, index }) => (
+                          <div key={`suggestion-${index}`} className="rounded-md bg-white px-3 py-2 flex items-center gap-2">
+                            <span>
+                              {m.rawLabel} → {m.systemLabel || "待确认"}
+                              <span className="ml-2 text-xs text-blue-500">
+                                {m.action === "create_item" ? "已有分类，建议新增指标" : "建议新增分类"}
+                              </span>
+                            </span>
+                            <label className="ml-auto flex items-center gap-1.5 text-xs text-blue-700 shrink-0">
+                              <Checkbox
+                                checked={excludedSuggested.has(index)}
+                                onCheckedChange={checked => {
+                                  setExcludedSuggested(prev => {
+                                    const next = new Set(prev);
+                                    if (checked) {
+                                      next.add(index);
+                                    } else {
+                                      next.delete(index);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              />
+                              排除
+                            </label>
+                          </div>
+                        ))}
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      这些项目未命中用户维护的指标项，本次不会直接导入；请先在“检验指标维护”中确认后再导入。
+                      以下项目默认随「确认导入」一并创建分类/指标并导入；如需跳过请勾选排除。
                     </p>
                   </div>
                 )}
@@ -892,11 +991,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   </Button>
                   <Button
                     onClick={handleImport}
-                    disabled={importableCount === 0}
+                    disabled={importableCount === 0 && suggestedImportCount === 0}
                     className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white shadow-lg shadow-violet-200"
                   >
                     <CheckCircle className="w-4 h-4 mr-1" />
-                    确认导入 ({importableCount} 条)
+                    确认导入 ({importableCount + suggestedImportCount} 条)
                   </Button>
                 </div>
               </>
