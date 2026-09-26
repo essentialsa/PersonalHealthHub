@@ -18,6 +18,10 @@
       "destination": "/api/report-parser.py"
     },
     {
+      "source": "/api/health",
+      "destination": "/api/report-parser.py"
+    },
+    {
       "source": "/api/ocr-readyz",
       "destination": "/api/report-parser.py"
     },
