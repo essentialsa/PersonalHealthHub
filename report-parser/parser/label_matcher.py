@@ -105,6 +105,9 @@ def match_labels(
         ],
         "response_format": {"type": "json_object"},
     }
+    # DeepSeek V4 思考模式默认开启，纯文本对齐任务关闭思考更快更稳
+    if "deepseek" in status["model"].lower():
+        body["thinking"] = {"type": "disabled"}
 
     try:
         response = httpx.post(
