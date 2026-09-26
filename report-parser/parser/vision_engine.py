@@ -77,8 +77,9 @@ MAX_IMAGES_PER_REQUEST = 4
 PDF_RENDER_SCALE = 1.5
 # PDF 最大处理页数（防止异常大文件拖垮请求）
 MAX_PDF_PAGES = 40
-# 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页
-PARSE_DEADLINE_SEC = 55.0
+# 单次解析的软性总预算：Vercel Serverless maxDuration=60s，超时前主动放弃剩余页。
+# 52s = 60s 硬限 - 冷启动/PDF 渲染等预算外开销余量；计时从 parse_pdf 入口开始。
+PARSE_DEADLINE_SEC = 52.0
 # 单次模型调用的最小剩余预算：低于该值不再发起调用（避免无意义的超时等待）
 MIN_MODEL_CALL_BUDGET_SEC = 3.0
 
@@ -278,6 +279,9 @@ class VisionEngine:
 
     def parse_pdf(self, content: bytes, filename: str, page_range: Optional[str] = None) -> Dict[str, Any]:
         """入口：接收 PDF 或图片字节，返回与原解析引擎相同结构的结果。"""
+        # 预算计时从入口开始：冷启动后的 PDF 渲染、模型调用全部计入预算，
+        # 保证单段总耗时不超过 Serverless 60s 硬限
+        parse_started = time.monotonic()
         if self.use_mock:
             return self._mock_result(filename)
 
@@ -327,7 +331,6 @@ class VisionEngine:
         indicators: List[Dict[str, Any]] = []
         report_date = ""
         skipped_pages = 0
-        started = time.monotonic()
         # 已覆盖区间右端：仅在 chunk 成功收集后推进，前端按区间继续下一段
         parsed_end = range_start - 1
         pool = ThreadPoolExecutor(max_workers=4)
@@ -336,7 +339,7 @@ class VisionEngine:
             chunk_meta: List[tuple] = []
             for idx, offset in enumerate(range(range_start, range_end + 1, chunk_size)):
                 # 提交前预算检查：超预算停止提交剩余 chunk，本段返回已解析部分
-                elapsed = time.monotonic() - started
+                elapsed = time.monotonic() - parse_started
                 if elapsed > PARSE_DEADLINE_SEC:
                     skipped_pages = range_end + 1 - offset
                     logger.warning(
