@@ -845,8 +845,14 @@ describe("MedicalReportImportDialog E2E", () => {
     await openAndParseReport();
     await waitFor(() => expect(screen.getByText(/将随确认导入（1 项，勾选排除的不导入）/)).toBeInTheDocument(), { timeout: 5000 });
 
-    // 建议区块的「排除」勾选框（位于保留附件勾选框之前）
-    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    // 建议区块的「排除」勾选框：表格中 action='import' 行各自有「排除」勾选框，
+    // 建议项勾选框位于其后、保留附件勾选框之前
+    const suggestionCheckboxes = screen.getAllByRole("checkbox").filter(
+      cb => cb.closest("label")?.textContent?.includes("排除"),
+    );
+    // 两个勾选框：行级排除（收缩压）与建议项排除（血尿酸），取后者
+    expect(suggestionCheckboxes).toHaveLength(2);
+    fireEvent.click(suggestionCheckboxes[1]);
     await waitFor(() => expect(screen.getByText(/将随确认导入（0 项，勾选排除的不导入）/)).toBeInTheDocument());
 
     fireEvent.click(screen.getByText(/确认导入 \(1 条\)/));
@@ -855,5 +861,106 @@ describe("MedicalReportImportDialog E2E", () => {
     expect(recordsAfterExclude).toHaveLength(1);
     expect(recordsAfterExclude[0].indicatorType).toBe("bp_item");
     expect(onEnsureCategoryItems).not.toHaveBeenCalled();
+  });
+
+  it("已匹配指标默认随确认导入，勾选「排除」后不导入", async () => {
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    // 默认计数为两条已匹配指标
+    await waitFor(() => expect(screen.getByText(/确认导入 \(2 条\)/)).toBeInTheDocument(), { timeout: 5000 });
+
+    // 勾选收缩压行的「排除」（首个行级排除勾选框，「仍导入」仅疑似重复行出现）
+    const rowExcludeCheckboxes = screen.getAllByRole("checkbox").filter(
+      cb => cb.closest("label")?.textContent === "排除",
+    );
+    expect(rowExcludeCheckboxes).toHaveLength(2);
+    fireEvent.click(rowExcludeCheckboxes[0]);
+
+    // 确认按钮计数随之减少；确认后 → 被排除的收缩压不导入
+    fireEvent.click(screen.getByText(/确认导入 \(1 条\)/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    expect(records).toHaveLength(1);
+    expect(records[0].indicatorType).toBe("blood_glucose");
+  });
+
+  it("未命名具名组默认随确认导入，取消勾选后不导入", async () => {
+    const actual = getActualModule();
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      indicators: [
+        { rawLabel: "鸟嘌呤脱氨酶", value: 3, unit: "U/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+        { rawLabel: "甘胆酸", value: 2.1, unit: "mg/L", referenceRange: "", pageIndex: 0, reportCategory: "肝功能" },
+      ],
+    });
+    vi.mocked(medicalReport.resolveIndicators).mockImplementation(actual.resolveIndicators);
+    vi.mocked(medicalReport.clusterUnnamedIndicators).mockImplementation(actual.clusterUnnamedIndicators);
+    vi.mocked(medicalReport.groupByAction).mockImplementation(actual.groupByAction);
+    vi.mocked(medicalReport.getCategoriesToCreate).mockImplementation(actual.getCategoriesToCreate);
+    vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+
+    const onEnsureCategoryItems = vi.fn().mockReturnValue({
+      "鸟嘌呤脱氨酶": "new_item_1",
+      "甘胆酸": "new_item_2",
+    });
+
+    try {
+      render(
+        <MedicalReportImportDialog
+          onImportRecords={mockImportRecords}
+          onEnsureCategoryItems={onEnsureCategoryItems}
+        />,
+      );
+      await openAndParseReport();
+
+      // 组头出现默认勾选的「随确认导入」，确认按钮计入组内记录数
+      await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
+      const groupCheckbox = screen.getAllByRole("checkbox").find(
+        cb => cb.closest("label")?.textContent === "随确认导入",
+      ) as HTMLButtonElement;
+      expect(groupCheckbox).toBeDefined();
+      expect(groupCheckbox.getAttribute("data-state")).toBe("checked");
+      expect(screen.getByText(/确认导入 \(2 条\)/)).toBeInTheDocument();
+
+      // 不点「整组新增为分类」，直接确认 → 建库并导入组内记录
+      fireEvent.click(screen.getByText(/确认导入 \(2 条\)/));
+
+      await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
+      expect(onEnsureCategoryItems).toHaveBeenCalledWith("肝功能", [
+        { label: "鸟嘌呤脱氨酶", unit: "U/L" },
+        { label: "甘胆酸", unit: "mg/L" },
+      ]);
+      await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+      const records = mockImportRecords.mock.calls[0][0];
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({ indicatorType: "new_item_1", value: 3, unit: "U/L", date: "2024-01-15" });
+      expect(records[1]).toMatchObject({ indicatorType: "new_item_2", value: 2.1, unit: "mg/L", date: "2024-01-15" });
+      mockImportRecords.mockClear();
+      onEnsureCategoryItems.mockClear();
+
+      // 重新打开并解析（导入成功后对话框已关闭且状态重置）
+      await openAndParseReport();
+      await waitFor(() => expect(screen.getByText("肝功能")).toBeInTheDocument(), { timeout: 5000 });
+
+      // 取消该组「随确认导入」勾选 → 计数归零且确认禁用
+      const groupCheckboxAgain = screen.getAllByRole("checkbox").find(
+        cb => cb.closest("label")?.textContent === "随确认导入",
+      ) as HTMLButtonElement;
+      fireEvent.click(groupCheckboxAgain);
+      const confirmButton = screen.getByText(/确认导入 \(0 条\)/).closest("button") as HTMLButtonElement;
+      expect(confirmButton.disabled).toBe(true);
+
+      // 强制点击也不会触发导入与建库
+      fireEvent.click(confirmButton);
+      expect(mockImportRecords).not.toHaveBeenCalled();
+      expect(onEnsureCategoryItems).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(medicalReport.resolveIndicators).mockReturnValue(mockMatched);
+      vi.mocked(medicalReport.clusterUnnamedIndicators).mockReturnValue([]);
+      vi.mocked(medicalReport.groupByAction).mockReturnValue(mockGrouped);
+      vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
+      vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
+    }
   });
 });

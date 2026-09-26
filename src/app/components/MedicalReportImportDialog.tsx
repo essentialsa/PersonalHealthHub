@@ -192,6 +192,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [forcedDuplicates, setForcedDuplicates] = useState<Set<string>>(new Set());
   // 用户勾选排除的建议项（matched 中的 index）；未勾选的建议项默认随确认导入
   const [excludedSuggested, setExcludedSuggested] = useState<Set<number>>(new Set());
+  // 用户勾选排除的已匹配指标（matched 中的 index）；未勾选的已匹配指标默认导入
+  const [excludedImports, setExcludedImports] = useState<Set<number>>(new Set());
   const serviceOnline = serviceStatus?.online ?? null;
 
   // 解析原始提取结果：未命名指标改名后整表重跑 resolveIndicators 用
@@ -221,6 +223,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const aiRequestedRef = useRef("");
   // 正在执行「整组新增为分类」交互的组（`${source}::${name}`）
   const [importingGroupKey, setImportingGroupKey] = useState<string | null>(null);
+  // 用户取消勾选「随确认导入」的未命名具名组（`${source}::${name}`）；具名组默认随确认导入
+  const [excludedGroups, setExcludedGroups] = useState<Set<string>>(new Set());
 
   const unnamedClusters = useMemo(
     () => clusterUnnamedIndicators(matched.filter(m => m.matchType === "none")),
@@ -232,6 +236,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     () => groupUnnamedClusters(unnamedClusters, aiCategories),
     [unnamedClusters, aiCategories],
   );
+
+  // 组键：`${source}::${name}`（excludedGroups / importingGroupKey 共用）
+  const groupKeyOf = (group: UnnamedGroup) => `${group.source}::${group.name}`;
 
   useEffect(() => {
     if (unnamedClusters.length === 0) {
@@ -338,6 +345,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       setAiCategoryMissed(false);
       setForcedDuplicates(new Set());
       setExcludedSuggested(new Set());
+      setExcludedImports(new Set());
+      setExcludedGroups(new Set());
+      setImportingGroupKey(null);
       aiRequestedRef.current = "";
       setPendingCategories(getCategoriesToCreate(resolved));
 
@@ -384,17 +394,73 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     };
   };
 
+  /**
+   * 构造未命名组的导入记录：每簇以 canonicalLabel 作为指标名、首条 unit 建库
+   * （归一化同名合并），簇内每条记录各自成 HealthRecord，疑似重复默认跳过。
+   * onEnsureCategoryItems 返回 null（建库失败）时返回 null。
+   */
+  const buildGroupRecords = (group: UnnamedGroup, groupName: string, date: string): HealthRecord[] | null => {
+    if (!onEnsureCategoryItems) {
+      return null;
+    }
+    // 1. 收集指标定义：每簇一条，canonicalLabel 归一化相同则合并
+    const defByKey = new Map<string, { label: string; unit: string }>();
+    const itemDefs: { label: string; unit: string }[] = [];
+    for (const cluster of group.clusters) {
+      const key = normalizeIndicatorText(cluster.canonicalLabel);
+      if (defByKey.has(key)) {
+        continue;
+      }
+      const def = { label: cluster.canonicalLabel, unit: cluster.items[0]?.unit || "" };
+      defByKey.set(key, def);
+      itemDefs.push(def);
+    }
+    // 2. 确保分类与指标项存在，拿 label → itemId 映射（null 表示失败）
+    let labelToItemId: Record<string, string> | null = null;
+    try {
+      labelToItemId = onEnsureCategoryItems(groupName, itemDefs);
+    } catch (error) {
+      console.error("[报告导入] 建立分类或指标项失败", error);
+    }
+    if (!labelToItemId) {
+      return null;
+    }
+    // 3. 簇内每条记录各自成记录；同日期+同指标+同数值的疑似重复默认跳过
+    const records: HealthRecord[] = [];
+    for (const cluster of group.clusters) {
+      const def = defByKey.get(normalizeIndicatorText(cluster.canonicalLabel));
+      const itemId = def ? labelToItemId[def.label] : undefined;
+      if (!itemId) {
+        continue;
+      }
+      for (const item of cluster.items) {
+        const dupKey = recordDuplicateKey({ date, indicatorType: itemId, value: item.value });
+        if (existingDuplicateKeys.has(dupKey) && !forcedDuplicates.has(dupKey)) {
+          continue;
+        }
+        records.push(toImportableRecord(item, date, itemId));
+      }
+    }
+    return records;
+  };
+
   const handleImport = () => {
     if (!result) return;
     const date = result.reportDate || new Date().toISOString().split("T")[0];
+    // 本次将随确认导入的未命名具名组（报告分组 / AI 建议；未配置建库能力时不导入）
+    const includedGroups = onEnsureCategoryItems
+      ? unnamedGroups.filter(group => group.source !== "none" && !excludedGroups.has(groupKeyOf(group)))
+      : [];
     let records: HealthRecord[] = matched
-      .filter(m => {
+      .map((m, index) => ({ m, index }))
+      .filter(({ m, index }) => {
         if (m.action !== "import" || !(m.userItemId || m.systemId)) return false;
+        if (excludedImports.has(index)) return false;
         // 疑似重复（同日期+同指标+同数值）默认跳过，用户勾选后方可强制导入
         const dupKey = recordDuplicateKey({ date, indicatorType: (m.userItemId || m.systemId)!, value: m.value });
         return !existingDuplicateKeys.has(dupKey) || forcedDuplicates.has(dupKey);
       })
-      .map(m => toImportableRecord(m, date, (m.userItemId || m.systemId)!));
+      .map(({ m }) => toImportableRecord(m, date, (m.userItemId || m.systemId)!));
 
     // 建议项默认随确认导入：先确保分类与指标项存在，再按映射 id 生成记录
     const includedSuggested = matched
@@ -447,6 +513,30 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           window.alert(`以下分类创建失败，已跳过对应建议项：${failedGroups.join("、")}`);
         }
       }
+    }
+
+    // 未命名具名组（报告分组 / AI 建议）默认随确认导入：建库后按组导入记录；
+    // 建库失败的组汇总提示（一次列出全部失败组名）
+    const importedGroupItems: ResolvedIndicator[] = [];
+    if (includedGroups.length > 0) {
+      const failedImportGroups: string[] = [];
+      for (const group of includedGroups) {
+        const groupRecords = buildGroupRecords(group, group.name, date);
+        if (groupRecords === null) {
+          failedImportGroups.push(group.name);
+          continue;
+        }
+        records.push(...groupRecords);
+        importedGroupItems.push(...group.clusters.flatMap(cluster => cluster.items));
+      }
+      if (failedImportGroups.length > 0) {
+        window.alert(`以下分组导入失败，已跳过：${failedImportGroups.join("、")}`);
+      }
+    }
+    // 已随确认导入的组条目从预览中移除（与整组导入后的移除逻辑一致）
+    if (importedGroupItems.length > 0) {
+      const removedItems = new Set(importedGroupItems);
+      setMatched(prev => prev.filter(m => !removedItems.has(m)));
     }
 
     // 保留原始报告作为附件
@@ -519,6 +609,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setRetainReport(true);
     setForcedDuplicates(new Set());
     setExcludedSuggested(new Set());
+    setExcludedImports(new Set());
+    setExcludedGroups(new Set());
     setImportingGroupKey(null);
     setAiCategoryMissed(false);
   };
@@ -545,61 +637,25 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   };
 
   /**
-   * 整组新增为分类：把组内全部簇作为新分类（或并入同名分类）一次性导入。
-   * 每簇以 canonicalLabel 作为指标名、首条 unit 作为单位建库（归一化同名合并）；
-   * 簇内每条记录各自生成 HealthRecord，疑似重复默认跳过。
+   * 整组新增为分类：把组内全部簇作为新分类（或并入同名分类）一次性导入；
+   * 组内条目导入后从未命名区移除（unnamedClusters 由 matched 派生，分组随之消失）。
    */
   const handleImportGroup = (group: UnnamedGroup, groupName: string) => {
     if (!onEnsureCategoryItems) {
       return;
     }
-    // 1. 收集指标定义：每簇一条，canonicalLabel 归一化相同则合并
-    const defByKey = new Map<string, { label: string; unit: string }>();
-    const itemDefs: { label: string; unit: string }[] = [];
-    for (const cluster of group.clusters) {
-      const key = normalizeIndicatorText(cluster.canonicalLabel);
-      if (defByKey.has(key)) {
-        continue;
-      }
-      const def = { label: cluster.canonicalLabel, unit: cluster.items[0]?.unit || "" };
-      defByKey.set(key, def);
-      itemDefs.push(def);
-    }
-    // 2. 确保分类与指标项存在，拿 label → itemId 映射（null 表示失败）
-    let labelToItemId: Record<string, string> | null = null;
-    try {
-      labelToItemId = onEnsureCategoryItems(groupName, itemDefs);
-    } catch (error) {
-      console.error("[报告导入] 建立分类或指标项失败", error);
-    }
-    if (!labelToItemId) {
+    const date = result?.reportDate || new Date().toISOString().split("T")[0];
+    const prevMatchedCount = group.clusters.reduce((sum, cluster) => sum + cluster.items.length, 0);
+    const records = buildGroupRecords(group, groupName, date);
+    if (records === null) {
       window.alert("导入失败：无法创建分类或指标项，请稍后重试。");
       return;
     }
-    // 3. 簇内每条记录各自成记录；同日期+同指标+同数值的疑似重复默认跳过
-    const date = result?.reportDate || new Date().toISOString().split("T")[0];
-    const records: HealthRecord[] = [];
-    let skippedCount = 0;
-    for (const cluster of group.clusters) {
-      const def = defByKey.get(normalizeIndicatorText(cluster.canonicalLabel));
-      const itemId = def ? labelToItemId[def.label] : undefined;
-      if (!itemId) {
-        continue;
-      }
-      for (const item of cluster.items) {
-        const dupKey = recordDuplicateKey({ date, indicatorType: itemId, value: item.value });
-        if (existingDuplicateKeys.has(dupKey) && !forcedDuplicates.has(dupKey)) {
-          skippedCount += 1;
-          continue;
-        }
-        records.push(toImportableRecord(item, date, itemId));
-      }
-    }
+    const skippedCount = prevMatchedCount - records.length;
     if (skippedCount > 0) {
       window.alert(`已导入 ${records.length} 条，跳过 ${skippedCount} 条疑似重复记录`);
     }
     onImportRecords(records);
-    // 4. 组内条目从未命名区移除（unnamedClusters 由 matched 派生，分组随之消失）
     const groupItems = group.clusters.flatMap(cluster => cluster.items);
     setMatched(prev => prev.filter(m => !groupItems.includes(m)));
     setImportingGroupKey(null);
@@ -627,12 +683,20 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   }).length;
   const importableCount = groupedCounts.import.filter(m => {
     const key = duplicateKeyOf(m);
+    const idx = matched.indexOf(m);
+    if (idx >= 0 && excludedImports.has(idx)) return false;
     return key === null || !existingDuplicateKeys.has(key) || forcedDuplicates.has(key);
   }).length;
   const suggestedCount = groupedCounts.createCategory.length + groupedCounts.createItem.length;
   const suggestedImportCount = matched.filter(
     (m, index) => (m.action === "create_item" || m.action === "create_category") && !excludedSuggested.has(index),
   ).length;
+  // 未命名具名组默认随确认导入的记录数（按簇内条数计）
+  const groupImportCount = onEnsureCategoryItems
+    ? unnamedGroups
+        .filter(group => group.source !== "none" && !excludedGroups.has(groupKeyOf(group)))
+        .reduce((sum, group) => sum + group.clusters.reduce((s, cluster) => s + cluster.items.length, 0), 0)
+    : 0;
   const abnormalCount = matched.filter(m => m.abnormalFlag === "H" || m.abnormalFlag === "L").length;
 
   const confColor: Record<string, "default" | "secondary" | "destructive"> = { high: "default", medium: "secondary", low: "destructive" };
@@ -802,6 +866,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       const dupKey = duplicateKeyOf(m);
                       const isDuplicate = m.action === "import" && dupKey !== null && existingDuplicateKeys.has(dupKey);
                       const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
+                      const matchedIndex = matched.indexOf(m);
+                      const isExcluded = m.action === "import" && matchedIndex >= 0 && excludedImports.has(matchedIndex);
                       return (
                       <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : (m.abnormalFlag === "H" || m.abnormalFlag === "L") ? "bg-red-50/40" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
                         <TableCell className="font-medium min-w-[7rem] break-words">{m.rawLabel}</TableCell>
@@ -835,6 +901,27 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                   }}
                                 />
                                 仍导入
+                              </label>
+                            </div>
+                          )}
+                          {m.action === "import" && matchedIndex >= 0 && (
+                            <div className="mt-1 flex items-center gap-1">
+                              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                <Checkbox
+                                  checked={isExcluded}
+                                  onCheckedChange={checked => {
+                                    setExcludedImports(prev => {
+                                      const next = new Set(prev);
+                                      if (checked) {
+                                        next.add(matchedIndex);
+                                      } else {
+                                        next.delete(matchedIndex);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                排除
                               </label>
                             </div>
                           )}
@@ -907,6 +994,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                         const groupKey = `${group.source}::${group.name}`;
                         const canImportGroup = Boolean(onEnsureCategoryItems);
                         const importing = canImportGroup && importingGroupKey === groupKey;
+                        const includedInImport = group.source !== "none" && !excludedGroups.has(groupKey);
                         return (
                           <div key={groupKey} className="rounded-lg border border-amber-200 bg-white/70 p-3">
                             <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2">
@@ -915,11 +1003,30 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                 {GROUP_SOURCE_LABEL[group.source]}
                               </Badge>
                               <span className="text-[11px] text-muted-foreground">{group.clusters.length} 簇</span>
+                              {canImportGroup && group.source !== "none" && (
+                                <label className="ml-auto flex items-center gap-1.5 text-xs text-amber-700 shrink-0">
+                                  <Checkbox
+                                    checked={includedInImport}
+                                    onCheckedChange={checked => {
+                                      setExcludedGroups(prev => {
+                                        const next = new Set(prev);
+                                        if (checked) {
+                                          next.delete(groupKey);
+                                        } else {
+                                          next.add(groupKey);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                  随确认导入
+                                </label>
+                              )}
                               {canImportGroup && !importing && (
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="ml-auto h-7 border-amber-300 text-xs text-amber-700 shrink-0"
+                                  className={cn("h-7 border-amber-300 text-xs text-amber-700 shrink-0", group.source === "none" && "ml-auto")}
                                   onClick={() => setImportingGroupKey(groupKey)}
                                 >
                                   整组新增为分类
@@ -991,11 +1098,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   </Button>
                   <Button
                     onClick={handleImport}
-                    disabled={importableCount === 0 && suggestedImportCount === 0}
+                    disabled={importableCount === 0 && suggestedImportCount === 0 && groupImportCount === 0}
                     className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white shadow-lg shadow-violet-200"
                   >
                     <CheckCircle className="w-4 h-4 mr-1" />
-                    确认导入 ({importableCount + suggestedImportCount} 条)
+                    确认导入 ({importableCount + suggestedImportCount + groupImportCount} 条)
                   </Button>
                 </div>
               </>
