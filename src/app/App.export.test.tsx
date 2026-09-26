@@ -26,7 +26,7 @@ vi.mock("@supabase/supabase-js", async actualImport => {
   };
 });
 
-import { testCloudConnection, exchangeGoogleDriveCodeForToken } from "./App";
+import { testCloudConnection, exchangeGoogleDriveCodeForToken, cleanupMisImportedRecords } from "./App";
 
 const createLocalStorageMock = () => {
   let store: Record<string, string> = {};
@@ -396,5 +396,72 @@ describe("登录状态加载逻辑", () => {
         screen.getByText("登录后安全访问您的健康数据"),
       ).toBeTruthy();
     });
+  });
+});
+
+describe("cleanupMisImportedRecords（2026-09 导入失真脏数据清理）", () => {
+  const BATCH_OP = "2026-09-26T13:06:16.677Z";
+  const OTHER_OP = "2026-10-01T02:00:00.000Z";
+  const categories = [
+    { id: "cat1", name: "血脂", items: [{ id: "cholesterol", label: "总胆固醇" }, { id: "custom_ok", label: "身高" }] },
+    { id: "cat2", name: "身体指标", items: [{ id: "heartRate", label: "心率" }] },
+  ];
+
+  it("删除事故批次误配进心率的血管硬度值（baPWV cm/s），保留合法心率记录", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "heartRate", value: 70, unit: "次/分", operationAt: BATCH_OP },
+      { id: "r2", date: "2025-12-18", indicatorType: "heartRate", value: 1251, unit: "cm/s", operationAt: BATCH_OP },
+      { id: "r3", date: "2025-12-18", indicatorType: "heartRate", value: 1285, unit: "cm/s", operationAt: BATCH_OP },
+    ];
+    const { records: cleaned, changed } = cleanupMisImportedRecords(records as never, categories as never);
+    expect(changed).toBe(true);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].value).toBe(70);
+  });
+
+  it("删除事故批次塌缩进总胆固醇的错值，批内重复保留首条", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "cholesterol", value: 5.86, unit: "mmol/L", operationAt: BATCH_OP },
+      { id: "r2", date: "2025-12-18", indicatorType: "cholesterol", value: 5.86, unit: "mmol/L", operationAt: BATCH_OP },
+      { id: "r3", date: "2025-12-18", indicatorType: "cholesterol", value: 4.01, unit: "mmol/L", operationAt: BATCH_OP },
+      { id: "r4", date: "2025-12-18", indicatorType: "cholesterol", value: 4.5, unit: "mmol/L", operationAt: BATCH_OP },
+      { id: "r5", date: "2025-12-18", indicatorType: "cholesterol", value: 1.36, unit: "mmol/L", operationAt: BATCH_OP },
+    ];
+    const { records: cleaned } = cleanupMisImportedRecords(records as never, categories as never);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].value).toBe(5.86);
+    expect(cleaned[0].id).toBe("r1");
+  });
+
+  it("删除事故批次孤儿 custom_* 记录，保留指标项存在的 custom_* 记录", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "custom_ok", value: 177, unit: "cm", operationAt: BATCH_OP },
+      { id: "r2", date: "2025-12-18", indicatorType: "custom_orphan_xyz", value: 80, unit: "cm", operationAt: BATCH_OP },
+    ];
+    const { records: cleaned } = cleanupMisImportedRecords(records as never, categories as never);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].indicatorType).toBe("custom_ok");
+  });
+
+  it("批次外记录与用户手动录入完全不受影响", () => {
+    const records = [
+      { id: "r1", date: "2026-10-01", indicatorType: "heartRate", value: 1251, unit: "cm/s", operationAt: OTHER_OP },
+      { id: "r2", date: "2026-10-01", indicatorType: "cholesterol", value: 4.01, unit: "mmol/L", operationAt: OTHER_OP },
+      { id: "r3", date: "2026-10-01", indicatorType: "custom_orphan", value: 1, unit: "x", operationAt: OTHER_OP },
+    ];
+    const { records: cleaned, changed } = cleanupMisImportedRecords(records as never, categories as never);
+    expect(changed).toBe(false);
+    expect(cleaned).toHaveLength(3);
+  });
+
+  it("幂等：重复执行结果不变", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "heartRate", value: 1251, unit: "cm/s", operationAt: BATCH_OP },
+      { id: "r2", date: "2025-12-18", indicatorType: "cholesterol", value: 5.86, unit: "mmol/L", operationAt: BATCH_OP },
+    ];
+    const first = cleanupMisImportedRecords(records as never, categories as never);
+    const second = cleanupMisImportedRecords(first.records, categories as never);
+    expect(second.records).toEqual(first.records);
+    expect(second.changed).toBe(false);
   });
 });
