@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { MedicalReportImportDialog } from "@/app/components/MedicalReportImportDialog";
 import * as medicalReport from "@/app/services/medicalReport";
 
@@ -748,6 +748,34 @@ describe("MedicalReportImportDialog E2E", () => {
     await waitFor(() => expect(screen.getByText("异常: 1")).toBeInTheDocument(), { timeout: 5000 });
   });
 
+  it("「仅看异常」开关只过滤预览展示，不影响确认导入计数", async () => {
+    const matchedWithAbnormal = [
+      { ...mockMatched[0], abnormalFlag: "H" },
+      mockMatched[1],
+    ];
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue(matchedWithAbnormal);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ ...mockGrouped, import: matchedWithAbnormal });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.getByText("血糖")).toBeInTheDocument();
+
+    // 开启「仅看异常」：表格只保留异常行（收缩压），正常行（血糖）隐藏
+    fireEvent.click(screen.getByText(/仅看异常/));
+    expect(screen.getByText("收缩压")).toBeInTheDocument();
+    expect(screen.queryByText("血糖")).not.toBeInTheDocument();
+
+    // 确认导入计数不受开关影响
+    expect(screen.getByText(/确认导入 \(2 条\)/)).toBeInTheDocument();
+
+    // 再次点击恢复全量展示
+    fireEvent.click(screen.getByText(/仅看异常/));
+    expect(screen.getByText("血糖")).toBeInTheDocument();
+    expect(screen.getByText(/确认导入 \(2 条\)/)).toBeInTheDocument();
+  });
+
   it("解析中显示进度百分比", async () => {
     let resolveParse: ((value: typeof mockParseResult) => void) | undefined;
     vi.mocked(medicalReport.parseMedicalReport).mockImplementation(
@@ -764,8 +792,42 @@ describe("MedicalReportImportDialog E2E", () => {
     await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
   });
 
-  it("解析挂起期间进度条随时间实时增长（平滑动画）", async () => {
-    // 解析永不返回：模拟长耗时解析，验证进度不卡 0%
+  it("进度由 SSE 真实进度事件驱动：百分比与页数文案随 onProgress 推进", async () => {
+    // mock 实现里延迟调用 onProgress（12/23 → 23/23）后 resolve，模拟 SSE chunk_done
+    let fireProgress: ((parsed: number, total: number | null) => void) | undefined;
+    let resolveParse: ((value: typeof mockParseResult) => void) | undefined;
+    vi.mocked(medicalReport.parseMedicalReport).mockImplementation(((_file: File, options?: { onProgress?: (parsed: number, total: number | null) => void }) => {
+      fireProgress = options?.onProgress;
+      return new Promise(resolve => { resolveParse = resolve; });
+    }) as unknown as typeof medicalReport.parseMedicalReport);
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    fireEvent.click(screen.getByText("报告导入"));
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [file], writable: false });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByText("开始解析")).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText("开始解析"));
+    await waitFor(() => expect(screen.getByText("0%")).toBeInTheDocument(), { timeout: 5000 });
+
+    // 首个进度事件：12/23 页 ≈ 52%
+    act(() => { fireProgress?.(12, 23); });
+    await waitFor(() => expect(screen.getByText("52%")).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.getByText("（12/23 页）")).toBeInTheDocument();
+
+    // 第二个进度事件：23/23 页 → 100%
+    act(() => { fireProgress?.(23, 23); });
+    await waitFor(() => expect(screen.getByText("100%")).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.getByText("（23/23 页）")).toBeInTheDocument();
+
+    // 解析完成进入预览
+    resolveParse!(mockParseResult);
+    await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
+  });
+
+  it("无真实进度事件时进度保持 0%（已移除 setInterval 假增长动画）", async () => {
+    // 解析永不返回且不上报进度：时间流逝不应产生任何假增长
     vi.mocked(medicalReport.parseMedicalReport).mockImplementation(
       (() => new Promise(() => {})) as unknown as typeof medicalReport.parseMedicalReport,
     );
@@ -777,25 +839,14 @@ describe("MedicalReportImportDialog E2E", () => {
     Object.defineProperty(input, "files", { value: [file], writable: false });
     fireEvent.change(input);
     await waitFor(() => expect(screen.getByText("开始解析")).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText("开始解析"));
+    await waitFor(() => expect(screen.getByText("0%")).toBeInTheDocument(), { timeout: 5000 });
 
     // 对话框打开后再启用假定时器，避免影响 Radix 挂载动画
     vi.useFakeTimers();
     try {
-      fireEvent.click(screen.getByText("开始解析"));
-      // 初始 0%
+      await vi.advanceTimersByTimeAsync(60000);
       expect(screen.getByText("0%")).toBeInTheDocument();
-
-      // 推进 30 秒（60 个 500ms tick）：指数趋近约到 21%
-      await vi.advanceTimersByTimeAsync(30000);
-      const value = Number((screen.getByText(/^\d+%$/).textContent || "").replace("%", ""));
-      expect(value).toBeGreaterThanOrEqual(15);
-      expect(value).toBeLessThan(96);
-
-      // 继续推进：进度只增不减
-      await vi.advanceTimersByTimeAsync(30000);
-      const later = Number((screen.getByText(/^\d+%$/).textContent || "").replace("%", ""));
-      expect(later).toBeGreaterThan(value);
-      expect(later).toBeLessThan(97);
     } finally {
       vi.useRealTimers();
     }
@@ -999,6 +1050,66 @@ describe("MedicalReportImportDialog E2E", () => {
       vi.mocked(medicalReport.getCategoriesToCreate).mockReturnValue([]);
       vi.mocked(medicalReport.matchUnnamedLabels).mockResolvedValue(null);
     }
+  });
+
+  it("后端复核问题渲染复核警示与建议值，采纳后确认导入以建议值入库", async () => {
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      review: {
+        issues: [
+          { label: "血糖", issue: "数值与参考范围矛盾，疑似 OCR 误读", suggestedValue: 6.1, suggestedUnit: "mmol/L", confidence: "high" },
+        ],
+      },
+    });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    // 复核警示、问题说明与建议值渲染
+    await waitFor(() => expect(screen.getByText("复核警示")).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.getByText("数值与参考范围矛盾，疑似 OCR 误读")).toBeInTheDocument();
+    expect(screen.getByText("建议 6.1 mmol/L")).toBeInTheDocument();
+
+    // 采纳后警示徽标变为「已采纳」
+    fireEvent.click(screen.getByRole("button", { name: "采纳" }));
+    expect(screen.getByText("已采纳")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/确认导入/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    const glucose = records.find((r: { indicatorType: string }) => r.indicatorType === "blood_glucose");
+    expect(glucose).toBeDefined();
+    expect(glucose.value).toBe(6.1);
+    expect(glucose.unit).toBe("mmol/L");
+  });
+
+  it("忽略复核警示后确认导入以原值入库且警示不再渲染", async () => {
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      review: {
+        issues: [
+          { label: "血糖", issue: "数值与参考范围矛盾，疑似 OCR 误读", suggestedValue: 6.1, suggestedUnit: "mmol/L", confidence: "high" },
+        ],
+      },
+    });
+
+    render(<MedicalReportImportDialog onImportRecords={mockImportRecords} />);
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText("复核警示")).toBeInTheDocument(), { timeout: 5000 });
+
+    // 忽略后警示隐藏
+    fireEvent.click(screen.getByRole("button", { name: "忽略" }));
+    expect(screen.queryByText("复核警示")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/确认导入/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    const records = mockImportRecords.mock.calls[0][0];
+    const glucose = records.find((r: { indicatorType: string }) => r.indicatorType === "blood_glucose");
+    expect(glucose).toBeDefined();
+    expect(glucose.value).toBe(5.2);
+    expect(glucose.unit).toBe("mmol/L");
+    expect(screen.queryByText("复核警示")).not.toBeInTheDocument();
   });
 
   it("报告日期缺失时日期输入默认今天，修改后导入记录使用修改后的日期", async () => {

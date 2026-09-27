@@ -181,6 +181,16 @@ export interface ParseResult {
   parsedRange?: [number, number];
   /** 全文档总页数（图片为 1）；老后端可能不返回 */
   totalPages?: number;
+  /** 后端复核产生的质量审查问题；后端携带时透传 */
+  review?: {
+    issues: {
+      label: string;
+      issue: string;
+      suggestedValue: number | null;
+      suggestedUnit: string | null;
+      confidence: "high" | "medium";
+    }[];
+  } | null;
 }
 
 export interface ParserServiceStatus {
@@ -209,6 +219,114 @@ export interface ParseRequestOptions {
   onProgress?: (parsedPages: number, totalPages: number | null) => void;
 }
 
+/* ── SSE 流式解析（/api/parse?stream=1） ── */
+
+type ParseStreamEvent =
+  | { event: "chunk_done"; parsed: number; total: number }
+  | { event: "done"; result: ParseResult & { error?: string } }
+  | { event: "error"; error: string };
+
+/** HTTP 层失败（非 2xx）：携带 status 供调用方决定短路/降级/上抛 */
+type SegmentHttpError = Error & { status: number };
+
+const createSegmentHttpError = (status: number, message: string): SegmentHttpError => {
+  const error = new Error(message) as SegmentHttpError;
+  error.status = status;
+  return error;
+};
+
+const isSegmentHttpError = (error: unknown): error is SegmentHttpError =>
+  error instanceof Error && typeof (error as SegmentHttpError).status === "number";
+
+/**
+ * 发起一次解析请求并返回该段的 ParseResult：
+ * - 响应为 text/event-stream 时逐块消费 SSE：chunk_done → onProgress（绝对页数），
+ *   done → 返回 result，error → 抛出可读错误；
+ * - 非 event-stream（旧后端）回退为整体 JSON 语义，进度至多按已解析区间上报一次。
+ * HTTP 非 2xx 抛出携带 status 的 SegmentHttpError；网络/超时错误原样上抛。
+ */
+const fetchParseSegment = async (
+  endpoint: string,
+  form: FormData,
+  signal: AbortSignal | undefined,
+  onProgress?: (parsedPages: number, totalPages: number | null) => void,
+): Promise<ParseResult & { error?: string }> => {
+  const resp = await fetchWithTimeout(
+    `${endpoint}/api/parse?stream=1`,
+    { method: "POST", body: form },
+    PARSE_TIMEOUT_MS,
+    signal,
+  );
+
+  if (!resp.ok) {
+    throw createSegmentHttpError(resp.status, await readErrorMessage(resp));
+  }
+
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) {
+    const payload = (await resp.json()) as ParseResult & { error?: string };
+    if (payload.success && Array.isArray(payload.parsedRange) && typeof payload.totalPages === "number") {
+      onProgress?.(payload.parsedRange[1] + 1, payload.totalPages);
+    }
+    return payload;
+  }
+
+  if (!resp.body) {
+    throw new Error("流式响应不可读，请重试");
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: (ParseResult & { error?: string }) | null = null;
+
+  const handleLine = (rawLine: string): void => {
+    const line = rawLine.replace(/\r$/, "").trim();
+    if (!line.startsWith("data: ")) {
+      return;
+    }
+    const event = JSON.parse(line.slice("data: ".length)) as ParseStreamEvent;
+    if (event.event === "chunk_done") {
+      onProgress?.(event.parsed, event.total);
+    } else if (event.event === "done") {
+      result = event.result;
+    } else if (event.event === "error") {
+      throw new Error(event.error || "OCR 解析失败");
+    }
+  };
+
+  const drainLines = (flush: boolean): void => {
+    const lines = buffer.split("\n");
+    // 非流末尾：最后一个元素可能是被截断的半行，留在缓冲等下一块
+    buffer = flush ? "" : (lines.pop() ?? "");
+    for (const line of lines) {
+      handleLine(line);
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+      }
+      if (done) {
+        buffer += decoder.decode();
+        drainLines(true);
+        break;
+      }
+      drainLines(false);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!result) {
+    throw new Error("流式响应未返回解析结果，请重试");
+  }
+  return result;
+};
+
 export async function parseMedicalReport(file: File, options: ParseRequestOptions = {}): Promise<ParseResult> {
   const SEGMENT_PAGES = 12;
   const errors: EndpointAttemptError[] = [];
@@ -218,36 +336,32 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
 
   for (const endpoint of PARSER_ENDPOINTS) {
     try {
-      const resp = await fetchWithTimeout(
-        `${endpoint}/api/parse`,
-        { method: "POST", body: createUploadFormData(file) },
-        PARSE_TIMEOUT_MS,
+      const payload = await fetchParseSegment(
+        endpoint,
+        createUploadFormData(file),
         options.signal,
+        options.onProgress,
       );
-
-      if (resp.ok) {
-        const payload = (await resp.json()) as ParseResult & { error?: string };
-        if (!payload.success) {
-          const message = payload.error || "OCR 解析失败";
-          errors.push({ endpoint, message });
-          continue;
-        }
-        firstPayload = payload;
-        activeEndpoint = endpoint;
-        break;
+      if (!payload.success) {
+        errors.push({ endpoint, message: payload.error || "OCR 解析失败" });
+        continue;
       }
-
-      const message = await readErrorMessage(resp);
-      errors.push({ endpoint, status: resp.status, message });
-
-      // 参数校验错误重试无意义：记录后立即短路整个降级链
-      if (isParameterValidationError(resp.status)) {
-        parameterError = new Error(`解析失败 (${resp.status})：${message}`);
-        break;
-      }
+      firstPayload = payload;
+      activeEndpoint = endpoint;
+      break;
     } catch (error) {
       if (options.signal?.aborted) {
         throw new DOMException("请求已取消", "AbortError");
+      }
+      if (isSegmentHttpError(error)) {
+        errors.push({ endpoint, status: error.status, message: error.message });
+
+        // 参数校验错误重试无意义：记录后立即短路整个降级链
+        if (isParameterValidationError(error.status)) {
+          parameterError = new Error(`解析失败 (${error.status})：${error.message}`);
+          break;
+        }
+        continue;
       }
       const message = describeFetchError(error, PARSE_TIMEOUT_MS);
       errors.push({ endpoint, message });
@@ -279,11 +393,6 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
   let reportDate = firstPayload.reportDate;
   let payload = firstPayload;
 
-  // 首段解析完成也上报一次进度，避免长时间停留在 0%
-  if (Array.isArray(firstPayload.parsedRange)) {
-    options.onProgress?.(firstPayload.parsedRange[1] + 1, firstPayload.totalPages ?? null);
-  }
-
   while (
     typeof payload.totalPages === "number" &&
     Array.isArray(payload.parsedRange) &&
@@ -292,27 +401,23 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
     const next = payload.parsedRange[1] + 1;
     const rangeEnd = Math.min(next + SEGMENT_PAGES - 1, payload.totalPages - 1);
 
-    let resp: Response;
+    const form = createUploadFormData(file);
+    form.append("page_range", `${next}-${rangeEnd}`);
+
+    let segment: ParseResult & { error?: string };
     try {
-      const form = createUploadFormData(file);
-      form.append("page_range", `${next}-${rangeEnd}`);
-      resp = await fetchWithTimeout(
-        `${activeEndpoint}/api/parse`,
-        { method: "POST", body: form },
-        PARSE_TIMEOUT_MS,
-        options.signal,
-      );
+      // 续传段以绝对页数累计上报进度（SSE chunk_done 即绝对页数；
+      // 旧后端回退路径按已解析区间右端 +1 上报）
+      segment = await fetchParseSegment(activeEndpoint, form, options.signal, options.onProgress);
     } catch (error) {
       if (options.signal?.aborted) {
         throw new DOMException("请求已取消", "AbortError");
       }
+      if (isSegmentHttpError(error)) {
+        throw new Error(error.message);
+      }
       throw new Error(describeFetchError(error, PARSE_TIMEOUT_MS));
     }
-
-    if (!resp.ok) {
-      throw new Error(await readErrorMessage(resp));
-    }
-    const segment = (await resp.json()) as ParseResult & { error?: string };
     if (!segment.success) {
       throw new Error(segment.error || "OCR 解析失败");
     }
@@ -333,8 +438,6 @@ export async function parseMedicalReport(file: File, options: ParseRequestOption
     }
 
     payload = segment;
-    const parsedUpTo = Array.isArray(segment.parsedRange) ? segment.parsedRange[1] + 1 : rangeEnd + 1;
-    options.onProgress?.(parsedUpTo, segment.totalPages ?? null);
   }
 
   return {

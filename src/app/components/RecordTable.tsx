@@ -243,12 +243,15 @@ export function RecordTable({
                         }`}>
                           {record.value} {record.unit}
                         </span>
-                        {rangeStatus === "above" && (
+                        {record.abnormalFlag === "H" ? (
+                          <ArrowUp aria-label="偏高" className="w-4 h-4 text-red-500" />
+                        ) : record.abnormalFlag === "L" ? (
+                          <ArrowDown aria-label="偏低" className="w-4 h-4 text-blue-500" />
+                        ) : rangeStatus === "above" ? (
                           <ArrowUp className="w-4 h-4 text-red-500" />
-                        )}
-                        {rangeStatus === "below" && (
+                        ) : rangeStatus === "below" ? (
                           <ArrowDown className="w-4 h-4 text-red-500" />
-                        )}
+                        ) : null}
                       </div>
                     )}
                   </TableCell>

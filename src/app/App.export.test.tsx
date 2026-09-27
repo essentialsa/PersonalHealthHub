@@ -26,7 +26,7 @@ vi.mock("@supabase/supabase-js", async actualImport => {
   };
 });
 
-import { testCloudConnection, exchangeGoogleDriveCodeForToken, cleanupMisImportedRecords } from "./App";
+import { testCloudConnection, exchangeGoogleDriveCodeForToken, cleanupMisImportedRecords, buildIndicatorDataRows } from "./App";
 
 const createLocalStorageMock = () => {
   let store: Record<string, string> = {};
@@ -463,5 +463,55 @@ describe("cleanupMisImportedRecords（2026-09 导入失真脏数据清理）", (
     const second = cleanupMisImportedRecords(first.records, categories as never);
     expect(second.records).toEqual(first.records);
     expect(second.changed).toBe(false);
+  });
+});
+
+describe("buildIndicatorDataRows（数据列表行聚合）", () => {
+  it("按日期聚合并保留每条记录的报告原始异常标记", () => {
+    const records = [
+      { id: "r1", date: "2024-01-01", indicatorType: "glucose", value: 7.2, unit: "mmol/L", abnormalFlag: "H" as const },
+      { id: "r2", date: "2024-01-01", indicatorType: "wbc", value: 3.1, unit: "×10⁹/L", abnormalFlag: "L" as const },
+      { id: "r3", date: "2024-01-02", indicatorType: "glucose", value: 5.2, unit: "mmol/L" },
+    ];
+
+    const rows = buildIndicatorDataRows(records as never, ["glucose", "wbc"]);
+
+    expect(rows).toHaveLength(2);
+    expect(String(rows[0].date)).toBe("2024-01-02");
+    expect(String(rows[1].date)).toBe("2024-01-01");
+
+    const flagsOf = (row: Record<string, unknown>) => row.flags as Record<string, string | undefined>;
+    expect(rows[1].glucose).toBe(7.2);
+    expect(rows[1].wbc).toBe(3.1);
+    expect(flagsOf(rows[1]).glucose).toBe("H");
+    expect(flagsOf(rows[1]).wbc).toBe("L");
+    expect(flagsOf(rows[0]).glucose).toBeUndefined();
+    expect(rows[0].wbc).toBeUndefined();
+  });
+
+  it("同日同指标重复记录时，箭头跟随展示值（后者覆盖前者）", () => {
+    const records = [
+      { id: "r1", date: "2024-01-01", indicatorType: "glucose", value: 7.2, unit: "mmol/L", abnormalFlag: "H" as const },
+      { id: "r2", date: "2024-01-01", indicatorType: "glucose", value: 5.0, unit: "mmol/L" },
+    ];
+
+    const rows = buildIndicatorDataRows(records as never, ["glucose"]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].glucose).toBe(5.0);
+    expect((rows[0].flags as Record<string, string | undefined>).glucose).toBeUndefined();
+  });
+
+  it("仅聚合指定指标", () => {
+    const records = [
+      { id: "r1", date: "2024-01-01", indicatorType: "glucose", value: 5.2, unit: "mmol/L" },
+      { id: "r2", date: "2024-01-01", indicatorType: "other", value: 1, unit: "x", abnormalFlag: "H" as const },
+    ];
+
+    const rows = buildIndicatorDataRows(records as never, ["glucose"]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].other).toBeUndefined();
+    expect((rows[0].flags as Record<string, string | undefined>).other).toBeUndefined();
   });
 });

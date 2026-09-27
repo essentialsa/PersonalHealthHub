@@ -1,8 +1,10 @@
 """体检报告解析服务 - FastAPI 薄代理（多模态大模型直读）。"""
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
+import json
 import logging
 import os
 import time
@@ -189,9 +191,14 @@ async def ocr_ready_check():
     }
 
 
-@app.post("/api/parse", response_model=ParseResponse)
-async def parse_report(file: UploadFile = File(...), page_range: Optional[str] = Form(None)):
-    """解析体检报告 PDF/图片：图片直发多模态大模型。"""
+@app.post("/api/parse")
+async def parse_report(file: UploadFile = File(...), page_range: Optional[str] = Form(None), stream: int = Query(0)):
+    """解析体检报告 PDF/图片：图片直发多模态大模型。
+
+    stream=1 时以 SSE（text/event-stream）流式返回进度：
+    每个事件序列化为 `data: {json}\n\n`（chunk_done / done / error）。
+    stream=0（默认）行为与原来完全一致（JSON）。
+    """
     started_at = time.perf_counter()
     allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
     filename = (file.filename or "").lower()
@@ -205,6 +212,17 @@ async def parse_report(file: UploadFile = File(...), page_range: Optional[str] =
         raise HTTPException(status_code=400, detail="文件大小超过 50MB 限制")
     if len(content) < 100:
         raise HTTPException(status_code=400, detail="文件内容为空或已损坏，请重新上传")
+
+    if stream == 1:
+        name = file.filename or "unknown"
+
+        def event_stream():
+            # parse_pdf_stream 是同步生成器，在 threadpool 中按 chunk 迭代；
+            # error 事件已包含失败信息，这里不再抛 HTTP 异常
+            for event in get_engine().parse_pdf_stream(content, name, page_range):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     try:
         logger.info(
