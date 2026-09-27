@@ -26,7 +26,7 @@ vi.mock("@supabase/supabase-js", async actualImport => {
   };
 });
 
-import { testCloudConnection, exchangeGoogleDriveCodeForToken, cleanupMisImportedRecords, buildIndicatorDataRows } from "./App";
+import { testCloudConnection, exchangeGoogleDriveCodeForToken, cleanupMisImportedRecords, buildIndicatorDataRows, filterItemsWithAnomalyRecords } from "./App";
 
 const createLocalStorageMock = () => {
   let store: Record<string, string> = {};
@@ -513,5 +513,32 @@ describe("buildIndicatorDataRows（数据列表行聚合）", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].other).toBeUndefined();
     expect((rows[0].flags as Record<string, string | undefined>).other).toBeUndefined();
+  });
+});
+
+describe("filterItemsWithAnomalyRecords（异常视图隐藏空列）", () => {
+  const items = [
+    { id: "minerals", label: "无机盐" },
+    { id: "tbw", label: "身体总水分" },
+    { id: "smi", label: "SMI" },
+  ];
+
+  it("只保留存在异常记录的指标项", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "minerals", value: 4.42, unit: "kg", abnormalFlag: "H" as const },
+      { id: "r2", date: "2025-12-18", indicatorType: "tbw", value: 43.7, unit: "L" },
+    ];
+
+    const visible = filterItemsWithAnomalyRecords(items, records as never);
+
+    expect(visible.map(i => i.id)).toEqual(["minerals"]);
+  });
+
+  it("无异常记录时返回空列表", () => {
+    const records = [
+      { id: "r1", date: "2025-12-18", indicatorType: "tbw", value: 43.7, unit: "L" },
+    ];
+
+    expect(filterItemsWithAnomalyRecords(items, records as never)).toEqual([]);
   });
 });
