@@ -977,16 +977,18 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                   建议 {reviewIssue.suggestedValue}{reviewIssue.suggestedUnit ? ` ${reviewIssue.suggestedUnit}` : ""}
                                 </div>
                               )}
-                              {!isAdopted && reviewIssue.suggestedValue !== null && (
+                              {!isAdopted && (
                                 <div className="flex items-center gap-1">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 text-xs px-2 border-orange-300 text-orange-700"
-                                    onClick={() => adoptReviewSuggestion(reviewIssue)}
-                                  >
-                                    采纳
-                                  </Button>
+                                  {reviewIssue.suggestedValue !== null && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 text-xs px-2 border-orange-300 text-orange-700"
+                                      onClick={() => adoptReviewSuggestion(reviewIssue)}
+                                    >
+                                      采纳
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="sm"
