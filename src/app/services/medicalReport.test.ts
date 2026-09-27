@@ -443,8 +443,8 @@ describe("parseMedicalReport 网络行为", () => {
     const result = await mod.parseMedicalReport(file);
 
     expect(calls).toEqual([
-      "https://ep1.example/api/parse",
-      "https://ep2.example/api/parse",
+      "https://ep1.example/api/parse?stream=1",
+      "https://ep2.example/api/parse?stream=1",
     ]);
     expect(result.success).toBe(true);
     expect(result.indicators[0].rawLabel).toBe("空腹血糖");
@@ -462,7 +462,7 @@ describe("parseMedicalReport 网络行为", () => {
     const file = new File(["dummy"], "report.png", { type: "image/png" });
 
     await expect(mod.parseMedicalReport(file)).rejects.toThrow("解析失败 (422)");
-    expect(calls).toEqual(["https://ep1.example/api/parse"]);
+    expect(calls).toEqual(["https://ep1.example/api/parse?stream=1"]);
   });
 
   it("外部 signal 已取消时立即以 AbortError 拒绝", async () => {
@@ -587,5 +587,146 @@ describe("parseMedicalReport 网络行为", () => {
     } catch (error) {
       expect(String(error)).not.toContain("Render");
     }
+  });
+
+  /* ── SSE 流式进度（/api/parse?stream=1） ── */
+
+  const makeSseResponse = (chunks: string[]) => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  };
+
+  const sseEvent = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
+
+  it("SSE 流式：chunk_done 上报绝对页进度，done 返回结果", async () => {
+    const doneResult = {
+      ...successPayload,
+      parsedRange: [0, 7],
+      totalPages: 8,
+    };
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        makeSseResponse([
+          sseEvent({ event: "chunk_done", parsed: 4, total: 8 }),
+          sseEvent({ event: "done", result: doneResult }),
+        ]),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const progressCalls: [number, number | null][] = [];
+    const result = await mod.parseMedicalReport(file, {
+      onProgress: (parsed, total) => progressCalls.push([parsed, total]),
+    });
+
+    expect(progressCalls[0]).toEqual([4, 8]);
+    expect(result.success).toBe(true);
+    expect(result.indicators[0].rawLabel).toBe("空腹血糖");
+  });
+
+  it("SSE 流式：事件跨块拆分时按行缓冲正确解析", async () => {
+    const doneResult = { ...successPayload, parsedRange: [0, 7], totalPages: 8 };
+    const fullText =
+      sseEvent({ event: "chunk_done", parsed: 4, total: 8 }) +
+      sseEvent({ event: "done", result: doneResult });
+    // 在事件中间任意位置切断，模拟 HTTP 分块
+    const splitAt = fullText.indexOf('"done"');
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(makeSseResponse([fullText.slice(0, splitAt), fullText.slice(splitAt)])),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const progressCalls: [number, number | null][] = [];
+    const result = await mod.parseMedicalReport(file, {
+      onProgress: (parsed, total) => progressCalls.push([parsed, total]),
+    });
+
+    expect(progressCalls).toEqual([[4, 8]]);
+    expect(result.success).toBe(true);
+  });
+
+  it("SSE 流式：error 事件抛出可读错误且不再尝试其他端点", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        makeSseResponse([
+          sseEvent({ event: "chunk_done", parsed: 2, total: 8 }),
+          sseEvent({ event: "error", error: "OCR 引擎返回为空" }),
+        ]),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+
+    await expect(mod.parseMedicalReport(file)).rejects.toThrow("OCR 引擎返回为空");
+  });
+
+  it("SSE 流式分段循环：续传段同样消费流式进度并合并指标", async () => {
+    const firstResult = {
+      success: true,
+      pageCount: 12,
+      reportDate: "2026-01-15",
+      tables: [],
+      markdown: "",
+      indicators: [{ rawLabel: "A", value: 1, unit: "u", pageIndex: 0 }],
+      parsedRange: [0, 11],
+      totalPages: 23,
+    };
+    const segmentResult = {
+      success: true,
+      pageCount: 11,
+      tables: [],
+      markdown: "",
+      indicators: [{ rawLabel: "B", value: 2, unit: "u", pageIndex: 22 }],
+      parsedRange: [12, 22],
+      totalPages: 23,
+    };
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      const form = init?.body as FormData;
+      if (form.get("page_range") !== null) {
+        return Promise.resolve(
+          makeSseResponse([
+            sseEvent({ event: "chunk_done", parsed: 18, total: 23 }),
+            sseEvent({ event: "chunk_done", parsed: 23, total: 23 }),
+            sseEvent({ event: "done", result: segmentResult }),
+          ]),
+        );
+      }
+      return Promise.resolve(
+        makeSseResponse([
+          sseEvent({ event: "chunk_done", parsed: 6, total: 23 }),
+          sseEvent({ event: "chunk_done", parsed: 12, total: 23 }),
+          sseEvent({ event: "done", result: firstResult }),
+        ]),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await loadFreshModule();
+    const file = new File(["dummy"], "report.pdf", { type: "application/pdf" });
+    const progressCalls: [number, number | null][] = [];
+    const result = await mod.parseMedicalReport(file, {
+      onProgress: (parsed, total) => progressCalls.push([parsed, total]),
+    });
+
+    expect(progressCalls).toEqual([[6, 23], [12, 23], [18, 23], [23, 23]]);
+    expect(result.indicators.map(i => i.rawLabel)).toEqual(["A", "B"]);
+    expect(result.totalPages).toBe(23);
   });
 });

@@ -57,6 +57,8 @@ import {
   CloudDownload,
   ChevronLeft,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { cn } from "@/app/components/ui/utils";
@@ -2846,6 +2848,29 @@ function CloudSyncDialog({
 
 export { CloudSyncDialog };
 
+/**
+ * 数据列表行聚合：按日期把记录铺平成行，值写入 `${indicatorType}` 键，
+ * 同时把每条记录的报告原始异常标记收集到 `flags` 键（与值同覆盖语义，保证箭头与展示值一致）。
+ */
+export const buildIndicatorDataRows = (
+  records: HealthRecord[],
+  indicatorIds: string[],
+): Record<string, unknown>[] => {
+  if (indicatorIds.length === 0) return [];
+  const rowsByDate = new Map<string, Record<string, unknown>>();
+  records
+    .filter(record => indicatorIds.includes(record.indicatorType))
+    .forEach(record => {
+      const existing = rowsByDate.get(record.date) || { date: record.date, flags: {} };
+      existing[record.indicatorType] = record.value;
+      (existing.flags as Record<string, "H" | "L" | undefined>)[record.indicatorType] = record.abnormalFlag;
+      rowsByDate.set(record.date, existing);
+    });
+  return Array.from(rowsByDate.values()).sort(
+    (a, b) => new Date(String(b.date)).getTime() - new Date(String(a.date)).getTime(),
+  );
+};
+
 export default function App() {
   const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
   console.log("[Auth Debug] SUPABASE_URL:", SUPABASE_URL);
@@ -3431,22 +3456,9 @@ export default function App() {
     ? indicatorDataCategory.items.filter(item => item.enabled !== false)
     : [];
   const indicatorDataIds = indicatorDataItems.map(item => item.id);
-  const indicatorDataRows = (() => {
-    if (!indicatorDataCategory || indicatorDataIds.length === 0) {
-      return [];
-    }
-    const rowsByDate = new Map<string, Record<string, unknown>>();
-    effectiveRecords
-      .filter(record => indicatorDataIds.includes(record.indicatorType))
-      .forEach(record => {
-        const existing = rowsByDate.get(record.date) || { date: record.date };
-        existing[record.indicatorType] = record.value;
-        rowsByDate.set(record.date, existing);
-      });
-    return Array.from(rowsByDate.values()).sort(
-      (a, b) => new Date(String(b.date)).getTime() - new Date(String(a.date)).getTime(),
-    );
-  })();
+  const indicatorDataRows = indicatorDataCategory
+    ? buildIndicatorDataRows(effectiveRecords, indicatorDataIds)
+    : [];
 
   const formatIndicatorValue = (value: unknown) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -5770,11 +5782,22 @@ export default function App() {
                             <TableCell className="text-sm font-medium text-gray-700 w-32 py-3">
                               {String(row.date)}
                             </TableCell>
-                            {indicatorDataItems.map(item => (
-                              <TableCell key={item.id} className="text-sm text-gray-700 py-3">
-                                {formatIndicatorValue((row as Record<string, unknown>)[item.id])}
-                              </TableCell>
-                            ))}
+                            {indicatorDataItems.map(item => {
+                              const cellFlag = ((row.flags ?? {}) as Record<string, "H" | "L" | undefined>)[item.id];
+                              return (
+                                <TableCell key={item.id} className="text-sm text-gray-700 py-3">
+                                  <span className="inline-flex items-center gap-1">
+                                    {formatIndicatorValue((row as Record<string, unknown>)[item.id])}
+                                    {cellFlag === "H" && (
+                                      <ArrowUp aria-label="偏高" className="w-3.5 h-3.5 text-red-500" />
+                                    )}
+                                    {cellFlag === "L" && (
+                                      <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
+                                    )}
+                                  </span>
+                                </TableCell>
+                              );
+                            })}
                           </TableRow>
                         ))}
                       </TableBody>

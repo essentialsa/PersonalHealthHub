@@ -13,7 +13,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import httpx
 
@@ -63,6 +63,23 @@ SYSTEM_PROMPT = """
 
 USER_INSTRUCTION = "请阅读以上体检报告图片，输出符合 schema 的结构化指标 json（JSON object）。"
 
+DOCTOR_REVIEW_SYSTEM_PROMPT = """
+你是一名经验丰富的体检/检验报告复核医生。用户会给出从体检报告中自动提取的指标清单，
+每行格式为「指标名: 数值 单位（参考 参考范围，异常标记 H/L/无）」。
+请以专业医生视角逐条审查，只报告确有疑点的条目：
+1. 数值与单位或参考范围的量级明显矛盾（如心率 1251 cm/s、总胆固醇 362 mmol/L）；
+2. 单位明显错误（如血糖单位写成 mmHg、血压单位写成 mmol/L）；
+3. 数值疑似 OCR 串行/错位（数值张冠李戴、小数点明显错位、与相邻指标互换）。
+拿不准的不要报告；没有任何疑点时返回空 issues 数组。
+
+严格遵守：
+1. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
+2. 输出必须严格是如下结构：
+   {"issues": [{"label": "与输入完全一致的指标名", "issue": "疑点简述", "suggestedValue": 数字或null, "suggestedUnit": "建议单位或null", "confidence": "high或medium"}]}
+3. confidence 只能是 "high"（强烈怀疑提取错误）或 "medium"（有疑点但不确定）。
+4. 没有把握给出修正值时 suggestedValue 返回 null，不要编造数值。
+""".strip()
+
 METADATA_KEYWORDS = (
     "report date", "sample date", "test date", "collection date",
     "检验日期", "报告日期", "采样日期", "送检日期", "日期", "报告时间", "打印时间",
@@ -82,6 +99,12 @@ MAX_PDF_PAGES = 40
 PARSE_DEADLINE_SEC = 52.0
 # 单次模型调用的最小剩余预算：低于该值不再发起调用（避免无意义的超时等待）
 MIN_MODEL_CALL_BUDGET_SEC = 3.0
+# 医生复核：剩余预算低于该值直接跳过纯文本复核（含高置信项的整页重读）
+REVIEW_MIN_BUDGET_SEC = 8.0
+# 医生复核：送审指标清单最大行数（避免超长文本输入）
+REVIEW_MAX_LINES = 200
+# 医生复核：单次文本调用超时上限（实际取 min(该值, 剩余预算-3)）
+REVIEW_CALL_TIMEOUT_CAP_SEC = 20.0
 
 MOCK_INDICATORS = [
     {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "abnormalFlag": "", "pageIndex": 0},
@@ -279,6 +302,31 @@ class VisionEngine:
 
     def parse_pdf(self, content: bytes, filename: str, page_range: Optional[str] = None) -> Dict[str, Any]:
         """入口：接收 PDF 或图片字节，返回与原解析引擎相同结构的结果。"""
+        core = self._parse_core(content, filename, page_range)
+        try:
+            while True:
+                next(core)  # 同步入口忽略 chunk_done 进度事件
+        except StopIteration as exc:
+            return exc.value
+
+    def parse_pdf_stream(self, content: bytes, filename: str, page_range: Optional[str] = None) -> Iterator[Dict[str, Any]]:
+        """流式入口：每完成一个 chunk yield 进度事件，结束时 yield 与 parse_pdf
+        完全相同结构的 done 事件；解析抛 VisionEngineError 时 yield error 事件后结束。
+        """
+        core = self._parse_core(content, filename, page_range)
+        try:
+            while True:
+                yield next(core)
+        except StopIteration as exc:
+            yield {"event": "done", "result": exc.value}
+        except VisionEngineError as exc:
+            yield {"event": "error", "error": str(exc)}
+
+    def _parse_core(self, content: bytes, filename: str, page_range: Optional[str] = None) -> Iterator[Dict[str, Any]]:
+        """parse_pdf 与 parse_pdf_stream 共享的解析核心（生成器）：
+        每收集成功一个 chunk yield 一次 chunk_done 进度事件，最终 return
+        与 parse_pdf 历史返回完全一致的结果结构。
+        """
         # 预算计时从入口开始：冷启动后的 PDF 渲染、模型调用全部计入预算，
         # 保证单段总耗时不超过 Serverless 60s 硬限
         parse_started = time.monotonic()
@@ -377,6 +425,8 @@ class VisionEngine:
                 indicators.extend(normalized["indicators"])
                 report_date = report_date or normalized["reportDate"]
                 parsed_end = max(parsed_end, chunk_offset + chunk_len - 1)
+                # 进度事件：已覆盖页数右端 +1 / 全文档页数（回调内不得调用时钟）
+                yield {"event": "chunk_done", "parsed": parsed_end + 1, "total": page_count}
             if not indicators and futures and last_chunk_error is not None:
                 # 所有提交过的 chunk 都失败：上抛原始可读错误，禁止静默空结果
                 raise last_chunk_error
@@ -395,7 +445,7 @@ class VisionEngine:
             # 模型调用成功但一个指标都没识别出来：显式失败，禁止静默返回空结果
             raise VisionEngineError("未识别到任何指标，请检查图片清晰度或重试")
         markdown_lines = [f"- {item['rawLabel']}：{item['value']} {item['unit']}（参考 {item['referenceRange'] or '无'}）" for item in deduped]
-        return {
+        result = {
             "success": True,
             "pageCount": parsed_end - range_start + 1,
             "parsedRange": [range_start, parsed_end],
@@ -406,6 +456,12 @@ class VisionEngine:
             "markdown": "\n".join(markdown_lines),
             "error": None,
         }
+        # 医生复核：剩余预算充足才做；任何失败降级为不挂 review，不影响主结果
+        remaining = PARSE_DEADLINE_SEC - (time.monotonic() - parse_started)
+        review = self._doctor_review(deduped, remaining, get_page)
+        if review is not None:
+            result["review"] = review
+        return result
 
     def _request_chunk(self, chunk: List[tuple], page_offset: int, budget_sec: float = PARSE_DEADLINE_SEC) -> Dict[str, Any]:
         """单 chunk（多页图）请求 + 归一化；异常上抛由调用方降级处理。
@@ -415,6 +471,185 @@ class VisionEngine:
         """
         payload = self._request_structured_json(chunk, page_offset=page_offset, budget_sec=budget_sec)
         return self._normalize_result(payload, page_count=len(chunk) + page_offset)
+
+    # ------------------------------------------------------------------
+    # 医生复核：纯文本审查已提取指标，发现量级/单位/串行疑点；高置信项可重读原页确认。
+    # 任何失败降级为 None（不影响主解析结果）。
+    def _doctor_review(
+        self,
+        indicators: List[Dict[str, Any]],
+        budget_sec: float,
+        get_page: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if budget_sec < REVIEW_MIN_BUDGET_SEC:
+            return None
+        lines = []
+        for item in indicators[:REVIEW_MAX_LINES]:
+            reference = item.get("referenceRange") or "无"
+            flag = item.get("abnormalFlag") or "无"
+            lines.append(
+                f"{item['rawLabel']}: {item['value']} {item.get('unit', '')}"
+                f"（参考 {reference}，异常标记 {flag}）"
+            )
+        if not lines:
+            return None
+        text = "\n".join(lines)
+        timeout = min(REVIEW_CALL_TIMEOUT_CAP_SEC, budget_sec - 3)
+        try:
+            payload = self._review_text_call(text, timeout)
+        except Exception as exc:
+            logger.warning("doctor_review_failed error=%s", exc)
+            return None
+
+        # 以归一化 label 建索引：既过滤模型臆造的指标名，也供重读确认回查原值/页码
+        label_map: Dict[str, Dict[str, Any]] = {}
+        for item in indicators:
+            label_map.setdefault(_normalize_label(item["rawLabel"]), item)
+
+        raw_issues = payload.get("issues") if isinstance(payload, dict) else None
+        if not isinstance(raw_issues, list):
+            raw_issues = []
+        issues: List[Dict[str, Any]] = []
+        for entry in raw_issues:
+            if not isinstance(entry, dict):
+                continue
+            label = str(entry.get("label", "")).strip()
+            if not label or _normalize_label(label) not in label_map:
+                continue
+            confidence = entry.get("confidence")
+            if confidence not in ("high", "medium"):
+                confidence = "medium"
+            suggested_value = entry.get("suggestedValue")
+            if isinstance(suggested_value, bool) or not isinstance(suggested_value, (int, float)):
+                suggested_value = None
+            elif not math.isfinite(suggested_value):
+                suggested_value = None
+            suggested_unit = entry.get("suggestedUnit")
+            if not isinstance(suggested_unit, str) or not suggested_unit.strip():
+                suggested_unit = None
+            else:
+                suggested_unit = suggested_unit.strip()
+            issues.append({
+                "label": label,
+                "issue": str(entry.get("issue", "")).strip(),
+                "suggestedValue": suggested_value,
+                "suggestedUnit": suggested_unit,
+                "confidence": confidence,
+            })
+
+        if get_page is not None and any(issue["confidence"] == "high" for issue in issues):
+            deadline = time.monotonic() + budget_sec
+            for issue in issues:
+                if issue["confidence"] != "high":
+                    continue
+                # 仅预算检查处读时钟：预算不足则无法重读确认，降级为仅提示
+                if deadline - time.monotonic() < REVIEW_MIN_BUDGET_SEC:
+                    issue["confidence"] = "medium"
+                    continue
+                confirmed = self._confirm_issue_by_reread(
+                    issue, label_map.get(_normalize_label(issue["label"])),
+                    get_page, deadline - time.monotonic(),
+                )
+                if confirmed is None:
+                    issue["confidence"] = "medium"
+                else:
+                    issue["suggestedValue"] = confirmed
+
+        return {"issues": issues}
+
+    def _confirm_issue_by_reread(
+        self,
+        issue: Dict[str, Any],
+        original: Optional[Dict[str, Any]],
+        get_page: Any,
+        budget_sec: float,
+    ) -> Optional[float]:
+        """重读疑似指标所在页；确认返回重读值，否则返回 None（调用方降级 medium）。"""
+        if original is None:
+            return None
+        page_index = original.get("pageIndex", 0)
+        try:
+            reread = self._request_chunk([get_page(page_index)], page_index, budget_sec)
+        except Exception as exc:
+            logger.warning(
+                "doctor_review_reread_failed label=%s error=%s", issue["label"], exc,
+            )
+            return None
+        target = _normalize_label(issue["label"])
+        reread_value: Optional[float] = None
+        for item in reread.get("indicators", []):
+            if _normalize_label(item["rawLabel"]) == target:
+                reread_value = item["value"]
+                break
+        if reread_value is None:
+            return None
+        original_value = float(original["value"])
+        suggested = issue.get("suggestedValue")
+        if suggested is not None and math.isclose(
+            reread_value, float(suggested), rel_tol=1e-9, abs_tol=1e-9,
+        ):
+            return reread_value
+        if not math.isclose(reread_value, original_value, rel_tol=1e-9, abs_tol=1e-9):
+            return reread_value
+        return None
+
+    def _review_text_call(self, text: str, timeout: float) -> Dict[str, Any]:
+        """纯文本 chat/completions 复核调用；模型/凭证复用免费模型配置。"""
+        if not self.api_key and not self.fallback_api_key:
+            raise VisionEngineError("模型服务未配置 API Key")
+        model, base_url, api_key = self.model, self.base_url, self.api_key
+        if not api_key:
+            model, base_url, api_key = self.fallback_model, self.fallback_base_url, self.fallback_api_key
+        body: Dict[str, Any] = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "system", "content": DOCTOR_REVIEW_SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if "deepseek" in model.lower():
+            body["thinking"] = {"type": "disabled"}
+        try:
+            response = httpx.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise VisionEngineError("医生复核模型响应超时") from exc
+        except httpx.HTTPError as exc:
+            raise VisionEngineError("医生复核无法连接模型服务") from exc
+        if response.status_code >= 400:
+            raise VisionEngineError(
+                f"医生复核模型返回错误（HTTP {response.status_code}）"
+            )
+        payload = response.json()
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise VisionEngineError("医生复核模型返回数据格式错误")
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, list):
+            content = "\n".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in content
+            )
+        if not isinstance(content, str) or not content.strip():
+            raise VisionEngineError("医生复核模型未返回可解析内容")
+        json_text = _extract_first_json_object(_strip_code_fences(content))
+        if json_text is None:
+            raise VisionEngineError("医生复核返回内容无法解析为 JSON")
+        parsed = json.loads(json_text)
+        if not isinstance(parsed, dict):
+            raise VisionEngineError("医生复核返回 JSON 结构不符")
+        return parsed
 
     # ------------------------------------------------------------------
     def _open_pdf(self, content: bytes) -> tuple:

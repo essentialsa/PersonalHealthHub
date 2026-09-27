@@ -39,6 +39,9 @@ import { compressImageFile } from "@/app/services/imageCompress";
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
 const MAX_SIZE = 50 * 1024 * 1024;
 
+/** 后端医生复核问题（ParseResult.review.issues 单条） */
+type ReviewIssue = NonNullable<ParseResult["review"]>["issues"][number];
+
 /** 未命名分组来源的徽标文案与配色 */
 const GROUP_SOURCE_LABEL: Record<UnnamedGroup["source"], string> = {
   report: "报告分组",
@@ -188,6 +191,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [serviceStatus, setServiceStatus] = useState<ParserServiceStatus | null>(null);
   const [serviceChecking, setServiceChecking] = useState(false);
   const [filter, setFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const [anomalyOnly, setAnomalyOnly] = useState(false);
   const [retainReport, setRetainReport] = useState(true);
   // 用户勾选强制导入的"疑似重复"记录键（同日期+同指标+同数值）
   const [forcedDuplicates, setForcedDuplicates] = useState<Set<string>>(new Set());
@@ -195,6 +199,12 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
   const [excludedSuggested, setExcludedSuggested] = useState<Set<number>>(new Set());
   // 用户勾选排除的已匹配指标（matched 中的 index）；未勾选的已匹配指标默认导入
   const [excludedImports, setExcludedImports] = useState<Set<number>>(new Set());
+  // 后端医生复核问题：预览行警示展示与采纳/忽略交互
+  const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
+  // 已忽略的复核警示（key=label）：隐藏警示，值不变
+  const [dismissedReviews, setDismissedReviews] = useState<Set<string>>(new Set());
+  // 已采纳的复核建议（key=label → 建议值/单位）：matched 已同步改写
+  const [adoptedReviews, setAdoptedReviews] = useState<Record<string, { value: number; unit: string }>>({});
   const serviceOnline = serviceStatus?.online ?? null;
 
   // 解析原始提取结果：未命名指标改名后整表重跑 resolveIndicators 用
@@ -318,22 +328,6 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     }
   };
 
-  // 平滑进度动画：分段解析的进度只在每段请求返回时上报，期间可能长达 1 分钟无变化；
-  // 用时间驱动的指数趋近让进度条实时增长（永不回退、不超过 96%），
-  // 分段返回的真实进度以「取最大值」方式叠加，保证视觉上只进不退。
-  useEffect(() => {
-    if (!parsing) {
-      return;
-    }
-    const timer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 96) return prev;
-        return Math.min(96, prev + (96 - prev) * 0.008);
-      });
-    }, 500);
-    return () => clearInterval(timer);
-  }, [parsing]);
-
   const handleParse = async () => {
     if (!file) return;
     setParsing(true);
@@ -346,9 +340,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       const r = await parseMedicalReport(file, {
         signal: abortRef.current.signal,
         onProgress: (parsed, total) => {
-          // 分段完成里程碑：只允许向前推进，避免与平滑动画叠加时回退
-          const milestone = total ? Math.min(96, Math.round((parsed / total) * 100)) : 92;
-          setProgress(prev => Math.max(prev, milestone));
+          // SSE 真实进度（绝对页数/总页数）；老后端未返回总页数时给估算值
+          setProgress(total ? Math.round((parsed / total) * 100) : 92);
           setParseProgressText(total ? `${parsed}/${total} 页` : null);
         },
       });
@@ -359,6 +352,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       const resolved = resolveIndicators(nextExtracted, existingCategories);
       setMatched(resolved);
       setExtracted(nextExtracted);
+      setReviewIssues(r.review?.issues ?? []);
+      setDismissedReviews(new Set());
+      setAdoptedReviews({});
       setAiSuggestions({});
       setAiCategories({});
       setAiCategoryMissed(false);
@@ -652,6 +648,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setExcludedGroups(new Set());
     setImportingGroupKey(null);
     setAiCategoryMissed(false);
+    setReviewIssues([]);
+    setDismissedReviews(new Set());
+    setAdoptedReviews({});
   };
 
   /**
@@ -706,7 +705,28 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     setPendingCategories([]);
   };
 
-  const filtered = matched.filter(m => filter === "all" || m.confidence.level === filter);
+  /**
+   * 采纳复核建议：按 label 把建议值写入 adoptedReviews，并同步改写 matched 中
+   * 对应行的 value/unit，toImportableRecord 自然以建议值入库；建议值为空时不可采纳。
+   */
+  const adoptReviewSuggestion = (issue: ReviewIssue) => {
+    if (issue.suggestedValue === null) return;
+    const unit = issue.suggestedUnit ?? "";
+    setAdoptedReviews(prev => ({ ...prev, [issue.label]: { value: issue.suggestedValue!, unit } }));
+    setMatched(prev => prev.map(m =>
+      m.rawLabel === issue.label ? { ...m, value: issue.suggestedValue!, unit: unit || m.unit } : m,
+    ));
+  };
+
+  /** 忽略复核警示：按 label 隐藏警示，值保持不变 */
+  const dismissReviewIssue = (label: string) => {
+    setDismissedReviews(prev => new Set(prev).add(label));
+  };
+
+  const filtered = matched.filter(m =>
+    (filter === "all" || m.confidence.level === filter) &&
+    (!anomalyOnly || m.abnormalFlag === "H" || m.abnormalFlag === "L"),
+  );
   const counts = { all: matched.length, high: matched.filter(m => m.confidence.level === "high").length, medium: matched.filter(m => m.confidence.level === "medium").length, low: matched.filter(m => m.confidence.level === "low").length };
   const groupedCounts = groupByAction(matched);
   const previewDate = importDate;
@@ -892,6 +912,9 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       {f === "all" ? `全部 (${counts.all})` : `${confLabel[f]} (${counts[f]})`}
                     </Button>
                   ))}
+                  <Button variant={anomalyOnly ? "default" : "outline"} size="sm" onClick={() => setAnomalyOnly(v => !v)}>
+                    仅看异常 ({abnormalCount})
+                  </Button>
                 </div>
 
                 {/* 表格 */}
@@ -916,6 +939,10 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       const forceChecked = isDuplicate && dupKey !== null && forcedDuplicates.has(dupKey);
                       const matchedIndex = matched.indexOf(m);
                       const isExcluded = m.action === "import" && matchedIndex >= 0 && excludedImports.has(matchedIndex);
+                      // 复核警示：命中未忽略的复核问题时展示；已采纳显示灰色徽标
+                      const reviewIssue = reviewIssues.find(i => i.label === m.rawLabel);
+                      const isAdopted = reviewIssue !== undefined && adoptedReviews[reviewIssue.label] !== undefined;
+                      const showReviewWarning = reviewIssue !== undefined && !dismissedReviews.has(reviewIssue.label);
                       return (
                       <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : (m.abnormalFlag === "H" || m.abnormalFlag === "L") ? "bg-red-50/40" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
                         <TableCell className="font-medium min-w-[7rem] break-words">{m.rawLabel}</TableCell>
@@ -930,6 +957,48 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           <Badge variant={m.action === "import" ? "default" : "secondary"} className="text-xs">
                             {actionLabel[m.action]}
                           </Badge>
+                          {showReviewWarning && reviewIssue && (
+                            <div className="mt-1 space-y-0.5">
+                              <div className="flex items-center gap-1">
+                                {isAdopted ? (
+                                  <Badge variant="secondary" className="text-[10px] bg-gray-200 text-gray-600">已采纳</Badge>
+                                ) : (
+                                  <>
+                                    <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">复核警示</Badge>
+                                    {reviewIssue.confidence === "high" && (
+                                      <span className="text-[10px] text-orange-500">高置信</span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-orange-700">{reviewIssue.issue}</div>
+                              {reviewIssue.suggestedValue !== null && (
+                                <div className="text-[11px] text-orange-700">
+                                  建议 {reviewIssue.suggestedValue}{reviewIssue.suggestedUnit ? ` ${reviewIssue.suggestedUnit}` : ""}
+                                </div>
+                              )}
+                              {!isAdopted && reviewIssue.suggestedValue !== null && (
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 text-xs px-2 border-orange-300 text-orange-700"
+                                    onClick={() => adoptReviewSuggestion(reviewIssue)}
+                                  >
+                                    采纳
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs px-2 text-muted-foreground"
+                                    onClick={() => dismissReviewIssue(reviewIssue.label)}
+                                  >
+                                    忽略
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {isDuplicate && (
                             <div className="mt-1 flex items-center gap-1">
                               <Badge variant="destructive" className="text-[10px]">疑似重复</Badge>
@@ -1043,6 +1112,15 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                         const canImportGroup = Boolean(onEnsureCategoryItems);
                         const importing = canImportGroup && importingGroupKey === groupKey;
                         const includedInImport = group.source !== "none" && !excludedGroups.has(groupKey);
+                        // 「仅看异常」只影响展示：隐藏无异常条目的簇，簇全被隐藏则整组隐藏
+                        const visibleClusters = anomalyOnly
+                          ? group.clusters.filter(cluster =>
+                              cluster.items.some(item => item.abnormalFlag === "H" || item.abnormalFlag === "L"),
+                            )
+                          : group.clusters;
+                        if (visibleClusters.length === 0) {
+                          return null;
+                        }
                         return (
                           <div key={groupKey} className="rounded-lg border border-amber-200 bg-white/70 p-3">
                             <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2">
@@ -1089,7 +1167,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                               />
                             )}
                             <div className="space-y-2">
-                              {group.clusters.map(cluster => {
+                              {visibleClusters.map(cluster => {
                                 const suggestion = aiSuggestions[cluster.key];
                                 // 稳定 key：簇首条目在 matched 中的位置（重跑匹配后位置不变，组件不重挂载）
                                 const stableKey = matched.indexOf(cluster.items[0]);
@@ -1141,7 +1219,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                 </div>
 
                 <div className="sticky bottom-0 z-10 -mx-6 mt-4 border-t bg-white/95 px-6 pt-3 pb-1 backdrop-blur flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setTab("upload"); setResult(null); setMatched([]); }}>
+                  <Button variant="outline" onClick={() => { setTab("upload"); setResult(null); setMatched([]); setReviewIssues([]); setDismissedReviews(new Set()); setAdoptedReviews({}); }}>
                     <RefreshCw className="w-4 h-4 mr-1" /> 重新上传
                   </Button>
                   <Button

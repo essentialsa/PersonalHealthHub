@@ -68,11 +68,10 @@ def test_request_construction_and_success(monkeypatch):
                 })}}],
             }
 
+    calls = []
+
     def fake_post(url, headers=None, json=None, timeout=None):
-        captured["url"] = url
-        captured["headers"] = headers
-        captured["body"] = json
-        captured["timeout"] = timeout
+        calls.append({"url": url, "headers": headers, "body": json, "timeout": timeout})
         return FakeResponse()
 
     import parser.vision_engine as ve
@@ -82,11 +81,17 @@ def test_request_construction_and_success(monkeypatch):
     png = base64.b64encode(b"fakepng" + b"\x00" * 2000).decode("ascii")
     result = engine.parse_pdf(png.encode(), "report.png")
 
+    # 首个请求为视觉解析；后续（如有）为医生复核纯文本调用
+    captured = calls[0]
     assert captured["url"].endswith("/chat/completions")
     assert captured["headers"]["Authorization"] == "Bearer test-key"
     assert captured["body"]["model"] == "glm-4v-flash"
     assert captured["body"]["messages"][1]["content"][0]["type"] == "image_url"
     assert captured["body"]["messages"][1]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
+    # 预算充足时追加医生复核：纯文本请求，视觉 payload 无 issues → review 为空清单
+    assert len(calls) == 2
+    assert isinstance(calls[1]["body"]["messages"][1]["content"], str)
+    assert result["review"] == {"issues": []}
 
     assert result["success"] is True
     assert result["reportDate"] == "2026-01-15"
@@ -249,15 +254,19 @@ def test_fallback_model_used_on_primary_failure(monkeypatch):
     result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
 
     # 主模型（DeepSeek）失败后自动切换备用（智谱），各自携带独立端点与凭证
-    assert len(calls) == 2
     assert calls[0]["url"].startswith("https://api.deepseek.com/v1")
     assert calls[0]["auth"] == "Bearer deepseek-key"
     assert calls[1]["url"].startswith("https://open.bigmodel.cn/api/paas/v4")
     assert calls[1]["auth"] == "Bearer zhipu-key"
     assert calls[1]["model"] == "glm-4.6v-flash"
+    # 第 3 次为医生复核纯文本调用（主模型 429）→ 复核降级，不影响主结果
+    assert len(calls) == 3
+    assert calls[2]["url"].startswith("https://api.deepseek.com/v1")
+    assert calls[2]["model"] == "deepseek-flash"
 
     assert result["success"] is True
     assert result["indicators"][0]["rawLabel"] == "空腹血糖"
+    assert "review" not in result
 
 
 def test_fallback_api_key_falls_back_to_primary(monkeypatch):
@@ -342,6 +351,8 @@ def test_partial_empty_page_returns_success(monkeypatch):
     import parser.vision_engine as ve
 
     def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            return FakeResponse([])  # 医生复核纯文本调用：无 issues → 空清单
         # 通过请求体中的 page 文本区分页：第 0 页空、第 1 页有指标
         text_part = json["messages"][1]["content"][-1]["text"]
         if "第 1 至 1 张" in text_part:
@@ -496,12 +507,12 @@ def test_fallback_timeout_capped_by_remaining_budget(monkeypatch):
 
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
-    # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s]；
+    # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s, 复核预算检查 60s（剩余 -8 < 8 → 跳过复核）]；
     # worker 线程 [预算基准 10s（deadline=10+42=52）, 主模型剩余检查 10s（剩 42→timeout 42）,
     # 备用模型剩余检查 49s（剩 3→timeout 封顶 3）]
     import threading
     main_id = threading.get_ident()
-    main_clock = iter([0.0, 10.0])
+    main_clock = iter([0.0, 10.0, 60.0])
     worker_clock = iter([10.0, 10.0, 49.0])
 
     def fake_monotonic():
@@ -568,6 +579,8 @@ def test_page_range_slice(monkeypatch):
 
     def fake_post(url, headers=None, json=None, timeout=None):
         body = json
+        if isinstance(body["messages"][1]["content"], str):
+            return FakeResponse([])  # 医生复核纯文本调用：无 issues → 空清单
         offset = _chunk_offset_from_body(body)
         recorded.append(offset)
         return FakeResponse([{
@@ -638,6 +651,8 @@ def test_all_pages_parsed_in_parallel(monkeypatch):
 
     def fake_post(url, headers=None, json=None, timeout=None):
         body = json
+        if isinstance(body["messages"][1]["content"], str):
+            return FakeResponse([])  # 医生复核纯文本调用：无 issues → 空清单
         offset = _chunk_offset_from_body(body)
         image_count = sum(
             1 for part in body["messages"][1]["content"] if part.get("type") == "image_url"
@@ -701,6 +716,8 @@ def test_single_chunk_failure_degrades(monkeypatch):
     failed_offsets = []
 
     def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            return SuccessResponse()  # 医生复核纯文本调用：无 issues → 空清单
         offset = _chunk_offset_from_body(json)
         if offset == 4:
             failed_offsets.append(offset)
@@ -743,6 +760,330 @@ def test_code_fence_json_extracted(monkeypatch):
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert result["indicators"][0]["rawLabel"] == "ALT"
+
+
+def test_parse_pdf_stream_emits_chunk_events(monkeypatch):
+    """6 页 = 2 个 chunk：每完成一个 chunk yield chunk_done，结束 yield done，
+    且 done.result 与同步入口 parse_pdf 的结果完全一致。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def __init__(self, indicators):
+            self._indicators = indicators
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15", "indicators": self._indicators,
+            })}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            return FakeResponse([])  # 医生复核纯文本调用：无 issues → 空清单
+        offset = _chunk_offset_from_body(json)
+        return FakeResponse([{
+            "rawLabel": f"指标{offset}", "value": 1.0 + offset, "unit": "u",
+            "referenceRange": "1-100", "pageIndex": offset,
+        }])
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    def fake_open(content):
+        return 6, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000)
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._open_pdf = fake_open
+    events = list(engine.parse_pdf_stream(b"fake-pdf", "report.pdf"))
+
+    assert [e["event"] for e in events] == ["chunk_done", "chunk_done", "done"]
+    # 进度事件：已覆盖页数右端 +1 / 全文档页数
+    assert events[0]["parsed"] == 4 and events[0]["total"] == 6
+    assert events[1]["parsed"] == 6 and events[1]["total"] == 6
+
+    done_result = events[2]["result"]
+    assert done_result["success"] is True
+    assert done_result["pageCount"] == 6
+    assert done_result["parsedRange"] == [0, 5]
+    assert done_result["totalPages"] == 6
+    assert len(done_result["indicators"]) == 2
+    # done 事件的结果同样携带医生复核
+    assert done_result["review"] == {"issues": []}
+
+    # done.result 与同步入口结果完全一致
+    engine._open_pdf = fake_open
+    assert done_result == engine.parse_pdf(b"fake-pdf", "report.pdf")
+
+
+def test_parse_pdf_stream_yields_error_event_on_total_failure(monkeypatch):
+    """模型全失败：流式入口不上抛，而是 yield error 事件后结束。"""
+    import parser.vision_engine as ve
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        raise ve.httpx.TimeoutException("timeout")
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    engine._open_pdf = lambda content: (
+        6, lambda index: ("image/png", f"p{index}".encode() + b"\x00" * 2000),
+    )
+    events = list(engine.parse_pdf_stream(b"fake-pdf", "report.pdf"))
+
+    assert [e["event"] for e in events] == ["error"]
+    assert "超时" in events[0]["error"]
+
+
+def test_doctor_review_detects_issue_without_reread(monkeypatch):
+    """复核发现高置信疑点（无 get_page 场景）：issues 原样保留，不触发重读。"""
+    import parser.vision_engine as ve
+
+    review_payload = {"issues": [{
+        "label": "心率", "issue": "数值与单位量级矛盾", "suggestedValue": 125,
+        "suggestedUnit": "次/分", "confidence": "high",
+    }]}
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(review_payload)}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"body": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    indicators = [{
+        "rawLabel": "心率", "value": 1251, "unit": "cm/s",
+        "referenceRange": "60-100", "abnormalFlag": "H", "pageIndex": 0,
+    }]
+    review = engine._doctor_review(indicators, 30.0)
+
+    assert review == {"issues": [{
+        "label": "心率", "issue": "数值与单位量级矛盾", "suggestedValue": 125,
+        "suggestedUnit": "次/分", "confidence": "high",
+    }]}
+    # 仅一次纯文本调用：user content 为文本清单，超时 = min(20, 30-3)
+    assert len(calls) == 1
+    assert isinstance(calls[0]["body"]["messages"][1]["content"], str)
+    assert "心率: 1251 cm/s" in calls[0]["body"]["messages"][1]["content"]
+    assert calls[0]["timeout"] == 20
+
+
+def test_doctor_review_skipped_when_budget_low(monkeypatch):
+    """剩余预算不足 8s：不发文本请求，review 为 None。"""
+    import parser.vision_engine as ve
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(url)
+        raise AssertionError("预算不足时不应发起请求")
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    indicators = [{"rawLabel": "心率", "value": 80, "unit": "次/分",
+                   "referenceRange": "60-100", "abnormalFlag": "", "pageIndex": 0}]
+    assert engine._doctor_review(indicators, 7.9) is None
+    assert calls == []
+
+    # 解析流程内同样跳过：假时钟使复核预算检查时剩余 7s（52-45）
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "心率", "value": 80, "unit": "次/分",
+                     "referenceRange": "60-100", "pageIndex": 0},
+                ],
+            })}}]}
+
+    post_calls = []
+
+    def fake_post2(url, headers=None, json=None, timeout=None):
+        post_calls.append(json["model"])
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post2)
+
+    import threading
+    main_id = threading.get_ident()
+    clock = iter([0.0, 10.0, 45.0])
+
+    def fake_monotonic():
+        return next(clock) if threading.get_ident() == main_id else 10.0
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    assert result["success"] is True
+    assert "review" not in result
+    # 仅视觉解析 1 次调用，无复核文本请求
+    assert len(post_calls) == 1
+
+
+def test_doctor_review_degrades_on_timeout(monkeypatch):
+    """复核文本调用超时：降级为无 review，主解析结果不受影响。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "心率", "value": 1251, "unit": "cm/s",
+                     "referenceRange": "60-100", "pageIndex": 0},
+                ],
+            })}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            raise ve.httpx.TimeoutException("review timeout")
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+
+    assert result["success"] is True
+    assert len(result["indicators"]) == 1
+    assert "review" not in result
+
+
+def test_parse_result_includes_review_issues(monkeypatch):
+    """解析流程端到端：复核返回疑点时挂在 result['review']。"""
+    import parser.vision_engine as ve
+
+    class VisualResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "总胆固醇", "value": 362, "unit": "mmol/L",
+                     "referenceRange": "2.8-5.7", "pageIndex": 0},
+                ],
+            })}}]}
+
+    class ReviewResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({"issues": [{
+                "label": "总胆固醇", "issue": "数值与参考范围量级矛盾",
+                "suggestedValue": 3.62, "suggestedUnit": None, "confidence": "medium",
+            }]})}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            return ReviewResponse()
+        return VisualResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+
+    assert result["success"] is True
+    assert result["review"]["issues"] == [{
+        "label": "总胆固醇", "issue": "数值与参考范围量级矛盾",
+        "suggestedValue": 3.62, "suggestedUnit": None, "confidence": "medium",
+    }]
+
+
+def test_doctor_review_high_issue_confirmed_by_reread(monkeypatch):
+    """高置信疑点重读原页：重读值与建议值一致 → 确认（最终取重读值）。"""
+    import parser.vision_engine as ve
+
+    review_payload = {"issues": [{
+        "label": "心率", "issue": "数值疑似串行", "suggestedValue": 125,
+        "suggestedUnit": None, "confidence": "high",
+    }]}
+
+    class TextResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(review_payload)}}]}
+
+    class RereadResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "",
+                "indicators": [
+                    {"rawLabel": "心率", "value": 125, "unit": "次/分",
+                     "referenceRange": "60-100", "pageIndex": 0},
+                ],
+            })}}]}
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(json["messages"][1]["content"])
+        if isinstance(json["messages"][1]["content"], str):
+            return TextResponse()
+        return RereadResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    indicators = [{
+        "rawLabel": "心率", "value": 1251, "unit": "cm/s",
+        "referenceRange": "60-100", "abnormalFlag": "", "pageIndex": 0,
+    }]
+    review = engine._doctor_review(
+        indicators, 30.0, get_page=lambda index: ("image/png", b"x" * 2000),
+    )
+
+    # 第 1 次纯文本复核 + 第 2 次单页重读；确认后 confidence 保持 high，值为重读值
+    assert len(calls) == 2
+    assert isinstance(calls[0], str)
+    assert review["issues"] == [{
+        "label": "心率", "issue": "数值疑似串行", "suggestedValue": 125.0,
+        "suggestedUnit": None, "confidence": "high",
+    }]
+
+
+def test_doctor_review_high_issue_downgraded_when_reread_disagrees(monkeypatch):
+    """重读值与原值一致（不支持修正建议）：降级为 medium，仅提示不确认。"""
+    import parser.vision_engine as ve
+
+    review_payload = {"issues": [{
+        "label": "心率", "issue": "数值疑似串行", "suggestedValue": 125,
+        "suggestedUnit": None, "confidence": "high",
+    }]}
+
+    class TextResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(review_payload)}}]}
+
+    class RereadResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "",
+                "indicators": [
+                    {"rawLabel": "心率", "value": 1251, "unit": "cm/s",
+                     "referenceRange": "60-100", "pageIndex": 0},
+                ],
+            })}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            return TextResponse()
+        return RereadResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    indicators = [{
+        "rawLabel": "心率", "value": 1251, "unit": "cm/s",
+        "referenceRange": "60-100", "abnormalFlag": "", "pageIndex": 0,
+    }]
+    review = engine._doctor_review(
+        indicators, 30.0, get_page=lambda index: ("image/png", b"x" * 2000),
+    )
+    assert review["issues"][0]["confidence"] == "medium"
+    assert review["issues"][0]["suggestedValue"] == 125
 
 
 def test_decimal_shift_correction():
