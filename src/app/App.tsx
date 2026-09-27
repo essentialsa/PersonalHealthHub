@@ -2871,6 +2871,20 @@ export const buildIndicatorDataRows = (
   );
 };
 
+/**
+ * 异常指标视图：只保留存在异常记录（H/L）的指标项，
+ * 避免数据列表出现整行「-」的空列误导。
+ */
+export const filterItemsWithAnomalyRecords = <T extends { id: string }>(
+  items: T[],
+  records: HealthRecord[],
+): T[] => {
+  const anomalyIds = new Set(
+    records.filter(r => r.abnormalFlag === "H" || r.abnormalFlag === "L").map(r => r.indicatorType),
+  );
+  return items.filter(item => anomalyIds.has(item.id));
+};
+
 export default function App() {
   const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
   console.log("[Auth Debug] SUPABASE_URL:", SUPABASE_URL);
@@ -3452,9 +3466,13 @@ export default function App() {
     : indicatorCategories.find(category => category.id === indicatorDataCategoryId) ??
       indicatorCategories[0] ??
       null;
-  const indicatorDataItems = indicatorDataCategory
+  const enabledDataItems = indicatorDataCategory
     ? indicatorDataCategory.items.filter(item => item.enabled !== false)
     : [];
+  // 异常指标视图：隐藏没有异常记录的列，避免整行「-」误导
+  const indicatorDataItems = anomalyOnly
+    ? filterItemsWithAnomalyRecords(enabledDataItems, effectiveRecords)
+    : enabledDataItems;
   const indicatorDataIds = indicatorDataItems.map(item => item.id);
   const indicatorDataRows = indicatorDataCategory
     ? buildIndicatorDataRows(effectiveRecords, indicatorDataIds)
