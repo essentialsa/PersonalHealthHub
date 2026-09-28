@@ -438,7 +438,7 @@ function LoginPage({ onLogin, onSignUp, onResetPassword, onOAuthLogin, errorMess
                   value={password}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                   placeholder={strongPasswordHint}
-                  className="h-12 pl-10 rounded-[12px] bg-[#f7f6fd] border-transparent focus-visible:border-[#8b5cf6]"
+                  className="h-12 pl-10 rounded-[12px] bg-[#f7f6fd] border-transparent focus-visible:border-[#8b5cf6] placeholder:text-[12px]"
                 />
               </div>
             </div>

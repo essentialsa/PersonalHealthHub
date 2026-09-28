@@ -28,21 +28,26 @@ function SheetPortal({
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
 }
 
-function SheetOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof SheetPrimitive.Overlay>) {
-  return (
-    <SheetPrimitive.Overlay
-      data-slot="sheet-overlay"
-      className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
+type SheetOverlayRef = React.ElementRef<typeof SheetPrimitive.Overlay>;
+type SheetOverlayProps = React.ComponentPropsWithoutRef<typeof SheetPrimitive.Overlay>;
+
+const SheetOverlay = React.forwardRef<SheetOverlayRef, SheetOverlayProps>(
+  ({ className, ...props }, ref) => {
+    return (
+      <SheetPrimitive.Overlay
+        ref={ref}
+        data-slot="sheet-overlay"
+        className={cn(
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[rgba(20,15,50,0.55)] backdrop-blur-[8px] backdrop-saturate-[1.15]",
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+);
+
+SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 function SheetContent({
   className,
