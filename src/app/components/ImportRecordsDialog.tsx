@@ -520,18 +520,15 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className={cn(
-            "gap-2 bg-white/80 backdrop-blur-sm border-violet-200 hover:bg-violet-50 hover:border-violet-300",
-            triggerClassName,
-          )}
+          className={cn("gap-2", triggerClassName)}
         >
           <UploadCloud className="w-4 h-4" />
           {triggerLabel ?? "Excel 导入"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[760px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
+      <DialogContent className="sm:max-w-[760px]">
         <DialogHeader>
-          <DialogTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
+          <DialogTitle className="text-2xl">
             Excel 导入
           </DialogTitle>
         </DialogHeader>
@@ -553,11 +550,11 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
           }}
           className="mt-4"
         >
-          <TabsList className="grid w-full grid-cols-2 bg-violet-50/60 border border-violet-100 rounded-xl">
-            <TabsTrigger value="file" className="text-xs sm:text-sm">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="file">
               文件导入
             </TabsTrigger>
-            <TabsTrigger value="manual" className="text-xs sm:text-sm">
+            <TabsTrigger value="manual">
               手动录入
             </TabsTrigger>
           </TabsList>
@@ -566,7 +563,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-1 space-y-2">
-                  <Label className="text-gray-700">检验指标种类</Label>
+                  <Label className="text-[13px] font-semibold text-[#5a5a75]">检验指标种类</Label>
                   <Select
                     value={selectedCategoryId}
                     onValueChange={(value: string) => {
@@ -577,10 +574,10 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       setManualError(null);
                     }}
                   >
-                    <SelectTrigger className="border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
+                    <SelectTrigger>
                       <SelectValue placeholder="请选择检验指标种类" />
                     </SelectTrigger>
-                    <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200 max-h-64">
+                    <SelectContent className="max-h-64">
                       <SelectItem key="__all__" value="__all__">
                         全部（所有分类）
                       </SelectItem>
@@ -591,33 +588,36 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs leading-relaxed text-[#9a9ab0]">
                     将根据所选种类下已维护的具体检验项目，对表格中的列或项目名称进行匹配。
                   </p>
                 </div>
                 <div className="md:col-span-2 space-y-2">
-                  <Label className="text-gray-700">上传文件</Label>
+                  <Label className="text-[13px] font-semibold text-[#5a5a75]">上传文件</Label>
                   <div
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
-                    className="flex flex-col items-center justify-center gap-2 px-4 py-6 border-2 border-dashed rounded-xl border-violet-200 bg-violet-50/40 hover:bg-violet-50 transition"
+                    className="flex flex-col items-center justify-center gap-2 px-4 py-6 border-2 border-dashed rounded-[12px] border-[#ddd6fe] bg-[rgba(245,243,255,0.4)] hover:bg-[rgba(245,243,255,0.85)] hover:border-[#c4b5fd] transition"
                   >
-                    <UploadCloud className="w-8 h-8 text-violet-400" />
-                    <p className="text-sm text-gray-700">
+                    <UploadCloud className="w-8 h-8 text-[#a78bfa]" />
+                    <p className="text-sm text-[#20203a]">
                       将文件拖拽到此处，或
-                      <span className="text-violet-600 mx-1">点击选择文件</span>
+                      <span className="text-[#7c3aed] font-semibold mx-1">点击选择文件</span>
                     </p>
-                    <p className="text-xs text-gray-400">支持 xlsx / xls / csv，建议使用包含表头的标准表格。</p>
-                    <Input
-                      type="file"
-                      accept=".xlsx,.xls,.csv"
-                      onChange={handleFileChange}
-                      className="mt-2 cursor-pointer"
-                    />
+                    <p className="text-xs text-[#9a9ab0]">支持 xlsx / xls / csv，建议使用包含表头的标准表格。</p>
+                    <label className="relative mt-1 inline-flex h-[30px] cursor-pointer items-center justify-center rounded-lg border border-[rgba(124,58,237,0.35)] bg-white/80 px-[18px] text-[12.5px] font-semibold text-[#7c3aed] transition hover:bg-[#f5f3ff] hover:border-[#a78bfa]">
+                      选择文件
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={handleFileChange}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      />
+                    </label>
                     {fileName && (
-                      <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                        <FileSpreadsheet className="w-3 h-3 text-emerald-500" />
-                        <span>{fileName}</span>
+                      <div className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#a7f3d0] bg-[rgba(236,253,245,0.85)] px-3 py-1 text-xs text-[#5a5a75]">
+                        <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-[#10b981]" />
+                        <span className="truncate">{fileName}</span>
                       </div>
                     )}
                   </div>
@@ -626,17 +626,17 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm text-gray-700">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold text-[#20203a]">
                     <span>数据预览</span>
                     {phase === "parsing" && (
-                      <span className="text-xs text-violet-500">正在解析文件，请稍候...</span>
+                      <span className="text-xs font-normal text-[#6c5ce7]">正在解析文件，请稍候...</span>
                     )}
                     {phase === "parsed" && parsedRows.length > 0 && (
-                      <span className="flex items-center gap-1 text-xs text-emerald-600">
+                      <span className="flex items-center gap-1 text-xs font-normal text-[#059669]">
                         <CheckCircle2 className="w-3 h-3" />
                         解析完成：共 {parsedRows.length} 行，其中有效 {validRows.length} 行，存在问题 {invalidRows.length} 行。
                         {duplicateRowCount > 0 && (
-                          <span className="text-amber-600">疑似重复 {duplicateRowCount} 行（默认跳过）。</span>
+                          <span className="text-[#d97706]">疑似重复 {duplicateRowCount} 行（默认跳过）。</span>
                         )}
                       </span>
                     )}
@@ -647,34 +647,34 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       variant="outline"
                       size="sm"
                       onClick={handleDownloadErrorReport}
-                      className="h-7 px-2 text-xs border-rose-200 text-rose-500 hover:bg-rose-50"
+                      className="h-7 rounded-lg px-2.5 text-xs border-[#fecdd3] bg-white text-[#f43f5e] hover:bg-[#fff1f2] hover:border-[#fda4af] hover:text-[#f43f5e]"
                     >
                       导出错误报告
                     </Button>
                   )}
                 </div>
                 {parseError && (
-                  <div className="flex items-start gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                  <div className="flex items-start gap-2 text-xs text-[#f0476a] bg-[#fdeef2] border border-[rgba(240,71,106,0.18)] rounded-lg px-3 py-2">
                     <AlertTriangle className="w-4 h-4 mt-0.5" />
                     <div>
                       <div>{parseError}</div>
-                      <div className="mt-1 text-[11px] text-rose-500">
+                      <div className="mt-1 text-[11px] text-[#f0476a]/80">
                         请确认文件为包含「数据日期」与「检验项目/指标/名称」及「数值」列的长表，或「数据日期」加多列指标名称的宽表。
                       </div>
                     </div>
                   </div>
                 )}
                 {parsedRows.length > 0 ? (
-                  <div className="border border-violet-100 rounded-xl overflow-hidden bg-white/40 max-h-64">
+                  <div className="border border-[#ede9fe] rounded-[12px] overflow-y-auto bg-white/55 max-h-64">
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-violet-100 bg-violet-50/60">
-                          <TableHead className="text-gray-700 text-xs w-20">原始行号</TableHead>
-                          <TableHead className="text-gray-700 text-xs w-28">数据日期</TableHead>
-                          <TableHead className="text-gray-700 text-xs w-40">检验项目</TableHead>
-                          <TableHead className="text-gray-700 text-xs w-24">数值</TableHead>
-                          <TableHead className="text-gray-700 text-xs w-20">单位</TableHead>
-                          <TableHead className="text-gray-700 text-xs">状态</TableHead>
+                        <TableRow className="border-[#ede9fe] bg-[rgba(245,243,255,0.6)] hover:bg-[rgba(245,243,255,0.6)]">
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-20">原始行号</TableHead>
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-28">数据日期</TableHead>
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-40">检验项目</TableHead>
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-24">数值</TableHead>
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-20">单位</TableHead>
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold">状态</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -686,28 +686,28 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                           return (
                             <TableRow
                               key={`${row.sourceRowIndex}-${row.indicatorLabelGuess}`}
-                              className={hasError ? "bg-rose-50/40" : isDuplicate ? "bg-amber-50/40" : ""}
+                              className={hasError ? "bg-[rgba(255,228,230,0.55)] hover:bg-[#ffdfe2]" : isDuplicate ? "bg-[rgba(254,243,199,0.5)] hover:bg-[#fdeec0]" : ""}
                             >
-                              <TableCell className="text-xs text-gray-500">{row.sourceRowIndex}</TableCell>
-                              <TableCell className="text-xs text-gray-700">{row.date}</TableCell>
-                              <TableCell className="text-xs text-gray-700">
+                              <TableCell className="text-xs text-[#9a9ab0]">{row.sourceRowIndex}</TableCell>
+                              <TableCell className="text-xs text-[#20203a]">{row.date}</TableCell>
+                              <TableCell className="text-xs text-[#20203a]">
                                 {row.indicatorLabelGuess}
                               </TableCell>
-                              <TableCell className="text-xs text-gray-700">
+                              <TableCell className="text-xs font-semibold text-[#20203a]">
                                 {row.value === null ? "-" : row.value}
                               </TableCell>
-                              <TableCell className="text-xs text-gray-500">
+                              <TableCell className="text-xs text-[#9a9ab0]">
                                 {row.unit || "-"}
                               </TableCell>
                               <TableCell className="text-xs">
                                 {hasError ? (
-                                  <span className="text-rose-500">
+                                  <span className="text-[#f43f5e]">
                                     {row.errors.join("；")}
                                   </span>
                                 ) : isDuplicate ? (
                                   <span className="flex items-center gap-1">
-                                    <span className="text-amber-600">疑似重复</span>
-                                    <label className="flex items-center gap-1 text-[11px] text-gray-500">
+                                    <span className="text-[#d97706] font-semibold">疑似重复</span>
+                                    <label className="flex items-center gap-1 text-[11px] text-[#5a5a75]">
                                       <Checkbox
                                         checked={forceChecked}
                                         onCheckedChange={checked => {
@@ -726,7 +726,7 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                                     </label>
                                   </span>
                                 ) : (
-                                  <span className="text-emerald-600">可导入</span>
+                                  <span className="text-[#059669] font-semibold">可导入</span>
                                 )}
                               </TableCell>
                             </TableRow>
@@ -736,20 +736,20 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                     </Table>
                   </div>
                 ) : (
-                  <div className="h-32 flex flex-col items-center justify-center text-gray-400 text-sm border border-dashed border-violet-100 rounded-xl bg-white/30">
-                    <UploadCloud className="w-6 h-6 mb-2 text-violet-300" />
+                  <div className="h-32 flex flex-col items-center justify-center text-[#9a9ab0] text-sm border border-dashed border-[#ddd6fe] rounded-[12px] bg-[rgba(245,243,255,0.3)]">
+                    <UploadCloud className="w-6 h-6 mb-2 text-[#c4b5fd]" />
                     <p>上传文件后将在此显示解析结果摘要。</p>
                   </div>
                 )}
                 {parsedRows.length > 50 && (
-                  <p className="text-[11px] text-gray-400">
+                  <p className="text-[11px] text-[#9a9ab0]">
                     仅展示前 50 行预览，完整数据将按校验结果导入。
                   </p>
                 )}
               </div>
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
-                <div className="text-[11px] text-gray-400">
+                <div className="text-[11px] text-[#9a9ab0]">
                   建议表格模板：
                   <span className="ml-1">
                     A 类：数据日期 / 检验项目 / 数值；
@@ -764,14 +764,12 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       setOpen(false);
                       handleReset();
                     }}
-                    className="border-violet-200 hover:bg-violet-50"
                   >
                     取消
                   </Button>
                   <Button
                     type="submit"
                     disabled={!canImport}
-                    className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     确认导入有效数据
                     {importableRows.length > 0 && (
@@ -787,16 +785,15 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
             <form onSubmit={handleManualSubmit} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-gray-700">数据日期</Label>
+                  <Label className="text-[13px] font-semibold text-[#5a5a75]">数据日期</Label>
                   <Input
                     type="date"
                     value={manualDate}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setManualDate(e.target.value)}
-                    className="border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80"
                   />
                 </div>
                 <div className="md:col-span-2 space-y-2">
-                  <Label className="text-gray-700">检验指标种类</Label>
+                  <Label className="text-[13px] font-semibold text-[#5a5a75]">检验指标种类</Label>
                   <Select
                     value={selectedCategoryId}
                     onValueChange={(value: string) => {
@@ -805,10 +802,10 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       setManualError(null);
                     }}
                   >
-                    <SelectTrigger className="border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
+                    <SelectTrigger>
                       <SelectValue placeholder="请选择检验指标种类" />
                     </SelectTrigger>
-                    <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200 max-h-64">
+                    <SelectContent className="max-h-64">
                       {categories.map(category => (
                         <SelectItem key={category.id} value={category.id}>
                           {category.name}
@@ -816,13 +813,13 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-400">手动录入仅支持单一分类。</p>
+                  <p className="text-xs leading-relaxed text-[#9a9ab0]">手动录入仅支持单一分类。</p>
                 </div>
               </div>
 
               {manualCategory ? (
-                <div className="rounded-xl border border-violet-100 bg-white/80">
-                  <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
+                <div className="rounded-[12px] border border-[#ede9fe] bg-white/80">
+                  <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-[#f3f0fe] bg-[rgba(245,243,255,0.5)] text-[11px] font-semibold text-[#5a5a75]">
                     <div className="col-span-5">检验项目</div>
                     <div className="col-span-3">参考范围</div>
                     <div className="col-span-2">单位</div>
@@ -830,17 +827,17 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                   </div>
                   <div className="max-h-64 overflow-y-auto py-1 pr-1 space-y-1">
                     {manualCategory.items.length === 0 ? (
-                      <div className="px-3 py-6 text-center text-sm text-gray-400">
+                      <div className="px-3 py-6 text-center text-sm text-[#9a9ab0]">
                         当前分类暂无项目，请先维护检验项目。
                       </div>
                     ) : (
                       manualCategory.items.map(item => (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center px-3 py-1.5">
-                          <div className="col-span-5 text-sm text-gray-700">{item.label}</div>
-                          <div className="col-span-3 text-xs text-gray-500">
+                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center px-3 py-1.5 rounded-lg hover:bg-[rgba(245,243,255,0.75)]">
+                          <div className="col-span-5 text-[13.5px] font-medium text-[#20203a]">{item.label}</div>
+                          <div className="col-span-3 text-xs text-[#5a5a75]">
                             {item.referenceRange || "-"}
                           </div>
-                          <div className="col-span-2 text-xs text-gray-500">
+                          <div className="col-span-2 text-xs text-[#5a5a75]">
                             {item.unit || "-"}
                           </div>
                           <div className="col-span-2 flex justify-end">
@@ -855,7 +852,10 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                                 }))
                               }
                               placeholder="数值"
-                              className="h-8 w-24 text-sm border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                              className={cn(
+                                "h-8 w-24 rounded-lg border-[#ddd6fe] bg-white/90 text-sm",
+                                (manualValues[item.id] ?? "") !== "" && "border-[#c4b5fd] bg-[#faf7ff] font-semibold text-[#6d28d9]",
+                              )}
                             />
                           </div>
                         </div>
@@ -864,21 +864,21 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                   </div>
                 </div>
               ) : (
-                <div className="h-32 flex flex-col items-center justify-center text-gray-400 text-sm border border-dashed border-violet-100 rounded-xl bg-white/30">
-                  <UploadCloud className="w-6 h-6 mb-2 text-violet-300" />
+                <div className="h-32 flex flex-col items-center justify-center text-[#9a9ab0] text-sm border border-dashed border-[#ddd6fe] rounded-[12px] bg-[rgba(245,243,255,0.3)]">
+                  <UploadCloud className="w-6 h-6 mb-2 text-[#c4b5fd]" />
                   <p>请选择具体的检验指标分类后开始录入。</p>
                 </div>
               )}
 
               {manualError && (
-                <div className="flex items-start gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                <div className="flex items-start gap-2 text-xs text-[#f0476a] bg-[#fdeef2] border border-[rgba(240,71,106,0.18)] rounded-lg px-3 py-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5" />
                   <div>{manualError}</div>
                 </div>
               )}
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
-                <div className="text-[11px] text-gray-400">
+                <div className="text-[11px] text-[#9a9ab0]">
                   仅会保存已填写的项目，空白行将自动忽略。
                 </div>
                 <div className="flex justify-end gap-2">
@@ -889,14 +889,12 @@ export function ImportRecordsDialog({ categories, onImportRecords, existingRecor
                       setOpen(false);
                       handleReset();
                     }}
-                    className="border-violet-200 hover:bg-violet-50"
                   >
                     取消
                   </Button>
                   <Button
                     type="submit"
                     disabled={!manualCategory || manualRecordCount === 0 || manualHasInvalid}
-                    className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     确认录入
                     {manualRecordCount > 0 && (

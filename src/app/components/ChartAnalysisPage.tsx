@@ -16,21 +16,40 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ChartArea, ChartBar, ChartLine, ChevronsDown, ChevronsUp, LayoutGrid, Minus } from "lucide-react";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 const CHART_LINE_COLORS = [
-  "#6366f1",
-  "#22c55e",
-  "#f97316",
+  "#6c5ce7",
+  "#0f9d6e",
+  "#3b82f6",
+  "#d97706",
+  "#8b5cf6",
   "#ec4899",
-  "#0ea5e9",
-  "#a855f7",
-  "#facc15",
-  "#14b8a6",
 ];
-const GRID_COLOR = "#e9d5ff";
-const TICK_COLOR = "#9ca3af";
+const GRID_COLOR = "rgba(32,27,72,0.06)";
+const TICK_COLOR = "#9a9ab0";
+
+const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
+  if (!range) return null;
+  const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
+  const parts = cleaned.split("-").filter(Boolean);
+  if (parts.length === 2) {
+    const min = parseFloat(parts[0]);
+    const max = parseFloat(parts[1]);
+    if (!isNaN(min) && !isNaN(max)) return { min, max };
+  }
+  return null;
+};
+
+const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
+  const parsed = parseReferenceRange(range);
+  if (!parsed) return "normal";
+  if (parsed.max !== undefined && value > parsed.max) return "above";
+  if (parsed.min !== undefined && value < parsed.min) return "below";
+  return "normal";
+};
 
 type TimeRange = "7d" | "30d" | "90d" | "all";
 
@@ -84,18 +103,18 @@ function OverlayTooltip({
   }
   const row = payload[0].payload;
   return (
-    <div className="rounded-xl border border-violet-100 bg-white/95 px-3 py-2 text-xs shadow-lg">
-      <div className="text-gray-500 mb-1">{String(row.rawDate)}</div>
+    <div className="rounded-[12px] border border-[#ede9fe] bg-white px-3 py-2 text-xs shadow-[0_2px_6px_rgba(0,0,0,0.05)]">
+      <div className="text-[#9a9ab0] mb-1">{String(row.rawDate)}</div>
       {visibleSeries.map(series => {
         const raw = row[`raw_${series.item.id}`];
         if (raw === undefined) {
           return null;
         }
         return (
-          <div key={series.item.id} className="flex items-center gap-1.5 text-gray-700">
+          <div key={series.item.id} className="flex items-center gap-1.5 text-[#5a5a75]">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: series.color }} />
             <span>{series.item.label}：</span>
-            <span className="font-semibold text-gray-800">
+            <span className="font-semibold text-[#20203a]">
               {formatNumber(Number(raw))}
               {series.item.unit || ""}
             </span>
@@ -251,7 +270,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
 
   const renderChart = (type: ChartType, series: (typeof indicatorSeries)[number]) => {
     const axisProps = {
-      tick: { fontSize: 11, fill: TICK_COLOR },
+      tick: { fontSize: 11.5, fill: TICK_COLOR },
       tickLine: false,
       axisLine: { stroke: GRID_COLOR },
     } as const;
@@ -259,8 +278,8 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
       <Tooltip
         contentStyle={{
           borderRadius: 12,
-          border: "1px solid #e9d5ff",
-          background: "rgba(255,255,255,0.96)",
+          border: "1px solid #ede9fe",
+          background: "#ffffff",
           fontSize: 12,
         }}
         labelFormatter={label => `日期：${label}`}
@@ -322,45 +341,46 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
   };
 
   return (
-    <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
-      <div className="px-6 py-5 border-b border-violet-100 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="bg-white border border-[rgba(32,27,72,0.09)] rounded-[18px] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div className="px-5 py-4 border-b border-[rgba(32,27,72,0.09)] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-base font-semibold text-gray-800">趋势分析</h3>
-          <p className="text-[13px] text-gray-500 mt-0.5">查看各项指标的历史变化趋势</p>
+          <h3 className="text-base font-bold text-[#20203a]">趋势分析</h3>
+          <p className="text-[12.5px] text-[#9a9ab0] mt-0.5">查看各项指标的历史变化趋势</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex bg-violet-50 border border-violet-100 rounded-full p-1 gap-1" role="group" aria-label="图表展示模式">
+          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-[12px] bg-[rgba(245,243,255,0.7)] border border-[#ede9fe]" role="group" aria-label="图表展示模式">
             {(
               [
-                ["cards", "分指标卡片"],
-                ["overlay", "多指标对比"],
+                ["cards", "分指标卡片", LayoutGrid],
+                ["overlay", "多指标对比", ChartLine],
               ] as const
-            ).map(([value, label]) => (
+            ).map(([value, label, Icon]) => (
               <button
                 key={value}
                 type="button"
                 aria-pressed={viewMode === value}
                 onClick={() => setViewMode(value)}
-                className={`px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                className={`inline-flex items-center gap-1.5 px-3 h-7 rounded-[9px] text-[12.5px] font-medium transition-colors ${
                   viewMode === value
-                    ? "bg-white text-violet-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-white text-[#6d28d9] font-semibold shadow-[0_2px_8px_rgba(108,92,231,0.18)]"
+                    : "text-[#5a5a75] hover:text-[#20203a]"
                 }`}
               >
+                <Icon className="w-3.5 h-3.5" />
                 {label}
               </button>
             ))}
           </div>
-          <div className="inline-flex bg-violet-50 border border-violet-100 rounded-full p-1 gap-1">
+          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-[12px] bg-[rgba(245,243,255,0.7)] border border-[#ede9fe]">
             {TIME_RANGES.map(range => (
               <button
                 key={range.value}
                 type="button"
                 onClick={() => setTimeRange(range.value)}
-                className={`px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                className={`px-3.5 h-7 rounded-[9px] text-[12.5px] font-medium transition-colors ${
                   timeRange === range.value
-                    ? "bg-white text-violet-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-white text-[#6d28d9] font-semibold shadow-[0_2px_8px_rgba(108,92,231,0.18)]"
+                    : "text-[#5a5a75] hover:text-[#20203a]"
                 }`}
               >
                 {range.label}
@@ -371,7 +391,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
             value={category?.id ?? ""}
             onChange={event => setCategoryId(event.target.value)}
             aria-label="选择检验指标种类"
-            className="h-10 px-3.5 pr-9 rounded-lg border border-violet-200 bg-white/80 text-sm text-gray-700 outline-none transition-colors focus:border-violet-400 focus:ring-2 focus:ring-violet-100 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%236b7280%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_10px_center]"
+            className="h-[34px] pl-3.5 pr-9 rounded-[10px] border-0 bg-[#f1f1f7] text-[13px] font-medium text-[#20203a] outline-none transition-colors hover:bg-[#e8e8f2] focus:ring-2 focus:ring-[rgba(108,92,231,0.35)] appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%239a9ab0%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_10px_center]"
           >
             {categories.map(item => (
               <option key={item.id} value={item.id}>
@@ -382,21 +402,21 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-5">
         {!category || category.items.filter(item => item.enabled !== false).length === 0 ? (
-          <div className="border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm">
+          <div className="border border-[rgba(32,27,72,0.09)] bg-[#fafafd] h-40 rounded-[14px] flex flex-col items-center justify-center text-[#9a9ab0] text-sm">
             暂无可展示的指标数据
           </div>
         ) : indicatorSeries.length === 0 ? (
-          <div className="border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm gap-1">
+          <div className="border border-[rgba(32,27,72,0.09)] bg-[#fafafd] h-40 rounded-[14px] flex flex-col items-center justify-center text-[#9a9ab0] text-sm gap-1">
             <span>{query ? "没有匹配搜索关键词的指标" : "当前时间范围内暂无数据"}</span>
             {query && <span className="text-xs">清空搜索框可查看全部指标</span>}
           </div>
         ) : viewMode === "overlay" ? (
-          <div className="bg-white/80 border border-violet-100 rounded-xl p-5">
-            <div className="text-sm font-semibold text-gray-800">
+          <div className="bg-[#fafafd] border border-[rgba(32,27,72,0.09)] rounded-[14px] p-5">
+            <div className="text-[13.5px] font-semibold text-[#20203a]">
               {`${category?.name ?? ""} · 多指标对比`}
-              <span className="ml-2 text-[11px] font-normal text-gray-400">
+              <span className="ml-2 text-[11.5px] font-normal text-[#9a9ab0]">
                 {useNormalization
                   ? "纵轴为归一化值（0-100），悬停查看原始值"
                   : `纵轴为原始值${overlayUnit ? `（单位：${overlayUnit}）` : ""}`}
@@ -408,13 +428,13 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                   <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 11, fill: TICK_COLOR }}
+                    tick={{ fontSize: 11.5, fill: TICK_COLOR }}
                     tickLine={false}
                     axisLine={{ stroke: GRID_COLOR }}
                   />
                   <YAxis
                     domain={useNormalization ? [0, 100] : ["auto", "auto"]}
-                    tick={{ fontSize: 11, fill: TICK_COLOR }}
+                    tick={{ fontSize: 11.5, fill: TICK_COLOR }}
                     tickLine={false}
                     axisLine={{ stroke: GRID_COLOR }}
                     {...(overlayUnit
@@ -423,7 +443,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                             value: overlayUnit,
                             angle: -90,
                             position: "insideLeft",
-                            style: { fontSize: 11, fill: TICK_COLOR, textAnchor: "middle" },
+                            style: { fontSize: 11.5, fill: TICK_COLOR, textAnchor: "middle" },
                           },
                         }
                       : {})}
@@ -444,7 +464,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-3 pt-3 border-t border-violet-100 flex flex-wrap gap-2">
+            <div className="mt-3 pt-3 border-t border-[rgba(32,27,72,0.09)] flex flex-wrap gap-2">
               {indicatorSeries.map(series => {
                 const hidden = hiddenIds.has(series.item.id);
                 return (
@@ -465,13 +485,13 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                     }
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
                       hidden
-                        ? "border-gray-200 bg-gray-50 text-gray-400 line-through"
-                        : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                        ? "border-[rgba(32,27,72,0.09)] bg-[#f1f1f7] text-[#b8b8cc] line-through"
+                        : "border-[#ede9fe] bg-[rgba(245,243,255,0.7)] text-[#5a5a75] hover:bg-[#efedfd]"
                     }`}
                   >
                     <span
                       className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: hidden ? "#c4b5fd" : series.color }}
+                      style={{ background: hidden ? "#b8b8cc" : series.color }}
                     />
                     {series.item.label}
                   </button>
@@ -480,7 +500,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {indicatorSeries.map((series, index) => {
               const values = series.points.map(point => point.value);
               const max = Math.max(...values);
@@ -491,20 +511,29 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
               const deltaText =
                 delta === 0 ? "持平" : `${delta > 0 ? "+" : "-"}${formatNumber(Math.abs(delta))}${series.item.unit || ""}`;
               const chartType = CHART_TYPES[index % CHART_TYPES.length];
+              const rangeStatus = checkRange(latest, series.item.referenceRange);
               return (
                 <div
                   key={series.item.id}
-                  className="bg-white/80 border border-violet-100 rounded-xl p-5 hover:shadow-lg hover:shadow-violet-100/50 hover:-translate-y-0.5 transition-all duration-200"
+                  className="bg-[#fafafd] border border-[rgba(32,27,72,0.09)] rounded-[14px] p-4 flex flex-col gap-3 hover:shadow-[0_2px_6px_rgba(0,0,0,0.05)] transition-shadow duration-200"
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm font-semibold text-gray-800">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-[13px] font-semibold text-[#20203a]">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: series.color }} />
                       {series.item.label}
                       {series.item.unit ? (
-                        <span className="ml-1 text-[11px] text-gray-400">({series.item.unit})</span>
+                        <span className="text-[11.5px] font-medium text-[#9a9ab0]">({series.item.unit})</span>
                       ) : null}
                     </span>
-                    <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-violet-100 text-violet-600">
-                      {deltaText}
+                    <span
+                      className={`inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full text-[11.5px] font-semibold ${
+                        rangeStatus === "normal"
+                          ? "bg-[#e8f7f1] text-[#0f9d6e]"
+                          : "bg-[#fdeef2] text-[#f0476a]"
+                      }`}
+                    >
+                      <span className="w-[5px] h-[5px] rounded-full bg-current" />
+                      {rangeStatus === "normal" ? "正常" : rangeStatus === "above" ? "偏高" : "偏低"}
                     </span>
                   </div>
                   <div className="h-[220px]">
@@ -512,22 +541,51 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                       {renderChart(chartType, series)}
                     </ResponsiveContainer>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-violet-100 grid grid-cols-4 text-center">
+                  <div className="flex items-end justify-between">
+                    <div className="text-[24px] font-bold tracking-[-0.02em] leading-none text-[#20203a]">
+                      {formatNumber(latest)}
+                      {series.item.unit ? (
+                        <span className="ml-1 text-[12.5px] font-medium text-[#9a9ab0]">{series.item.unit}</span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`inline-flex items-center gap-1 text-[12px] font-semibold ${
+                          delta === 0 ? "text-[#9a9ab0]" : delta > 0 ? "text-[#0f9d6e]" : "text-[#f0476a]"
+                        }`}
+                      >
+                        {delta === 0 ? (
+                          <Minus className="w-3 h-3" />
+                        ) : delta > 0 ? (
+                          <ChevronsUp className="w-3 h-3" />
+                        ) : (
+                          <ChevronsDown className="w-3 h-3" />
+                        )}
+                        {deltaText}
+                      </span>
+                      <span className="inline-flex items-center gap-1 h-[26px] px-2 rounded-[8px] bg-[#f1f1f7]" aria-hidden="true">
+                        <ChartLine className={`w-[13px] h-[13px] ${chartType === "line" ? "text-[#6c5ce7]" : "text-[#9a9ab0]"}`} />
+                        <ChartArea className={`w-[13px] h-[13px] ${chartType === "area" ? "text-[#6c5ce7]" : "text-[#9a9ab0]"}`} />
+                        <ChartBar className={`w-[13px] h-[13px] ${chartType === "bar" ? "text-[#6c5ce7]" : "text-[#9a9ab0]"}`} />
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-3 border-t border-[rgba(32,27,72,0.09)] grid grid-cols-4 text-center">
                     <div>
-                      <div className="text-[11px] text-gray-400">最高</div>
-                      <div className="text-sm font-semibold text-gray-700">{formatNumber(max)}</div>
+                      <div className="text-[11.5px] text-[#9a9ab0]">最高</div>
+                      <div className="text-[13.5px] font-semibold text-[#5a5a75]">{formatNumber(max)}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-gray-400">最低</div>
-                      <div className="text-sm font-semibold text-gray-700">{formatNumber(min)}</div>
+                      <div className="text-[11.5px] text-[#9a9ab0]">最低</div>
+                      <div className="text-[13.5px] font-semibold text-[#5a5a75]">{formatNumber(min)}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-gray-400">平均</div>
-                      <div className="text-sm font-semibold text-gray-700">{formatNumber(avg)}</div>
+                      <div className="text-[11.5px] text-[#9a9ab0]">平均</div>
+                      <div className="text-[13.5px] font-semibold text-[#5a5a75]">{formatNumber(avg)}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-gray-400">当前</div>
-                      <div className="text-sm font-semibold text-violet-600">{formatNumber(latest)}</div>
+                      <div className="text-[11.5px] text-[#9a9ab0]">当前</div>
+                      <div className="text-[13.5px] font-semibold text-[#6c5ce7]">{formatNumber(latest)}</div>
                     </div>
                   </div>
                 </div>
@@ -535,10 +593,13 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
             })}
 
             {radarData && (
-              <div className="bg-white/80 border border-violet-100 rounded-xl p-5 hover:shadow-lg hover:shadow-violet-100/50 hover:-translate-y-0.5 transition-all duration-200">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-semibold text-gray-800">健康指标雷达</span>
-                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-violet-100 text-violet-600">
+              <div className="bg-[#fafafd] border border-[rgba(32,27,72,0.09)] rounded-[14px] p-4 flex flex-col gap-3 hover:shadow-[0_2px_6px_rgba(0,0,0,0.05)] transition-shadow duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-[#20203a]">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#6c5ce7" }} />
+                    健康指标雷达
+                  </span>
+                  <span className="inline-flex items-center h-[22px] px-2.5 rounded-full bg-[#efedfd] text-[#6d28d9] text-[11.5px] font-semibold">
                     归一化对比
                   </span>
                 </div>
@@ -546,19 +607,19 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                   <ResponsiveContainer width="100%" height="100%">
                     <RadarChart data={radarData.data} cx="50%" cy="50%" outerRadius="72%">
                       <PolarGrid stroke={GRID_COLOR} />
-                      <PolarAngleAxis dataKey="indicator" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                      <PolarAngleAxis dataKey="indicator" tick={{ fontSize: 11.5, fill: TICK_COLOR }} />
                       <Radar
                         dataKey="score"
-                        stroke="#8b5cf6"
-                        fill="#8b5cf6"
+                        stroke="#6c5ce7"
+                        fill="#6c5ce7"
                         fillOpacity={0.25}
                         strokeWidth={2}
                       />
                       <Tooltip
                         contentStyle={{
                           borderRadius: 12,
-                          border: "1px solid #e9d5ff",
-                          background: "rgba(255,255,255,0.96)",
+                          border: "1px solid #ede9fe",
+                          background: "#ffffff",
                           fontSize: 12,
                         }}
                         formatter={(value: number | string) => [`${Number(value).toFixed(1)} 分`, "相对水平"]}
@@ -566,18 +627,18 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                     </RadarChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="mt-3 pt-3 border-t border-violet-100 grid grid-cols-3 text-center">
+                <div className="pt-3 border-t border-[rgba(32,27,72,0.09)] grid grid-cols-3 text-center">
                   <div>
-                    <div className="text-[11px] text-gray-400">综合评分</div>
-                    <div className="text-sm font-semibold text-violet-600">{radarData.score}分</div>
+                    <div className="text-[11.5px] text-[#9a9ab0]">综合评分</div>
+                    <div className="text-[13.5px] font-semibold text-[#6c5ce7]">{radarData.score}分</div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-gray-400">最佳指标</div>
-                    <div className="text-sm font-semibold text-gray-700 truncate">{radarData.best}</div>
+                    <div className="text-[11.5px] text-[#9a9ab0]">最佳指标</div>
+                    <div className="text-[13.5px] font-semibold text-[#5a5a75] truncate">{radarData.best}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-gray-400">待改善</div>
-                    <div className="text-sm font-semibold text-gray-700 truncate">{radarData.worst}</div>
+                    <div className="text-[11.5px] text-[#9a9ab0]">待改善</div>
+                    <div className="text-[13.5px] font-semibold text-[#5a5a75] truncate">{radarData.worst}</div>
                   </div>
                 </div>
               </div>

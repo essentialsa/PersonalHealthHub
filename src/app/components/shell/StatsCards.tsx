@@ -28,12 +28,12 @@ export function StatsCards({ records, categoriesCount }: StatsCardsProps) {
   const cards = [
     {
       key: "total",
-      icon: <Database className="w-6 h-6" />,
-      iconWrap: "bg-violet-100 text-violet-600",
+      icon: <Database className="w-5 h-5" />,
+      iconWrap: "bg-brand-soft text-brand",
       label: "总记录数",
       value: total,
       chip: (
-        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-emerald-600 bg-emerald-50 border border-emerald-100">
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-success bg-success-soft">
           <TrendingUp className="w-3.5 h-3.5" />
           {`+${newThisMonth} 本月新增`}
         </span>
@@ -41,12 +41,12 @@ export function StatsCards({ records, categoriesCount }: StatsCardsProps) {
     },
     {
       key: "kinds",
-      icon: <Layers className="w-6 h-6" />,
-      iconWrap: "bg-blue-100 text-blue-600",
+      icon: <Layers className="w-5 h-5" />,
+      iconWrap: "bg-info-soft text-info",
       label: "检验指标种类",
       value: categoriesCount,
       chip: (
-        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-blue-600 bg-blue-50 border border-blue-100">
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-info bg-info-soft">
           <Database className="w-3.5 h-3.5" />
           {`覆盖 ${categoriesCount} 大类别`}
         </span>
@@ -54,12 +54,12 @@ export function StatsCards({ records, categoriesCount }: StatsCardsProps) {
     },
     {
       key: "latest",
-      icon: <Calendar className="w-6 h-6" />,
-      iconWrap: "bg-pink-100 text-rose-500",
+      icon: <Calendar className="w-5 h-5" />,
+      iconWrap: "bg-success-soft text-success",
       label: "最后更新",
       value: latestMs ? new Date(latestMs).toLocaleDateString("zh-CN") : "暂无数据",
       chip: latestMs ? (
-        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-blue-600 bg-blue-50 border border-blue-100">
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full text-brand bg-brand-soft">
           <Clock className="w-3.5 h-3.5" />
           {formatDaysAgo(latestMs)}
         </span>
@@ -68,17 +68,17 @@ export function StatsCards({ records, categoriesCount }: StatsCardsProps) {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {cards.map(card => (
         <div
           key={card.key}
-          className="bg-white/60 backdrop-blur-xl border border-violet-100/70 rounded-2xl p-6 shadow-xl shadow-violet-100/40 hover:shadow-2xl hover:shadow-violet-100/60 hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-3"
+          className="bg-white border border-separator rounded-[18px] shadow-card px-5 py-[18px] flex flex-col gap-3"
         >
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${card.iconWrap}`}>
+          <div className={`w-11 h-11 rounded-[13px] flex items-center justify-center ${card.iconWrap}`}>
             {card.icon}
           </div>
-          <div className="text-sm text-gray-500">{card.label}</div>
-          <div className="text-3xl font-bold text-gray-800 leading-tight">{card.value}</div>
+          <div className="text-[12.5px] text-ink-3">{card.label}</div>
+          <div className="text-[34px] font-bold text-ink leading-none tracking-[-0.025em]">{card.value}</div>
           <div>{card.chip}</div>
         </div>
       ))}

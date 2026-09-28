@@ -349,14 +349,12 @@ export function RecordChart({ records, indicators, categories, attachments = [],
 
   const getColorForIndex = (index: number) => {
     const palette = [
-      "#6366f1",
-      "#22c55e",
-      "#f97316",
+      "#6c5ce7",
+      "#0f9d6e",
+      "#3b82f6",
+      "#d97706",
+      "#8b5cf6",
       "#ec4899",
-      "#0ea5e9",
-      "#a855f7",
-      "#facc15",
-      "#14b8a6",
     ];
     return palette[index % palette.length];
   };
@@ -414,11 +412,11 @@ export function RecordChart({ records, indicators, categories, attachments = [],
   const pageRows = sortedTableData.slice(start, end);
 
   return (
-    <Card className="bg-white/60 backdrop-blur-xl border-0 shadow-xl shadow-blue-100/50">
+    <Card className="bg-white border border-[rgba(32,27,72,0.09)] rounded-[18px] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <CardHeader>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <CardTitle className="text-2xl bg-gradient-to-r from-blue-600 to-pink-600 bg-clip-text text-transparent">
+            <CardTitle className="text-2xl font-bold text-[#20203a]">
               数据趋势图
             </CardTitle>
             <CardDescription>按检验指标种类对多条曲线进行对比分析</CardDescription>
@@ -433,10 +431,10 @@ export function RecordChart({ records, indicators, categories, attachments = [],
               }
             }}
           >
-            <SelectTrigger className="w-[200px] border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
+            <SelectTrigger className="w-[200px] border-[rgba(32,27,72,0.09)] bg-white focus:border-[#6c5ce7] focus:ring-[rgba(108,92,231,0.35)]">
               <SelectValue placeholder="选择检验指标种类" />
             </SelectTrigger>
-            <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
+            <SelectContent className="bg-white border-[rgba(32,27,72,0.09)]">
               {categories.map((category) => (
                 <SelectItem key={category.id} value={category.id}>
                   {category.name}
@@ -447,8 +445,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-          <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-700">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[#9a9ab0]">
+          <span className="px-2 py-1 rounded-full bg-[#efedfd] text-[#6d28d9] font-medium">
             提示
           </span>
           <span>点击下方图例可切换曲线显示/隐藏，再次点击可恢复显示。</span>
@@ -469,8 +467,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                   onClick={() => handleToggleIndicator(item.id)}
                   className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs transition ${
                     active
-                      ? "border-violet-200 bg-violet-50 text-gray-700 shadow-sm"
-                      : "border-gray-200 bg-gray-50 text-gray-400"
+                      ? "border-[#ede9fe] bg-[rgba(245,243,255,0.7)] text-[#20203a]"
+                      : "border-[rgba(32,27,72,0.09)] bg-[#f1f1f7] text-[#9a9ab0]"
                   }`}
                 >
                   <span
@@ -482,7 +480,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                   />
                   <span className={`flex flex-col leading-tight ${active ? "" : "line-through opacity-60"}`}>
                     <span>{item.label}</span>
-                    <span className="text-[10px] text-gray-400">
+                    <span className="text-[10px] text-[#9a9ab0]">
                       {rangeText}
                     </span>
                   </span>
@@ -492,46 +490,45 @@ export function RecordChart({ records, indicators, categories, attachments = [],
           </div>
         )}
         {rawChartData.length === 0 ? (
-          <div className="h-[300px] flex flex-col items-center justify-center text-gray-500">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-pink-100 flex items-center justify-center mb-4">
-              <TrendingUp className="w-10 h-10 text-blue-400" />
+          <div className="h-[300px] flex flex-col items-center justify-center text-[#9a9ab0]">
+            <div className="w-20 h-20 rounded-full bg-[#efedfd] flex items-center justify-center mb-4">
+              <TrendingUp className="w-10 h-10 text-[#6c5ce7]" />
             </div>
-            <p className="text-gray-600">该类别暂时没有可展示的数据</p>
-            <p className="text-sm text-gray-400 mt-1">添加记录或切换图例后可查看趋势图</p>
+            <p className="text-[#5a5a75]">该类别暂时没有可展示的数据</p>
+            <p className="text-sm text-[#9a9ab0] mt-1">添加记录或切换图例后可查看趋势图</p>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-              <XAxis 
-                dataKey="date" 
-                tick={{ fontSize: 12, fill: '#6b7280' }}
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(32,27,72,0.06)" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11.5, fill: '#9a9ab0' }}
                 angle={-45}
                 textAnchor="end"
                 height={70}
-                stroke="#c4b5fd"
+                stroke="rgba(32,27,72,0.16)"
               />
-              <YAxis 
+              <YAxis
                 label={{
                   value: yAxisUnit,
                   angle: -90,
                   position: "insideLeft",
-                  fill: "#6b7280",
+                  fill: "#9a9ab0",
                 }}
                 domain={yAxisDomain}
                 dataKey={!shouldNormalize && singleActiveItem ? singleActiveItem.id : undefined}
-                tick={{ fill: '#6b7280' }}
+                tick={{ fontSize: 11.5, fill: '#9a9ab0' }}
                 tickFormatter={formatAxisTick}
-                stroke="#c4b5fd"
+                stroke="rgba(32,27,72,0.16)"
               />
-              <Tooltip 
+              <Tooltip
                 formatter={tooltipFormatter}
-                contentStyle={{ 
-                  backgroundColor: 'rgba(255, 255, 255, 0.95)', 
-                  backdropFilter: 'blur(12px)',
+                contentStyle={{
+                  backgroundColor: '#ffffff',
                   borderRadius: '12px',
-                  border: '1px solid #e9d5ff',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  border: '1px solid #ede9fe',
+                  boxShadow: '0 2px 6px rgba(0, 0, 0, 0.05)'
                 }}
               />
               {categoryItems.map((item, index) => {
@@ -565,41 +562,41 @@ export function RecordChart({ records, indicators, categories, attachments = [],
         {rawChartData.length > 0 && (
           <div className="mt-6 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-700">
+              <div className="text-sm text-[#5a5a75]">
                 指标明细表（当前类别下可见曲线对应的数据）
               </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="flex items-center gap-2 text-xs text-[#9a9ab0]">
                 <span>
                   共 {sortedTableData.length} 条记录，当前第{" "}
                   {currentPage + 1}/{totalPages} 页
                 </span>
               </div>
             </div>
-            <div className="border border-violet-100 overflow-hidden bg-white/40">
+            <div className="border border-[rgba(32,27,72,0.09)] rounded-[12px] overflow-hidden bg-white">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-violet-100 bg-violet-50/60">
+                  <TableRow className="border-[rgba(32,27,72,0.09)] bg-[#f8f7fc] hover:bg-[#f8f7fc]">
                     <TableHead
-                      className="text-gray-700 text-xs w-[14%] text-center cursor-pointer select-none"
+                      className="text-[#5a5a75] text-xs w-[14%] text-center cursor-pointer select-none"
                       onClick={() => setSortAscending(prev => !prev)}
                     >
                       数据日期
-                      <span className="ml-1 text-[10px] text-gray-400">
+                      <span className="ml-1 text-[10px] text-[#9a9ab0]">
                         {sortAscending ? "↑" : "↓"}
                       </span>
                     </TableHead>
                     {activeItems.map(item => (
-                      <TableHead key={item.id} className="text-gray-700 text-xs w-[14%] text-center">
+                      <TableHead key={item.id} className="text-[#5a5a75] text-xs w-[14%] text-center">
                         {item.label}
                         {item.unit && (
-                          <span className="ml-1 text-[10px] text-gray-400">
+                          <span className="ml-1 text-[10px] text-[#9a9ab0]">
                             ({item.unit})
                           </span>
                         )}
                       </TableHead>
                     ))}
-                    <TableHead className="text-gray-700 text-xs w-[14%] text-center">附件</TableHead>
-                    <TableHead className="text-gray-700 text-xs w-[14%] text-center">操作</TableHead>
+                    <TableHead className="text-[#5a5a75] text-xs w-[14%] text-center">附件</TableHead>
+                    <TableHead className="text-[#5a5a75] text-xs w-[14%] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -612,9 +609,9 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                     return (
                     <TableRow
                       key={dateStr}
-                      className="border-violet-100 hover:bg-violet-50/30 transition-colors"
+                      className="border-[rgba(32,27,72,0.09)] hover:bg-[#fafafd] transition-colors"
                     >
-                      <TableCell className="text-xs text-gray-700 w-[14%] text-center">
+                      <TableCell className="text-xs text-[#5a5a75] w-[14%] text-center">
                         {dateStr}
                       </TableCell>
                       {activeItems.map(item => {
@@ -623,7 +620,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                         const rangeStatus = checkRange(typeof value === "number" ? value : 0, range);
 
                         return (
-                          <TableCell key={item.id} className="text-xs text-gray-700 w-[14%] text-center">
+                          <TableCell key={item.id} className="text-xs text-[#5a5a75] w-[14%] text-center">
                             {isRowEditing && onUpdateRecord ? (
                               <Input
                                 type="number"
@@ -632,7 +629,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
                                   setEditValues(prev => ({ ...prev, [item.id]: e.target.value }))
                                 }
-                                className="h-7 w-full text-xs border-violet-200"
+                                className="h-7 w-full text-xs border-[rgba(32,27,72,0.12)]"
                               />
                             ) : (
                               <div className="inline-flex items-center justify-center">
@@ -640,16 +637,16 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                   <>
                                     <span className={`min-w-[3rem] text-center inline-block ${
                                       rangeStatus === "above" || rangeStatus === "below"
-                                        ? "text-red-600 font-medium"
-                                        : "text-gray-700"
+                                        ? "text-[#f0476a] font-medium"
+                                        : "text-[#20203a]"
                                     }`}>
                                       {value}
                                     </span>
-                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-red-500 ml-0.5" />}
-                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-red-500 ml-0.5" />}
+                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-[#f0476a] ml-0.5" />}
+                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-[#f0476a] ml-0.5" />}
                                   </>
                                 ) : (
-                                  <span className="text-gray-400">-</span>
+                                  <span className="text-[#b8b8cc]">-</span>
                                 )}
                               </div>
                             )}
@@ -663,7 +660,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                               <div className="flex items-center gap-1">
                                 <button
                                   type="button"
-                                  className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
+                                  className="text-[#6c5ce7] hover:text-[#5a49d6] hover:bg-[#efedfd] rounded p-0.5"
                                   onClick={() => onPreviewAttachment?.(attachmentRecord.attachmentId!)}
                                 >
                                   <Paperclip className="h-4 w-4" />
@@ -672,7 +669,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="h-6 w-6 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                                  className="h-6 w-6 p-0 text-[#d97706] hover:text-[#d97706] hover:bg-[#fdf3e3]"
                                   onClick={() => setEditAttachmentMode("replace")}
                                   title="替换附件"
                                 >
@@ -682,7 +679,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="h-6 w-6 p-0 text-rose-400 hover:text-rose-500 hover:bg-rose-50"
+                                  className="h-6 w-6 p-0 text-[#f0476a] hover:text-[#f0476a] hover:bg-[#fdeef2]"
                                   onClick={() => {
                                     if (onDeleteAttachment && attachmentRecord?.attachmentId) {
                                       onDeleteAttachment(attachmentRecord.attachmentId);
@@ -696,13 +693,13 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                               </div>
                             ) : editAttachmentFile ? (
                               <div className="flex items-center gap-1">
-                                <Paperclip className="h-3 w-3 text-violet-500" />
-                                <span className="text-[10px] text-gray-600 truncate max-w-[50px]">{editAttachmentFile.name}</span>
+                                <Paperclip className="h-3 w-3 text-[#6c5ce7]" />
+                                <span className="text-[10px] text-[#5a5a75] truncate max-w-[50px]">{editAttachmentFile.name}</span>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="h-5 w-5 p-0 text-rose-400 hover:text-rose-500"
+                                  className="h-5 w-5 p-0 text-[#f0476a] hover:text-[#f0476a]"
                                   onClick={() => {
                                     setEditAttachmentFile(null);
                                     setEditAttachmentDataUrl("");
@@ -733,7 +730,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                           hasAttachment && onPreviewAttachment && attachmentRecord?.attachmentId && (
                             <button
                               type="button"
-                              className="text-violet-500 hover:text-violet-600 hover:bg-violet-50 rounded p-0.5"
+                              className="text-[#6c5ce7] hover:text-[#5a49d6] hover:bg-[#efedfd] rounded p-0.5"
                               onClick={() => onPreviewAttachment(attachmentRecord.attachmentId!)}
                             >
                               <Paperclip className="h-4 w-4" />
@@ -748,7 +745,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-7 px-2 text-xs border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                              className="h-7 px-2 text-xs border-[rgba(15,157,110,0.35)] text-[#0f9d6e] hover:bg-[#e8f7f1] hover:text-[#0f9d6e]"
                               onClick={() => handleSaveRowEdit(dateStr)}
                             >
                               保存
@@ -757,7 +754,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-7 px-2 text-xs border-gray-200 text-gray-600 hover:bg-gray-50"
+                              className="h-7 px-2 text-xs border-[rgba(32,27,72,0.09)] text-[#5a5a75] hover:bg-[#f1f1f7]"
                               onClick={handleCancelRowEdit}
                             >
                               取消
@@ -770,7 +767,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                                className="h-7 w-7 p-0 text-[#6c5ce7] hover:text-[#5a49d6] hover:bg-[#efedfd]"
                                 onClick={() => handleStartRowEdit(dateStr)}
                               >
                                 <Pencil className="w-3.5 h-3.5" />
@@ -781,7 +778,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
+                                className="h-7 w-7 p-0 text-[#f0476a] hover:text-[#f0476a] hover:bg-[#fdeef2]"
                                 onClick={() => handleDeleteRow(dateStr)}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -797,7 +794,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
               </Table>
             </div>
             {totalPages > 1 && (
-              <div className="flex items-center justify-end gap-2 text-xs text-gray-500">
+              <div className="flex items-center justify-end gap-2 text-xs text-[#9a9ab0]">
                 <span>
                   第 {currentPage + 1} / {totalPages} 页
                 </span>
@@ -807,7 +804,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                   size="sm"
                   disabled={currentPage === 0}
                   onClick={() => setPageIndex(p => Math.max(0, p - 1))}
-                  className="h-7 px-2 text-xs border-violet-200 hover:bg-violet-50 disabled:opacity-40"
+                  className="h-7 px-2 text-xs border-[rgba(32,27,72,0.09)] hover:bg-[#f1f1f7] disabled:opacity-40"
                 >
                   上一页
                 </Button>
@@ -819,7 +816,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                   onClick={() =>
                     setPageIndex(p => Math.min(totalPages - 1, p + 1))
                   }
-                  className="h-7 px-2 text-xs border-violet-200 hover:bg-violet-50 disabled:opacity-40"
+                  className="h-7 px-2 text-xs border-[rgba(32,27,72,0.09)] hover:bg-[#f1f1f7] disabled:opacity-40"
                 >
                   下一页
                 </Button>

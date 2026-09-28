@@ -49,9 +49,9 @@ const GROUP_SOURCE_LABEL: Record<UnnamedGroup["source"], string> = {
   none: "未分组",
 };
 const GROUP_SOURCE_BADGE_CLASS: Record<UnnamedGroup["source"], string> = {
-  report: "bg-blue-100 text-blue-700",
-  ai: "bg-violet-100 text-violet-700",
-  none: "bg-muted text-muted-foreground",
+  report: "bg-[#e5efff] text-[#2f6fe0]",
+  ai: "bg-[#efedfd] text-[#6c5ce7]",
+  none: "bg-[#eeedf3] text-[#6b6880]",
 };
 
 /**
@@ -75,7 +75,7 @@ function ClusterRenameInput({
   const suggestionVisible = Boolean(suggestion && suggestion !== initialLabel && suggestion !== value);
 
   return (
-    <div className="bg-white rounded-md p-2 space-y-1">
+    <div className="bg-white border border-[rgba(217,119,6,0.12)] rounded-lg px-[11px] py-[9px] space-y-1">
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={value}
@@ -87,13 +87,13 @@ function ClusterRenameInput({
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className="h-8 text-sm flex-1"
+          className="h-8 text-sm flex-1 rounded-[7px] bg-white"
         />
-        <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">{itemCount} 条记录</span>
+        <span className="text-[11px] text-[#9a9ab0] whitespace-nowrap shrink-0">{itemCount} 条记录</span>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-xs text-muted-foreground shrink-0"
+          className="h-8 text-xs text-[#9a9ab0] hover:bg-[rgba(32,27,72,0.06)] hover:text-[#5a5a75] shrink-0"
           onMouseDown={e => e.preventDefault()}
           onClick={onSkip}
         >
@@ -102,12 +102,12 @@ function ClusterRenameInput({
       </div>
       {suggestionVisible && suggestion && (
         <div className="flex items-center gap-2 pl-1">
-          <Sparkles className="w-3 h-3 text-violet-500" />
-          <span className="text-xs text-violet-600">AI 建议命名为「{suggestion}」</span>
+          <Sparkles className="w-3 h-3 text-[#8b5cf6]" />
+          <span className="text-[11.5px] font-medium text-[#7c5ce0]">AI 建议命名为「{suggestion}」</span>
           <Button
             variant="outline"
             size="sm"
-            className="h-6 text-xs px-2 border-violet-200 text-violet-600"
+            className="h-6 rounded-[6px] text-[11px] px-2 border-[rgba(139,92,246,0.35)] bg-white text-[#7c5ce0] hover:bg-[#f6f3ff] hover:border-[rgba(139,92,246,0.6)] hover:text-[#7c5ce0]"
             onMouseDown={e => e.preventDefault()}
             onClick={() => {
               setValue(suggestion);
@@ -152,7 +152,7 @@ function GroupImportBar({
             onCancel();
           }
         }}
-        className="h-8 text-sm flex-1"
+        className="h-8 text-sm flex-1 rounded-[7px] bg-white"
       />
       <Button size="sm" className="h-8 text-xs shrink-0" disabled={!trimmed} onClick={() => onConfirm(trimmed)}>
         确认导入
@@ -766,7 +766,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     : 0;
   const abnormalCount = matched.filter(m => m.abnormalFlag === "H" || m.abnormalFlag === "L").length;
 
-  const confColor: Record<string, "default" | "secondary" | "destructive"> = { high: "default", medium: "secondary", low: "destructive" };
+  const confBadgeClass: Record<string, string> = {
+    high: "bg-[#2b2950] text-white",
+    medium: "bg-[#eeedf3] text-[#6b6880]",
+    low: "bg-[#fdeef2] text-[#e0335c]",
+  };
   const confLabel: Record<string, string> = { high: "高", medium: "中", low: "低" };
   const actionLabel: Record<ResolvedIndicator["action"], string> = {
     import: "匹配模板",
@@ -790,52 +794,50 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       />
       <Dialog open={open} onOpenChange={o => { if (!o) handleClose(); else setOpen(true); }}>
       <DialogTrigger asChild>
-        <Button
-          className={cn(
-            "gap-2 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 transition-all duration-300",
-            triggerClassName,
-          )}
-        >
+        <Button className={cn("gap-2", triggerClassName)}>
           <FileText className="w-4 h-4" />
           {triggerLabel ?? "报告导入"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-5xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-purple-600" />
+        <DialogHeader className="pr-10">
+          <DialogTitle className="flex w-full items-center gap-3 text-[20px] font-bold leading-snug tracking-[-0.018em]">
+            <span className="w-10 h-10 rounded-[12px] flex-none flex items-center justify-center bg-[linear-gradient(140deg,#6c5ce7_0%,#7c6ef0_45%,#06b6d4_100%)] shadow-[0_10px_22px_rgba(108,92,231,0.38),inset_0_1px_0_rgba(255,255,255,0.35)]">
+              <FileText className="w-5 h-5 text-white" />
+            </span>
             报告导入
             {result && (
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{result.pageCount} 页</span>
+                <span className="inline-flex items-center h-[26px] px-[11px] rounded-full bg-[#f1f1f7] text-[12px] font-medium text-[#5a5a75] whitespace-nowrap">{result.pageCount} 页</span>
                 <input type="date" value={importDate} onChange={e => setImportDate(e.target.value)}
-                  className="text-xs bg-muted text-gray-700 rounded-full px-2.5 py-1 border-0 focus:outline-1 focus:outline-violet-400" />
-                <span className="text-xs bg-muted text-muted-foreground rounded-full px-2.5 py-1">{matched.length} 项指标</span>
+                  className="h-[26px] w-32 px-[11px] rounded-full bg-[#f1f1f7] border-0 text-[12px] font-medium text-[#4b4b63] outline-none cursor-pointer transition-shadow focus:ring-[3px] focus:ring-[rgba(108,92,231,0.18)]" />
+                <span className="inline-flex items-center h-[26px] px-[11px] rounded-full bg-[#f1f1f7] text-[12px] font-medium text-[#5a5a75] whitespace-nowrap">{matched.length} 项指标</span>
               </div>
             )}
           </DialogTitle>
         </DialogHeader>
 
         {/* 服务状态 */}
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-[13.5px]">
           {serviceChecking && (
-            <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> 检测中...</span>
+            <span className="flex items-center gap-1.5 text-[#9a9ab0]"><Loader2 className="w-3.5 h-3.5 animate-spin" /> 检测中...</span>
           )}
           {!serviceChecking && serviceOnline === true && (
-            <span className="flex items-center gap-1 text-green-600">
-              <CheckCircle className="w-3.5 h-3.5" />
+            <span className="flex items-center gap-1.5 font-medium text-[#0f9d6e]">
+              <CheckCircle className="w-[15px] h-[15px]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22c08a] shadow-[0_0_0_3px_rgba(34,192,138,0.16)] flex-none" />
               解析服务就绪（{serviceStatus?.endpoint || "已连接"}）
             </span>
           )}
           {!serviceChecking && serviceOnline === false && (
-            <span className="flex items-center gap-1 text-red-600">
-              <AlertCircle className="w-3.5 h-3.5" />
+            <span className="flex items-center gap-1.5 font-medium text-[#f0476a]">
+              <AlertCircle className="w-[15px] h-[15px]" />
               解析服务未启动
               <button className="underline ml-1" onClick={() => void checkService()}>
                 刷新
               </button>
               {serviceStatus?.message ? (
-                <span className="text-xs text-muted-foreground ml-1 max-w-[560px] truncate">{serviceStatus.message}</span>
+                <span className="text-xs text-[#9a9ab0] ml-1 max-w-[560px] truncate">{serviceStatus.message}</span>
               ) : null}
             </span>
           )}
@@ -848,36 +850,41 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           </TabsList>
 
           {/* 上传 */}
-          <TabsContent value="upload" className="space-y-4">
+          <TabsContent value="upload" className="space-y-4 pt-[18px]">
             <div
-              className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-purple-300 transition-colors"
+              className="relative flex flex-col items-center text-center px-8 py-9 rounded-2xl border-2 border-dashed border-[rgba(108,92,231,0.42)] bg-[radial-gradient(circle_150px_at_50%_38%,rgba(108,92,231,0.09)_0%,rgba(108,92,231,0.035)_60%,transparent_78%),#fbfaff] cursor-pointer overflow-hidden transition-[border-color,box-shadow] duration-200 hover:border-[rgba(108,92,231,0.66)] hover:shadow-[0_10px_30px_rgba(108,92,231,0.10)]"
               onClick={() => document.getElementById("mr-file")?.click()}
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
             >
+              <span className="absolute -top-[84px] w-[260px] h-[260px] rounded-full bg-[radial-gradient(circle,rgba(108,92,231,0.10)_0%,transparent_68%)] pointer-events-none" aria-hidden="true" />
               <input id="mr-file" type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-              <UploadCloud className="w-10 h-10 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">拖拽文件到此处，或点击选择</p>
-              <p className="text-xs text-muted-foreground mt-1">支持 PDF / JPG / PNG，最大 50MB</p>
+              <span className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center mb-3.5 bg-[radial-gradient(circle_at_35%_28%,#ffffff_0%,#ece9ff_68%,#e2ddff_100%)] shadow-[0_12px_28px_rgba(108,92,231,0.22),inset_0_0_0_1px_rgba(108,92,231,0.10)]">
+                <UploadCloud className="w-[34px] h-[34px] text-[#8b7cf0]" />
+              </span>
+              <p className="relative text-[14.5px] font-medium text-[#6f6a8c]">拖拽文件到此处，或<b className="font-bold text-transparent bg-clip-text bg-[linear-gradient(92deg,#6c5ce7,#5b63e8)]">点击选择</b></p>
+              <p className="relative text-[12.5px] text-[#a5a3bd] mt-[7px] tracking-[0.01em]">支持 PDF / JPG / PNG，最大 50MB</p>
             </div>
 
             {file && (
-              <div className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
-                <FileText className="w-4 h-4 text-purple-600" />
-                <span className="text-sm flex-1 truncate">{file.name}</span>
-                <span className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</span>
-                <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => { setFile(null); setError(null); }}><X className="w-3 h-3" /></Button>
+              <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-[rgba(241,241,247,0.62)] border border-[rgba(108,92,231,0.07)]">
+                <span className="w-[30px] h-[30px] rounded-[9px] flex-none flex items-center justify-center bg-[linear-gradient(140deg,rgba(108,92,231,0.14),rgba(139,92,246,0.12))] text-[#6c5ce7]">
+                  <FileText className="w-[15px] h-[15px]" />
+                </span>
+                <span className="text-[13.5px] font-medium text-[#20203a] flex-1 min-w-0 truncate">{file.name}</span>
+                <span className="text-[12px] text-[#9a9ab0] tabular-nums flex-none">{(file.size / 1024).toFixed(1)} KB</span>
+                <Button variant="ghost" size="icon" className="w-6 h-6 flex-none text-[#9a9ab0] hover:text-[#f0476a] hover:bg-[#fdeef2]" onClick={() => { setFile(null); setError(null); }}><X className="w-3 h-3" /></Button>
               </div>
             )}
 
             {error && (
-              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-[13px] font-medium text-[#e0335c] bg-[#fdeef2] rounded-[10px] px-3.5 py-3">
                 <AlertCircle className="w-4 h-4" />
                 {error}
               </div>
             )}
 
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2.5">
               <Button variant="outline" onClick={handleClose}>取消</Button>
               <Button disabled={!file || parsing} onClick={handleParse}>
                 {parsing ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> 解析中...</> : "开始解析"}
@@ -886,19 +893,19 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           </TabsContent>
 
           {/* 预览 */}
-          <TabsContent value="preview" className="space-y-4">
+          <TabsContent value="preview" className="space-y-4 pt-[18px]">
             {parsing && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" /> 正在解析体检报告...
-                  {parseProgressText && <span className="text-xs text-muted-foreground">（{parseProgressText}）</span>}
+              <div className="space-y-2 rounded-xl border border-[rgba(108,92,231,0.14)] bg-[#faf9fe] px-4 py-3.5">
+                <div className="flex items-center gap-2 text-[13.5px] font-medium text-[#5a5a75]">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#6c5ce7]" /> 正在解析体检报告...
+                  {parseProgressText && <span className="text-xs text-[#9a9ab0]">（{parseProgressText}）</span>}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[#9a9ab0]">
                   首次使用需要唤醒云端 OCR 服务，多页或高清报告可能需要 1-3 分钟。
                 </p>
                 <div className="flex items-center gap-2">
                   <Progress value={progress} className="flex-1" />
-                  <span className="text-xs text-muted-foreground shrink-0">{Math.round(progress)}%</span>
+                  <span className="text-xs text-[#9a9ab0] tabular-nums shrink-0">{Math.round(progress)}%</span>
                 </div>
               </div>
             )}
@@ -906,21 +913,37 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
             {result && !parsing && (
               <>
                 {/* 筛选 */}
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {(["all", "high", "medium", "low"] as const).map(f => (
-                    <Button key={f} variant={filter === f ? "default" : "outline"} size="sm" onClick={() => setFilter(f)}>
+                    <Button
+                      key={f}
+                      variant={filter === f ? "default" : "outline"}
+                      size="sm"
+                      className={filter === f
+                        ? "h-[30px] px-[15px] text-[12.5px] shadow-[0_6px_14px_rgba(108,92,231,0.32),inset_0_1px_0_rgba(255,255,255,0.28)]"
+                        : "h-[30px] px-[15px] text-[12.5px] bg-white border-[rgba(108,92,231,0.30)] text-[#5a49d6] shadow-[0_1px_2px_rgba(108,92,231,0.06)] hover:bg-[#f8f7ff] hover:border-[rgba(108,92,231,0.55)] hover:text-[#5a49d6]"}
+                      onClick={() => setFilter(f)}
+                    >
                       {f === "all" ? `全部 (${counts.all})` : `${confLabel[f]} (${counts[f]})`}
                     </Button>
                   ))}
-                  <Button variant={anomalyOnly ? "default" : "outline"} size="sm" onClick={() => setAnomalyOnly(v => !v)}>
+                  <Button
+                    variant={anomalyOnly ? "default" : "outline"}
+                    size="sm"
+                    className={anomalyOnly
+                      ? "h-[30px] px-[15px] text-[12.5px] shadow-[0_6px_14px_rgba(108,92,231,0.32),inset_0_1px_0_rgba(255,255,255,0.28)]"
+                      : "h-[30px] px-[15px] text-[12.5px] bg-white border-[rgba(108,92,231,0.30)] text-[#5a49d6] shadow-[0_1px_2px_rgba(108,92,231,0.06)] hover:bg-[#f8f7ff] hover:border-[rgba(108,92,231,0.55)] hover:text-[#5a49d6]"}
+                    onClick={() => setAnomalyOnly(v => !v)}
+                  >
                     仅看异常 ({abnormalCount})
                   </Button>
                 </div>
 
                 {/* 表格 */}
-                <Table className="[&_td]:whitespace-normal [&_th]:whitespace-normal">
+                <div className="border border-[rgba(32,27,72,0.08)] rounded-[14px] overflow-hidden shadow-[0_2px_10px_rgba(24,16,66,0.04)]">
+                <Table className="[&_td]:whitespace-normal [&_th]:whitespace-normal [&_th]:bg-[#faf9fe] [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-[#9a9ab0] [&_th]:px-3.5 [&_th]:py-2.5 [&_th]:h-auto [&_td]:px-3.5 [&_td]:py-2.5 [&_td]:text-[13px] [&_td]:text-[#5a5a75] [&_td]:align-top">
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent border-b border-[rgba(32,27,72,0.08)]">
                       <TableHead>指标名称</TableHead>
                       <TableHead className="text-right">数值</TableHead>
                       <TableHead>单位</TableHead>
@@ -931,7 +954,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                   </TableHeader>
                   <TableBody>
                     {filtered.length === 0 && (
-                      <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">无数据</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="text-center text-[#9a9ab0] py-8">无数据</TableCell></TableRow>
                     )}
                     {filtered.map((m, i) => {
                       const dupKey = duplicateKeyOf(m);
@@ -944,36 +967,49 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                       const isAdopted = reviewIssue !== undefined && adoptedReviews[reviewIssue.label] !== undefined;
                       const showReviewWarning = reviewIssue !== undefined && !dismissedReviews.has(reviewIssue.label);
                       return (
-                      <TableRow key={i} className={m.action !== "import" ? "bg-orange-50" : (m.abnormalFlag === "H" || m.abnormalFlag === "L") ? "bg-red-50/40" : m.confidence.level === "low" ? "bg-red-50/50" : undefined}>
-                        <TableCell className="font-medium min-w-[7rem] break-words">{m.rawLabel}</TableCell>
-                        <TableCell className="text-right">
+                      <TableRow key={i} className={
+                        m.action !== "import"
+                          ? "bg-[rgba(217,119,6,0.055)] hover:bg-[rgba(217,119,6,0.085)]"
+                          : (m.abnormalFlag === "H" || m.abnormalFlag === "L")
+                            ? "bg-[rgba(240,71,106,0.055)] hover:bg-[rgba(240,71,106,0.085)]"
+                            : m.confidence.level === "low"
+                              ? "bg-[rgba(240,71,106,0.04)] hover:bg-[rgba(240,71,106,0.085)]"
+                              : "hover:bg-[rgba(108,92,231,0.035)]"
+                      }>
+                        <TableCell className="font-semibold text-[#20203a] min-w-[7rem] break-words">{m.rawLabel}</TableCell>
+                        <TableCell className="text-right font-semibold text-[#20203a] tabular-nums">
                           {m.value}
-                          {m.abnormalFlag === "H" && <Badge variant="destructive" className="ml-1 text-[10px]">↑</Badge>}
-                          {m.abnormalFlag === "L" && <Badge variant="secondary" className="ml-1 text-[10px] text-blue-600">↓</Badge>}
+                          {m.abnormalFlag === "H" && <span className="inline-flex items-center justify-center w-[15px] h-[15px] ml-[5px] rounded-[5px] bg-[#f0476a] text-white text-[10px] font-extrabold leading-none shadow-[0_2px_5px_rgba(240,71,106,0.35)] align-[1px]">↑</span>}
+                          {m.abnormalFlag === "L" && <span className="inline-flex items-center justify-center w-[15px] h-[15px] ml-[5px] rounded-[5px] bg-[#3b82f6] text-white text-[10px] font-extrabold leading-none shadow-[0_2px_5px_rgba(59,130,246,0.35)] align-[1px]">↓</span>}
                         </TableCell>
-                        <TableCell>{m.unit}</TableCell>
-                        <TableCell className="text-muted-foreground text-xs">{m.referenceRange || "-"}</TableCell>
+                        <TableCell className="text-[#55536e]">{m.unit}</TableCell>
+                        <TableCell className="text-[#9a9ab0] text-xs">{m.referenceRange || "-"}</TableCell>
                         <TableCell>
-                          <Badge variant={m.action === "import" ? "default" : "secondary"} className="text-xs">
+                          <Badge
+                            variant="secondary"
+                            className={m.action === "import"
+                              ? "text-xs bg-[linear-gradient(135deg,#5b4fd6_0%,#6c5ce7_100%)] text-white shadow-[0_2px_6px_rgba(108,92,231,0.30)]"
+                              : "text-xs bg-[#eeedf3] text-[#6b6880]"}
+                          >
                             {actionLabel[m.action]}
                           </Badge>
                           {showReviewWarning && reviewIssue && (
                             <div className="mt-1 space-y-0.5">
                               <div className="flex items-center gap-1">
                                 {isAdopted ? (
-                                  <Badge variant="secondary" className="text-[10px] bg-gray-200 text-gray-600">已采纳</Badge>
+                                  <Badge variant="secondary" className="text-[10px] bg-[#eeedf3] text-[#6b6880]">已采纳</Badge>
                                 ) : (
                                   <>
-                                    <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">复核警示</Badge>
+                                    <Badge variant="secondary" className="text-[10px] bg-[#fdeedc] text-[#c2620a]">复核警示</Badge>
                                     {reviewIssue.confidence === "high" && (
-                                      <span className="text-[10px] text-orange-500">高置信</span>
+                                      <span className="text-[10px] text-[#c2620a]">高置信</span>
                                     )}
                                   </>
                                 )}
                               </div>
-                              <div className="text-[11px] text-orange-700">{reviewIssue.issue}</div>
+                              <div className="text-[11px] text-[#c2620a]">{reviewIssue.issue}</div>
                               {reviewIssue.suggestedValue !== null && (
-                                <div className="text-[11px] text-orange-700">
+                                <div className="text-[11px] text-[#c2620a]">
                                   建议 {reviewIssue.suggestedValue}{reviewIssue.suggestedUnit ? ` ${reviewIssue.suggestedUnit}` : ""}
                                 </div>
                               )}
@@ -983,7 +1019,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      className="h-6 text-xs px-2 border-orange-300 text-orange-700"
+                                      className="h-6 rounded-[6px] text-[11px] px-2 border-[#f0c98f] bg-white text-[#c2620a] hover:bg-[#fff8ee] hover:border-[#e0a95f] hover:text-[#c2620a]"
                                       onClick={() => adoptReviewSuggestion(reviewIssue)}
                                     >
                                       采纳
@@ -992,7 +1028,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 text-xs px-2 text-muted-foreground"
+                                    className="h-6 rounded-[6px] text-[11px] px-2 text-[#9a9ab0] hover:bg-[rgba(32,27,72,0.06)] hover:text-[#5a5a75]"
                                     onClick={() => dismissReviewIssue(reviewIssue.label)}
                                   >
                                     忽略
@@ -1004,7 +1040,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           {isDuplicate && (
                             <div className="mt-1 flex items-center gap-1">
                               <Badge variant="destructive" className="text-[10px]">疑似重复</Badge>
-                              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <label className="flex items-center gap-1 text-[11px] text-[#9a9ab0]">
                                 <Checkbox
                                   checked={forceChecked}
                                   onCheckedChange={checked => {
@@ -1025,7 +1061,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           )}
                           {m.action === "import" && matchedIndex >= 0 && (
                             <div className="mt-1 flex items-center gap-1">
-                              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <label className="flex items-center gap-1 text-[11px] text-[#9a9ab0]">
                                 <Checkbox
                                   checked={isExcluded}
                                   onCheckedChange={checked => {
@@ -1045,37 +1081,38 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                             </div>
                           )}
                           {m.action !== "import" && m.systemLabel ? (
-                            <div className="mt-1 text-[11px] text-muted-foreground">建议：{m.systemLabel}</div>
+                            <div className="mt-1 text-[11px] text-[#9a9ab0]">建议：{m.systemLabel}</div>
                           ) : null}
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={confColor[m.confidence.level]} className="text-xs">{confLabel[m.confidence.level]}</Badge>
+                          <Badge variant="secondary" className={cn("text-xs", confBadgeClass[m.confidence.level])}>{confLabel[m.confidence.level]}</Badge>
                         </TableCell>
                       </TableRow>
                       );
                     })}
                   </TableBody>
                 </Table>
+                </div>
 
                 {/* 标准词典建议 */}
                 {suggestedCount > 0 && (
-                  <div className="mt-4 border rounded-lg p-4 bg-blue-50/50">
+                  <div className="mt-4 rounded-xl border border-[rgba(59,130,246,0.22)] bg-[rgba(239,246,255,0.55)] p-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <AlertCircle className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-medium text-blue-800">将随确认导入（{suggestedImportCount} 项，勾选排除的不导入）</h4>
+                      <AlertCircle className="w-4 h-4 text-[#3b82f6]" />
+                      <h4 className="text-[13.5px] font-semibold text-[#1d5bbf]">将随确认导入（{suggestedImportCount} 项，勾选排除的不导入）</h4>
                     </div>
-                    <div className="space-y-2 text-sm text-blue-900">
+                    <div className="space-y-2 text-[13px] text-[#1e3a6b]">
                       {matched.map((m, index) => ({ m, index }))
                         .filter(({ m }) => m.action === "create_item" || m.action === "create_category")
                         .map(({ m, index }) => (
-                          <div key={`suggestion-${index}`} className="rounded-md bg-white px-3 py-2 flex items-center gap-2">
+                          <div key={`suggestion-${index}`} className="rounded-[9px] border border-[rgba(59,130,246,0.10)] bg-white px-[13px] py-[9px] flex items-center gap-2.5">
                             <span>
                               {m.rawLabel} → {m.systemLabel || "待确认"}
-                              <span className="ml-2 text-xs text-blue-500">
+                              <span className="ml-2 text-[11.5px] font-medium text-[#4f8de8]">
                                 {m.action === "create_item" ? "已有分类，建议新增指标" : "建议新增分类"}
                               </span>
                             </span>
-                            <label className="ml-auto flex items-center gap-1.5 text-xs text-blue-700 shrink-0">
+                            <label className="ml-auto flex items-center gap-1.5 text-xs text-[#2f6fe0] shrink-0">
                               <Checkbox
                                 checked={excludedSuggested.has(index)}
                                 onCheckedChange={checked => {
@@ -1095,7 +1132,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           </div>
                         ))}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
+                    <p className="text-[12px] text-[#9a9ab0] mt-2.5 leading-relaxed">
                       以下项目默认随「确认导入」一并创建分类/指标并导入；如需跳过请勾选排除。
                     </p>
                   </div>
@@ -1103,10 +1140,10 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
 
                 {/* 未匹配指标区域：按类别分组展示 */}
                 {matched.filter(m => m.matchType === "none").length > 0 && (
-                  <div className="mt-4 border rounded-lg p-4 bg-amber-50/50">
+                  <div className="mt-4 rounded-xl border border-[rgba(217,119,6,0.22)] bg-[rgba(255,251,235,0.55)] p-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-medium text-amber-800">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedGroups.length} 组）</h4>
+                      <AlertCircle className="w-4 h-4 text-[#d97706]" />
+                      <h4 className="text-[13.5px] font-semibold text-[#92560a]">未命名指标（{matched.filter(m => m.matchType === "none").length} 项，{unnamedGroups.length} 组）</h4>
                     </div>
                     <div className="space-y-3">
                       {unnamedGroups.map(group => {
@@ -1124,15 +1161,15 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           return null;
                         }
                         return (
-                          <div key={groupKey} className="rounded-lg border border-amber-200 bg-white/70 p-3">
-                            <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2">
-                              <h5 className="text-sm font-medium text-amber-900">{group.name}</h5>
+                          <div key={groupKey} className="rounded-xl border border-[#f3ddb6] bg-[rgba(255,255,255,0.72)] p-[13px]">
+                            <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2.5">
+                              <h5 className="text-[13.5px] font-semibold text-[#7c4a12]">{group.name}</h5>
                               <Badge variant="secondary" className={cn("text-[11px]", GROUP_SOURCE_BADGE_CLASS[group.source])}>
                                 {GROUP_SOURCE_LABEL[group.source]}
                               </Badge>
-                              <span className="text-[11px] text-muted-foreground">{group.clusters.length} 簇</span>
+                              <span className="text-[11px] text-[#9a9ab0]">{group.clusters.length} 簇</span>
                               {canImportGroup && group.source !== "none" && (
-                                <label className="ml-auto flex items-center gap-1.5 text-xs text-amber-700 shrink-0">
+                                <label className="ml-auto flex items-center gap-1.5 text-xs text-[#b7791f] shrink-0">
                                   <Checkbox
                                     checked={includedInImport}
                                     onCheckedChange={checked => {
@@ -1154,7 +1191,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className={cn("h-7 border-amber-300 text-xs text-amber-700 shrink-0", group.source === "none" && "ml-auto")}
+                                  className={cn("h-7 rounded-[7px] border-[#ecc589] bg-white px-3 text-[12px] text-[#b7791f] hover:bg-[#fffaf0] hover:border-[#dda452] hover:text-[#b7791f] shrink-0", group.source === "none" && "ml-auto")}
                                   onClick={() => setImportingGroupKey(groupKey)}
                                 >
                                   整组新增为分类
@@ -1188,25 +1225,25 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                               })}
                             </div>
                             {group.source === 'none' && aiCategoryMissed && (
-                              <p className="text-xs text-muted-foreground mt-2">AI 分类建议未返回（解析服务可能未更新或模型无法判断），可逐簇命名，或整组新增为分类。</p>
+                              <p className="text-xs text-[#9a9ab0] mt-2">AI 分类建议未返回（解析服务可能未更新或模型无法判断），可逐簇命名，或整组新增为分类。</p>
                             )}
                           </div>
                         );
                       })}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
+                    <p className="text-[12px] text-[#9a9ab0] mt-2.5 leading-relaxed">
                       💦 {aiLoading ? "AI 正在生成命名建议…" : "写法相近的指标已自动归为一组，命名一次即可应用到整组；可直接修改或点击「跳过」忽略"}
                     </p>
                   </div>
                 )}
 
                 {/* 统计信息 */}
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2 pt-2">
+                <div className="flex items-center gap-6 flex-wrap text-[13px] text-[#9a9ab0] mb-2 pt-0.5">
                   <span>可导入: {importableCount}</span>
-                  {duplicateCount > 0 && <span className="text-red-600">疑似重复: {duplicateCount}（默认跳过）</span>}
+                  {duplicateCount > 0 && <span className="text-[#f0476a] font-medium">疑似重复: {duplicateCount}（默认跳过）</span>}
                   <span>建议维护: {suggestedCount}</span>
                   <span>未命名: {groupedCounts.unnamed.length}</span>
-                  {abnormalCount > 0 && <span className="text-red-600">异常: {abnormalCount}</span>}
+                  {abnormalCount > 0 && <span className="text-[#f0476a] font-medium">异常: {abnormalCount}</span>}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1215,19 +1252,19 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                     checked={retainReport}
                     onCheckedChange={(checked) => setRetainReport(checked === true)}
                   />
-                  <label htmlFor="retain-report" className="text-sm text-gray-700">
+                  <label htmlFor="retain-report" className="text-[13px] font-medium text-[#4b4b63]">
                     保留原始报告作为附件
                   </label>
                 </div>
 
-                <div className="sticky bottom-0 z-10 -mx-6 mt-4 border-t bg-white/95 px-6 pt-3 pb-1 backdrop-blur flex justify-end gap-2">
+                <div className="sticky bottom-0 z-10 -mx-6 mt-4 border-t border-[rgba(32,27,72,0.09)] bg-[rgba(255,255,255,0.95)] px-6 pt-[13px] pb-[13px] backdrop-blur-[10px] flex justify-end gap-2.5">
                   <Button variant="outline" onClick={() => { setTab("upload"); setResult(null); setMatched([]); setReviewIssues([]); setDismissedReviews(new Set()); setAdoptedReviews({}); }}>
-                    <RefreshCw className="w-4 h-4 mr-1" /> 重新上传
+                    <RefreshCw className="w-4 h-4 mr-1 text-[#6c5ce7]" /> 重新上传
                   </Button>
                   <Button
                     onClick={handleImport}
                     disabled={importableCount === 0 && suggestedImportCount === 0 && groupImportCount === 0}
-                    className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white shadow-lg shadow-violet-200"
+                    className="shadow-[0_10px_24px_rgba(108,92,231,0.40),inset_0_1px_0_rgba(255,255,255,0.32)]"
                   >
                     <CheckCircle className="w-4 h-4 mr-1" />
                     确认导入 ({importableCount + suggestedImportCount + groupImportCount} 条)

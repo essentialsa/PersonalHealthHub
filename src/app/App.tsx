@@ -59,6 +59,10 @@ import {
   ChevronRight,
   ArrowUp,
   ArrowDown,
+  Mail,
+  Lock,
+  Github,
+  AlertTriangle,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/app/components/ui/table";
 import { cn } from "@/app/components/ui/utils";
@@ -348,49 +352,70 @@ function LoginPage({ onLogin, onSignUp, onResetPassword, onOAuthLogin, errorMess
     await onResetPassword(resetEmail);
   };
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-100 via-blue-50 to-pink-50 px-4">
-      <div className="w-full max-w-md space-y-4">
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-b from-white via-[#f6f5ff] to-[#eef1ff] px-4 py-10">
+      {/* 背景装饰：光斑 + 网格 + 收边 */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -left-24 size-[420px] rounded-full bg-[#8b5cf6]/25 blur-[120px]" />
+        <div className="absolute top-1/4 -right-32 size-[380px] rounded-full bg-[#6366f1]/20 blur-[120px]" />
+        <div className="absolute -bottom-32 left-1/4 size-[400px] rounded-full bg-[#3b82f6]/20 blur-[120px]" />
+        <div className="absolute bottom-10 right-1/4 size-[300px] rounded-full bg-[#ec4899]/15 blur-[120px]" />
+        <div className="absolute inset-0 [background-image:linear-gradient(rgba(108,92,231,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(108,92,231,0.06)_1px,transparent_1px)] [background-size:46px_46px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_42%,black_30%,transparent_75%)]" />
+        <div className="absolute inset-0 [box-shadow:inset_0_0_180px_rgba(108,92,231,0.10)]" />
+      </div>
+
+      <div className="relative w-full max-w-[448px] space-y-4">
         {errorMessage && (
-          <div className="bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3 rounded-xl shadow-sm shadow-red-50">
+          <div className="bg-[#fdeef2] border border-[rgba(240,71,106,0.25)] text-[#e5315c] text-sm px-4 py-3 rounded-[14px] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
             {errorMessage}
           </div>
         )}
-        <Card className="w-full bg-white/80 backdrop-blur-xl border-0 shadow-2xl shadow-violet-100">
-          <CardHeader className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
-                <Activity className="w-5 h-5" />
-              </div>
-              <div>
-                <CardTitle className="text-2xl bg-gradient-to-r from-violet-600 via-blue-600 to-pink-600 bg-clip-text text-transparent">
-                  个人健康中心
-                </CardTitle>
-                <CardDescription className="text-gray-600">登录后安全访问您的健康数据</CardDescription>
-              </div>
+        <div className="w-full rounded-[24px] border border-[rgba(124,108,240,0.18)] bg-white/90 backdrop-blur-[30px] backdrop-saturate-[1.6] shadow-[0_32px_80px_-16px_rgba(76,62,150,0.30),0_8px_24px_-8px_rgba(108,92,231,0.16)] px-8 py-9 sm:px-10">
+          {/* 品牌区 */}
+          <div className="flex flex-col items-center text-center gap-3.5">
+            <div className="size-14 rounded-[18px] bg-gradient-to-br from-[#a78bfa] via-[#6c5ce7] to-[#3b82f6] flex items-center justify-center shadow-[0_14px_30px_-8px_rgba(108,92,231,0.55),inset_0_1px_0_rgba(255,255,255,0.35)]">
+              <Activity className="w-7 h-7 text-white" />
             </div>
-            <div className="flex gap-2 mt-4">
-              <Button
-                type="button"
-                variant={mode === "login" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setMode("login")}
-              >
-                登录
-              </Button>
-              <Button
-                type="button"
-                variant={mode === "signup" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setMode("signup")}
-              >
-                注册
-              </Button>
+            <div>
+              <div className="text-[26px] leading-tight font-bold bg-gradient-to-r from-[#8b5cf6] via-[#6c5ce7] to-[#3b82f6] bg-clip-text text-transparent">
+                个人健康中心
+              </div>
+              <div className="text-[13.5px] text-[#9a9ab0] mt-1.5">登录后安全访问您的健康数据</div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">邮箱</Label>
+          </div>
+
+          {/* 模式切换 */}
+          <div className="grid grid-cols-2 gap-1 p-1 mt-7 rounded-[12px] bg-[rgba(245,243,255,0.7)] border border-[#ede9fe] shadow-[inset_0_1px_3px_rgba(108,92,231,0.08)]">
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className={cn(
+                "h-9 rounded-[9px] text-[13.5px] font-medium transition-all",
+                mode === "login"
+                  ? "bg-white text-[#6d28d9] shadow-[0_2px_8px_rgba(108,92,231,0.18)]"
+                  : "text-[#5a5a75] hover:text-[#20203a]",
+              )}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("signup")}
+              className={cn(
+                "h-9 rounded-[9px] text-[13.5px] font-medium transition-all",
+                mode === "signup"
+                  ? "bg-white text-[#6d28d9] shadow-[0_2px_8px_rgba(108,92,231,0.18)]"
+                  : "text-[#5a5a75] hover:text-[#20203a]",
+              )}
+            >
+              注册
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-[12.5px] font-semibold text-[#5a5a75]">邮箱</Label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9a9ab0] pointer-events-none" />
                 <Input
                   id="email"
                   type="email"
@@ -398,10 +423,14 @@ function LoginPage({ onLogin, onSignUp, onResetPassword, onOAuthLogin, errorMess
                   value={email}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                   placeholder="you@example.com"
+                  className="h-12 pl-10 rounded-[12px] bg-[#f7f6fd] border-transparent focus-visible:border-[#8b5cf6]"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">密码</Label>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-[12.5px] font-semibold text-[#5a5a75]">密码</Label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9a9ab0] pointer-events-none" />
                 <Input
                   id="password"
                   type="password"
@@ -409,79 +438,94 @@ function LoginPage({ onLogin, onSignUp, onResetPassword, onOAuthLogin, errorMess
                   value={password}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                   placeholder={strongPasswordHint}
+                  className="h-12 pl-10 rounded-[12px] bg-[#f7f6fd] border-transparent focus-visible:border-[#8b5cf6]"
                 />
-              </div>
-              <Button
-                type="submit"
-                className="w-full gap-2 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600"
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    处理中...
-                  </>
-                ) : mode === "login" ? (
-                  "登录"
-                ) : (
-                  "注册"
-                )}
-              </Button>
-            </form>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-                <span className="text-xs text-gray-400">或使用第三方账号</span>
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 gap-2"
-                  onClick={() => {
-                    console.log("[AuthUI] click oauth button", {
-                      provider: "google",
-                    });
-                    void onOAuthLogin("google");
-                  }}
-                >
-                  <Cloud className="w-4 h-4" />
-                  Google
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 gap-2"
-                  onClick={() => {
-                    console.log("[AuthUI] click oauth button", {
-                      provider: "github",
-                    });
-                    void onOAuthLogin("github");
-                  }}
-                >
-                  <Cloud className="w-4 h-4" />
-                  GitHub
-                </Button>
               </div>
             </div>
-            <form onSubmit={handleReset} className="space-y-3">
-              <Label htmlFor="resetEmail">忘记密码？输入邮箱获取重置链接</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="resetEmail"
-                  type="email"
-                  value={resetEmail}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setResetEmail(e.target.value)}
-                  placeholder="you@example.com"
-                />
-                <Button type="submit" variant="outline">
-                  发送
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+            <Button
+              type="submit"
+              className="w-full h-12 gap-2 rounded-[12px] text-[15px] bg-gradient-to-r from-[#8b5cf6] via-[#6c5ce7] to-[#4f46e5] shadow-[0_14px_30px_-8px_rgba(108,92,231,0.55),inset_0_1px_0_rgba(255,255,255,0.25)] hover:brightness-[1.06]"
+              disabled={submitting}
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  处理中...
+                </>
+              ) : mode === "login" ? (
+                "登录"
+              ) : (
+                "注册"
+              )}
+            </Button>
+          </form>
+
+          <div className="mt-7 space-y-3.5">
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-[rgba(32,27,72,0.09)]" />
+              <span className="text-[11.5px] text-[#9a9ab0]">或使用第三方账号</span>
+              <div className="h-px flex-1 bg-[rgba(32,27,72,0.09)]" />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 h-11 gap-2 rounded-[12px] bg-white border-[rgba(32,27,72,0.12)] text-[#20203a] hover:bg-[#f7f6fd] hover:text-[#20203a]"
+                onClick={() => {
+                  console.log("[AuthUI] click oauth button", {
+                    provider: "google",
+                  });
+                  void onOAuthLogin("google");
+                }}
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.09 3.57-5.16 3.57-8.81Z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.07.72-2.44 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24Z" />
+                  <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28v-3.1H1.29a12 12 0 0 0 0 10.76l3.98-3.1Z" />
+                  <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.58 1.8l3.44-3.44A11.98 11.98 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.22 6.88 8.87 4.77 12 4.77Z" />
+                </svg>
+                Google
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 h-11 gap-2 rounded-[12px] bg-[#24292f] border-[#24292f] text-white hover:bg-[#2f363d] hover:text-white"
+                onClick={() => {
+                  console.log("[AuthUI] click oauth button", {
+                    provider: "github",
+                  });
+                  void onOAuthLogin("github");
+                }}
+              >
+                <Github className="w-4 h-4" />
+                GitHub
+              </Button>
+            </div>
+          </div>
+
+          <form onSubmit={handleReset} className="mt-7 pt-6 border-t border-[rgba(32,27,72,0.09)] space-y-3">
+            <Label htmlFor="resetEmail" className="text-[12.5px] font-semibold text-[#5a5a75]">
+              忘记密码？输入邮箱获取重置链接
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="resetEmail"
+                type="email"
+                value={resetEmail}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setResetEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="h-11 rounded-[12px] bg-[#f7f6fd] border-transparent focus-visible:border-[#8b5cf6]"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                className="h-11 px-5 rounded-[12px] bg-[#efeaff] border-[#cfc2f8] text-[#6c5ce7] hover:bg-[#e4dcff] hover:text-[#5a49d6]"
+              >
+                发送
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -903,25 +947,27 @@ function IndicatorMaintenanceDialog({
     >
       <DialogTrigger asChild>
         <Button
-          className={cn(
-            "gap-2 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 transition-all duration-300",
-            triggerClassName,
-          )}
+          className={cn("gap-2", triggerClassName)}
         >
           <Settings2 className="w-4 h-4" />
           {triggerLabel ?? "检验指标维护"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[780px] h-[85vh] bg-white/95 backdrop-blur-xl border-0 shadow-2xl flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-[780px] h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle className="text-2xl bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
-            检验指标维护
-          </DialogTitle>
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-[12px] bg-gradient-to-br from-[#7c6ff0] via-[#6c5ce7] to-[#3b82f6] flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(108,92,231,0.5)] shrink-0">
+              <Settings2 className="w-5 h-5 text-white" />
+            </div>
+            <DialogTitle className="text-xl">
+              检验指标维护
+            </DialogTitle>
+          </div>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4 flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 min-h-0 overflow-hidden">
             <Tabs defaultValue="category" className="h-full flex flex-col">
-              <TabsList className="grid grid-cols-2 w-full mb-3 bg-violet-50/60 border border-violet-100 rounded-xl">
+              <TabsList className="grid grid-cols-2 w-full mb-3">
                 <TabsTrigger value="category" className="text-xs sm:text-sm">
                   分类管理
                 </TabsTrigger>
@@ -933,11 +979,11 @@ function IndicatorMaintenanceDialog({
               <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
                 <TabsContent value="category" className="m-0 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4">
-                    <div className="space-y-3 rounded-xl border border-violet-100 bg-white/80 px-4 py-3">
+                    <div className="space-y-3 rounded-xl border border-[rgba(32,27,72,0.09)] bg-white px-4 py-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="space-y-0.5">
-                          <Label className="text-gray-700">检验指标种类</Label>
-                          <p className="text-[11px] text-gray-400">
+                          <Label className="text-[#20203a]">检验指标种类</Label>
+                          <p className="text-[11px] text-[#9a9ab0]">
                             设置当前正在维护的分类名称与编码。
                           </p>
                         </div>
@@ -946,7 +992,7 @@ function IndicatorMaintenanceDialog({
                           variant="outline"
                           size="sm"
                           onClick={resetForm}
-                          className="h-7 px-2 text-xs border-violet-200 hover:bg-violet-50"
+                          className="h-7 px-2 text-xs border-[#ddd6fe] hover:bg-[#f4f2fe]"
                         >
                           新增分类
                         </Button>
@@ -956,45 +1002,45 @@ function IndicatorMaintenanceDialog({
                           value={categoryName}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setCategoryName(e.target.value)}
                           placeholder="例如：血脂、肝功能"
-                          className="border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                          className="border-[#ddd6fe]"
                         />
                         <Input
                           value={categoryCode}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setCategoryCode(e.target.value)}
                           placeholder="可选：分类编码，例如：LIPID"
-                          className="border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                          className="border-[#ddd6fe]"
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-2 rounded-xl border border-violet-100 bg-white/80 px-4 py-3">
+                    <div className="space-y-2 rounded-xl border border-[rgba(32,27,72,0.09)] bg-white px-4 py-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-700">已维护的检验指标种类</span>
+                        <span className="text-sm font-medium text-[#20203a]">已维护的检验指标种类</span>
                       </div>
-                      <div className="max-h-60 overflow-y-auto rounded-lg bg-white/60 text-xs text-gray-600 divide-y divide-violet-50">
+                      <div className="max-h-60 overflow-y-auto rounded-lg bg-[#fafafd] text-xs text-[#5a5a75] divide-y divide-[rgba(32,27,72,0.07)]">
                         {categories.length === 0 ? (
-                          <div className="px-2 py-6 text-center text-gray-400">
+                          <div className="px-2 py-6 text-center text-[#9a9ab0]">
                             暂无数据，请先新增检验指标分类。
                           </div>
                         ) : (
                           categories.map((category: IndicatorCategory, index) => (
                             <div
                               key={category.id}
-                              className="flex items-start justify-between gap-2 px-2 py-2 hover:bg-violet-50/60 transition-colors"
+                              className="flex items-start justify-between gap-2 px-2 py-2 hover:bg-[#f4f2fe] transition-colors"
                             >
                               <div className="space-y-0.5">
                                 <div className="flex items-center gap-2">
-                                  <div className="font-semibold text-violet-700 text-xs sm:text-sm">
+                                  <div className="font-semibold text-[#6d28d9] text-xs sm:text-sm">
                                     {category.name}
                                   </div>
                                   {category.enabled === false && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#f1f1f7] text-[#9a9ab0] border border-transparent">
                                       已禁用
                                     </span>
                                   )}
                                 </div>
                                 {category.code && (
-                                  <div className="text-[11px] text-gray-500">
+                                  <div className="text-[11px] text-[#9a9ab0]">
                                     编码：{category.code}
                                   </div>
                                 )}
@@ -1005,7 +1051,7 @@ function IndicatorMaintenanceDialog({
                                   variant="outline"
                                   size="xs"
                                   onClick={() => loadCategory(category)}
-                                  className="h-6 px-2 text-[11px] border-violet-200"
+                                  className="h-6 px-2 text-[11px] border-[#ddd6fe]"
                                 >
                                   编辑
                                 </Button>
@@ -1030,7 +1076,7 @@ function IndicatorMaintenanceDialog({
                                     };
                                     appendIndicatorLog(logEntry);
                                   }}
-                                  className="h-6 px-2 text-[11px] border-violet-200"
+                                  className="h-6 px-2 text-[11px] border-[#ddd6fe]"
                                 >
                                   {category.enabled === false ? "启用" : "禁用"}
                                 </Button>
@@ -1060,7 +1106,7 @@ function IndicatorMaintenanceDialog({
                                       appendIndicatorLog(logEntry);
                                     }
                                   }}
-                                  className="h-6 px-2 text-[11px] border-violet-200"
+                                  className="h-6 px-2 text-[11px] border-[#ddd6fe]"
                                 >
                                   上移
                                 </Button>
@@ -1090,7 +1136,7 @@ function IndicatorMaintenanceDialog({
                                       appendIndicatorLog(logEntry);
                                     }
                                   }}
-                                  className="h-6 px-2 text-[11px] border-violet-200"
+                                  className="h-6 px-2 text-[11px] border-[#ddd6fe]"
                                 >
                                   下移
                                 </Button>
@@ -1127,7 +1173,7 @@ function IndicatorMaintenanceDialog({
                                     };
                                     appendIndicatorLog(logEntry);
                                   }}
-                                  className="h-6 px-2 text-[11px] border-rose-200 text-rose-500"
+                                  className="h-6 px-2 text-[11px] border-[#f5c2d0] text-[#e5315c]"
                                 >
                                   删除
                                 </Button>
@@ -1139,11 +1185,11 @@ function IndicatorMaintenanceDialog({
                     </div>
                   </div>
 
-                  <div className="space-y-3 rounded-xl border border-violet-100 bg-white/80 px-4 py-3">
+                  <div className="space-y-3 rounded-xl border border-[rgba(32,27,72,0.09)] bg-white px-4 py-3">
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <span className="text-sm font-medium text-gray-700">项目管理</span>
-                        <p className="text-[11px] text-gray-400">
+                        <span className="text-sm font-medium text-[#20203a]">项目管理</span>
+                        <p className="text-[11px] text-[#9a9ab0]">
                           为当前分类维护项目名称、单位、参考范围和数据类型。
                         </p>
                       </div>
@@ -1152,13 +1198,13 @@ function IndicatorMaintenanceDialog({
                         variant="outline"
                         size="sm"
                         onClick={handleAddRow}
-                        className="h-8 px-3 text-xs border-violet-200 hover:bg-violet-50"
+                        className="h-8 px-3 text-xs border-[#ddd6fe] hover:bg-[#f4f2fe]"
                       >
                         新增项目
                       </Button>
                     </div>
-                    <div className="border border-violet-100 bg-white/80">
-                      <div className="flex gap-2 px-3 py-2 border-b border-violet-50 text-[11px] text-gray-500">
+                    <div className="border border-[rgba(32,27,72,0.09)] bg-white">
+                      <div className="flex gap-2 px-3 py-2 border-b border-[rgba(32,27,72,0.07)] text-[11px] text-[#9a9ab0]">
                         <div className="flex-1 min-w-0">项目名称</div>
                         <div className="w-44 shrink-0">别名/缩写</div>
                         <div className="w-16 shrink-0">单位</div>
@@ -1180,7 +1226,7 @@ function IndicatorMaintenanceDialog({
                                   )
                                 }
                                 placeholder="项目名称"
-                                className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 border-[#ddd6fe]"
                               />
                             </div>
                             <div className="w-44 shrink-0">
@@ -1194,7 +1240,7 @@ function IndicatorMaintenanceDialog({
                                   )
                                 }
                                 placeholder="GLU、葡萄糖"
-                                className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 border-[#ddd6fe]"
                               />
                             </div>
                             <div className="w-16 shrink-0">
@@ -1208,7 +1254,7 @@ function IndicatorMaintenanceDialog({
                                   )
                                 }
                                 placeholder="单位"
-                                className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 border-[#ddd6fe]"
                               />
                             </div>
                             <div className="w-20 shrink-0">
@@ -1222,7 +1268,7 @@ function IndicatorMaintenanceDialog({
                                   )
                                 }
                                 placeholder="参考范围"
-                                className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 border-[#ddd6fe]"
                               />
                             </div>
                             <div className="w-20 shrink-0">
@@ -1236,7 +1282,7 @@ function IndicatorMaintenanceDialog({
                                     ),
                                   );
                                 }}
-                                className="h-8 w-full rounded-md border border-violet-200 bg-white px-1 text-xs focus:border-violet-400 focus:ring-violet-400"
+                                className="h-8 w-full rounded-[10px] border border-[#ddd6fe] bg-[#f8f7fc] px-1 text-xs focus:border-[#a78bfa] focus:ring-2 focus:ring-[rgba(167,139,250,0.3)] focus:outline-none"
                               >
                                 <option value="number">数值</option>
                                 <option value="text">文本</option>
@@ -1257,7 +1303,7 @@ function IndicatorMaintenanceDialog({
                                     return next;
                                   });
                                 }}
-                                className="h-6 px-1 text-[11px] border-violet-200"
+                                className="h-6 px-1 text-[11px] border-[#ddd6fe]"
                               >
                                 ↑
                               </Button>
@@ -1274,7 +1320,7 @@ function IndicatorMaintenanceDialog({
                                     return next;
                                   });
                                 }}
-                                className="h-6 px-1 text-[11px] border-violet-200"
+                                className="h-6 px-1 text-[11px] border-[#ddd6fe]"
                               >
                                 ↓
                               </Button>
@@ -1289,7 +1335,7 @@ function IndicatorMaintenanceDialog({
                                   }
                                   setItems(prev => prev.filter((_, i) => i !== index));
                                 }}
-                                className="h-6 px-1 text-[11px] border-rose-200 text-rose-500"
+                                className="h-6 px-1 text-[11px] border-[#f5c2d0] text-[#e5315c]"
                               >
                                 删
                               </Button>
@@ -1303,24 +1349,24 @@ function IndicatorMaintenanceDialog({
 
                 <TabsContent value="history" className="m-0 space-y-3">
                   <div className="space-y-1">
-                    <span className="text-sm font-medium text-gray-700">最近修改历史</span>
-                    <p className="text-[11px] text-gray-400">
+                    <span className="text-sm font-medium text-[#20203a]">最近修改历史</span>
+                    <p className="text-[11px] text-[#9a9ab0]">
                       查看最近对分类与指标所做的调整，便于追溯修改记录。
                     </p>
                   </div>
                   {indicatorChangeLogs.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-violet-100 bg-white/60 px-4 py-6 text-center text-xs text-gray-400">
+                    <div className="rounded-xl border border-dashed border-[rgba(32,27,72,0.09)] bg-[#fafafd] px-4 py-6 text-center text-xs text-[#9a9ab0]">
                       暂无变更记录，保存分类或项目调整后会自动生成历史记录。
                     </div>
                   ) : (
-                    <div className="max-h-56 overflow-y-auto rounded-xl border border-violet-100 bg-white/60">
+                    <div className="max-h-56 overflow-y-auto rounded-xl border border-[rgba(32,27,72,0.09)] bg-[#fafafd]">
                       <Table>
                         <TableHeader>
-                          <TableRow className="border-violet-100 bg-violet-50/60">
-                            <TableHead className="text-gray-700 text-xs w-32">时间</TableHead>
-                            <TableHead className="text-gray-700 text-xs w-16">对象</TableHead>
-                            <TableHead className="text-gray-700 text-xs w-16">操作</TableHead>
-                            <TableHead className="text-gray-700 text-xs">详情</TableHead>
+                          <TableRow className="border-[rgba(32,27,72,0.09)] bg-[#fafafd]">
+                            <TableHead className="text-[#20203a] text-xs w-32">时间</TableHead>
+                            <TableHead className="text-[#20203a] text-xs w-16">对象</TableHead>
+                            <TableHead className="text-[#20203a] text-xs w-16">操作</TableHead>
+                            <TableHead className="text-[#20203a] text-xs">详情</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1362,16 +1408,23 @@ function IndicatorMaintenanceDialog({
                             }
                             return (
                               <TableRow key={log.id}>
-                                <TableCell className="text-xs text-gray-600">
+                                <TableCell className="text-xs text-[#5a5a75]">
                                   {new Date(log.timestamp).toLocaleString("zh-CN")}
                                 </TableCell>
-                                <TableCell className="text-xs text-gray-700">
+                                <TableCell className="text-xs text-[#20203a]">
                                   {targetLabel}
                                 </TableCell>
-                                <TableCell className="text-xs text-gray-700">
-                                  {actionLabel}
+                                <TableCell className="text-xs text-[#20203a]">
+                                  <span className={cn(
+                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium",
+                                    log.action === "create" && "bg-[#e8f7f1] text-[#0f9d6e]",
+                                    log.action === "update" && "bg-[#efedfd] text-[#6c5ce7]",
+                                    log.action === "delete" && "bg-[#fdeef2] text-[#f0476a]",
+                                  )}>
+                                    {actionLabel}
+                                  </span>
                                 </TableCell>
-                                <TableCell className="text-xs text-gray-600">
+                                <TableCell className="text-xs text-[#5a5a75]">
                                   {detail || "-"}
                                 </TableCell>
                               </TableRow>
@@ -1386,7 +1439,7 @@ function IndicatorMaintenanceDialog({
             </Tabs>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-violet-50 mt-auto shrink-0">
+          <div className="flex justify-end gap-2 pt-4 border-t border-[rgba(32,27,72,0.09)] mt-auto shrink-0">
             <Button
               type="button"
               variant="outline"
@@ -1394,14 +1447,10 @@ function IndicatorMaintenanceDialog({
                 resetForm();
                 setOpen(false);
               }}
-              className="border-violet-200 hover:bg-violet-50"
             >
               取消
             </Button>
-            <Button
-              type="submit"
-              className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600"
-            >
+            <Button type="submit">
               保存
             </Button>
           </div>
@@ -1426,7 +1475,7 @@ function ClearAllDataDialog({ disabled, onConfirm, triggerClassName, triggerLabe
           variant="outline"
           disabled={disabled}
           className={cn(
-            "gap-2 bg-white/80 backdrop-blur-sm border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 disabled:opacity-40 disabled:cursor-not-allowed",
+            "gap-2 border-[rgba(240,71,106,0.35)] bg-[#fdeef2] text-[#e5315c] hover:bg-[#fbdce5] hover:text-[#e5315c] hover:border-[rgba(240,71,106,0.5)] disabled:opacity-40 disabled:cursor-not-allowed",
             triggerClassName,
           )}
         >
@@ -1434,26 +1483,33 @@ function ClearAllDataDialog({ disabled, onConfirm, triggerClassName, triggerLabe
           {triggerLabel ?? "删除全部"}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
-        <AlertDialogHeader>
-          <AlertDialogTitle className="text-xl bg-gradient-to-r from-rose-600 to-red-600 bg-clip-text text-transparent">
-            确认删除所有数据？
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-gray-600">
-            此操作将彻底清除当前系统中所有体检记录数据，包括本地存储中的所有相关信息，且无法恢复。
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel className="border-gray-200 hover:bg-gray-50">
-            取消
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600 border-0"
-          >
-            确认永久删除
-          </AlertDialogAction>
-        </AlertDialogFooter>
+      <AlertDialogContent className="sm:max-w-[420px] p-0 gap-0 overflow-hidden border-[rgba(240,71,106,0.2)] shadow-[0_0_80px_rgba(244,63,94,0.22),0_40px_90px_-20px_rgba(24,16,66,0.42)]">
+        <div className="px-8 pt-9 pb-7 flex flex-col items-center text-center">
+          <div className="size-14 rounded-full bg-gradient-to-br from-[#f43f5e] to-[#dc2626] flex items-center justify-center shadow-[0_0_0_6px_rgba(244,63,94,0.12),0_14px_30px_-8px_rgba(244,63,94,0.5)]">
+            <AlertTriangle className="w-7 h-7 text-white" />
+          </div>
+          <AlertDialogHeader className="items-center text-center gap-2.5 mt-5">
+            <AlertDialogTitle className="text-xl font-bold bg-gradient-to-r from-[#f43f5e] to-[#dc2626] bg-clip-text text-transparent">
+              确认删除所有数据？
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13.5px] leading-relaxed text-[#8a8a9c] max-w-[320px]">
+              此操作将彻底清除当前系统中所有体检记录数据，包括本地存储中的所有相关信息，且无法恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="w-full h-px mt-6 bg-gradient-to-r from-transparent via-[rgba(244,63,94,0.35)] to-transparent" />
+          <AlertDialogFooter className="w-full mt-6 flex-row gap-3 sm:justify-center">
+            <AlertDialogCancel className="flex-1 h-11 rounded-full border border-[rgba(32,27,72,0.12)] bg-[rgba(120,120,140,0.08)] text-[#5a5a75] hover:bg-[rgba(120,120,140,0.14)] hover:text-[#20203a] mt-0">
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onConfirm}
+              className="flex-1 h-11 rounded-full gap-2 bg-gradient-to-r from-[#f43f5e] to-[#dc2626] text-white border-0 shadow-[0_10px_24px_-8px_rgba(244,63,94,0.55),inset_0_1px_0_rgba(255,255,255,0.25)] hover:brightness-[1.06]"
+            >
+              <Trash2 className="w-4 h-4" />
+              确认永久删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </div>
       </AlertDialogContent>
     </AlertDialog>
   );
@@ -1518,7 +1574,7 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
           <Button
             variant="outline"
             aria-label="账号菜单"
-            className="h-10 w-10 rounded-full p-0 border-0 bg-gradient-to-br from-violet-500 to-blue-500 text-white text-xs font-semibold shadow-md shadow-violet-200 hover:from-violet-600 hover:to-blue-600 hover:scale-105 transition-transform"
+            className="h-10 w-10 rounded-full p-0 border-0 bg-gradient-to-br from-[#7c6ff0] to-[#6c5ce7] text-white text-xs font-semibold shadow-[0_6px_16px_-4px_rgba(108,92,231,0.5)] hover:brightness-[1.08] hover:scale-105 transition-transform"
           >
             {getEmailInitials(email)}
           </Button>
@@ -1526,31 +1582,31 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
           <Button
             variant="outline"
             aria-label="账号菜单"
-            className="w-full h-auto justify-start gap-3 p-2 rounded-xl border-0 bg-transparent hover:bg-violet-50"
+            className="w-full h-auto justify-start gap-3 p-2 rounded-[10px] border-0 bg-transparent shadow-none hover:bg-[rgba(0,0,0,0.045)]"
           >
-            <span className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-white text-xs font-semibold flex items-center justify-center shrink-0">
+            <span className="h-9 w-9 rounded-full bg-gradient-to-br from-[#7c6ff0] to-[#6c5ce7] text-white text-xs font-semibold flex items-center justify-center shrink-0">
               {getEmailInitials(email)}
             </span>
             <span className="min-w-0 flex-1 text-left">
-              <span className="block text-[13px] font-medium text-gray-700 truncate">
+              <span className="block text-[13px] font-medium text-[#20203a] truncate">
                 {email || "当前用户"}
               </span>
-              <span className="block text-xs text-gray-400">账号设置</span>
+              <span className="block text-[11.5px] text-[#9a9ab0]">账号设置</span>
             </span>
           </Button>
         ) : (
           <Button
             variant="outline"
-            className="gap-2 bg-white/80 backdrop-blur-sm border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
+            className="gap-2 border-[rgba(32,27,72,0.12)] bg-white text-[#5a5a75] hover:bg-[#f4f2fe] hover:text-[#5a49d6] hover:border-[#cfc2f8]"
           >
             <User className="w-4 h-4" />
             <span className="max-w-[180px] truncate">{email || "当前用户"}</span>
           </Button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56 bg-white/95 backdrop-blur-xl border-violet-100">
-        <DropdownMenuLabel className="text-xs text-gray-500">当前账号</DropdownMenuLabel>
-        <div className="px-2 py-1 text-xs text-gray-700 truncate">{email || "未设置邮箱"}</div>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="text-xs text-[#9a9ab0]">当前账号</DropdownMenuLabel>
+        <div className="px-2 py-1 text-xs text-[#20203a] truncate">{email || "未设置邮箱"}</div>
         <DropdownMenuSeparator />
         <Dialog
           open={passwordOpen}
@@ -1564,15 +1620,15 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
           <DialogTrigger asChild>
             <DropdownMenuItem>设置登录密码</DropdownMenuItem>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[420px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
+          <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
-              <DialogTitle className="text-lg bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
+              <DialogTitle>
                 设置登录密码
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSetPassword} className="space-y-4 mt-3">
               <div className="space-y-2">
-                <Label htmlFor="new-password">新密码</Label>
+                <Label htmlFor="new-password" className="text-[12.5px] font-semibold text-[#5a5a75]">新密码</Label>
                 <Input
                   id="new-password"
                   type="password"
@@ -1582,7 +1638,7 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirm-password">确认密码</Label>
+                <Label htmlFor="confirm-password" className="text-[12.5px] font-semibold text-[#5a5a75]">确认密码</Label>
                 <Input
                   id="confirm-password"
                   type="password"
@@ -1592,7 +1648,7 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
                 />
               </div>
               {passwordError && (
-                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                <div className="text-xs text-[#e5315c] bg-[#fdeef2] border border-[rgba(240,71,106,0.25)] rounded-[10px] px-3 py-2">
                   {passwordError}
                 </div>
               )}
@@ -1601,14 +1657,12 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
                   type="button"
                   variant="outline"
                   onClick={() => setPasswordOpen(false)}
-                  className="border-violet-200 hover:bg-violet-50"
                 >
                   取消
                 </Button>
                 <Button
                   type="submit"
                   disabled={passwordSubmitting}
-                  className="bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600"
                 >
                   {passwordSubmitting ? "保存中..." : "保存密码"}
                 </Button>
@@ -1618,26 +1672,26 @@ function UserMenu({ email, onConfirm, onSetPassword, variant = "button" }: UserM
         </Dialog>
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <DropdownMenuItem className="text-rose-600 focus:text-rose-700 focus:bg-rose-50" onSelect={(e) => e.preventDefault()}>
+            <DropdownMenuItem className="text-[#e5315c] focus:text-[#e5315c] focus:bg-[#fdeef2]" onSelect={(e) => e.preventDefault()}>
               退出登录
             </DropdownMenuItem>
           </AlertDialogTrigger>
-          <AlertDialogContent className="bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
+          <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-lg bg-gradient-to-r from-rose-600 to-red-600 bg-clip-text text-transparent">
+              <AlertDialogTitle className="text-lg font-bold bg-gradient-to-r from-[#f43f5e] to-[#dc2626] bg-clip-text text-transparent w-fit">
                 确认退出当前账号？
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-gray-600">
+              <AlertDialogDescription className="text-[#5a5a75]">
                 退出后将清除当前登录会话，需要重新登录才能继续访问体检数据。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="border-gray-200 hover:bg-gray-50">
+              <AlertDialogCancel>
                 取消
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={onConfirm}
-                className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600 border-0"
+                className="bg-gradient-to-r from-[#f43f5e] to-[#dc2626] text-white border-0 shadow-[0_10px_24px_-8px_rgba(244,63,94,0.55)] hover:brightness-[1.06]"
               >
                 确认退出
               </AlertDialogAction>
@@ -2303,7 +2357,7 @@ function CloudSyncDialog({
     if (!currentAuth || !currentAuth.accessToken) {
       return {
         label: "未授权",
-        badgeClass: "bg-gray-100 text-gray-700 border border-gray-200",
+        badgeClass: "bg-[#f1f1f7] text-[#5a5a75] border border-transparent",
         desc: "当前云平台尚未配置授权信息。",
       };
     }
@@ -2311,7 +2365,7 @@ function CloudSyncDialog({
     if (currentAuth.tokenInvalid) {
       return {
         label: "已失效",
-        badgeClass: "bg-rose-50 text-rose-700 border border-rose-200",
+        badgeClass: "bg-[#fdeef2] text-[#e5315c] border border-transparent",
         desc: "检测到云盘授权无效或权限错误，请点击上方按钮重新获取云盘 Token。",
       };
     }
@@ -2321,7 +2375,7 @@ function CloudSyncDialog({
       if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
         return {
           label: "已过期",
-          badgeClass: "bg-amber-50 text-amber-700 border border-amber-200",
+          badgeClass: "bg-[#fdf3e3] text-[#d17d00] border border-transparent",
           desc: "授权已过期，保存新的有效期后方可继续使用自动同步。",
         };
       }
@@ -2329,7 +2383,7 @@ function CloudSyncDialog({
 
     return {
       label: "已授权",
-      badgeClass: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+      badgeClass: "bg-[#e8f7f1] text-[#0f9d6e] border border-transparent",
       desc: "授权有效，可根据下方权限配置控制上传、覆盖和删除行为。",
     };
   };
@@ -2412,28 +2466,30 @@ function CloudSyncDialog({
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className={cn(
-            "gap-2 bg-white/80 backdrop-blur-sm border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300",
-            triggerClassName,
-          )}
+          className={cn("gap-2", triggerClassName)}
         >
           <Cloud className="w-4 h-4" />
           云同步
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[700px] bg-white/95 backdrop-blur-xl border-0 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent flex items-center gap-2">
-            云端存储与同步管理
-          </DialogTitle>
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-[12px] bg-gradient-to-br from-[#2563eb] via-[#3b82f6] to-[#0891b2] flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(37,99,235,0.5)] shrink-0">
+              <Cloud className="w-5 h-5 text-white" />
+            </div>
+            <DialogTitle className="text-xl bg-gradient-to-r from-[#2563eb] via-[#3b82f6] to-[#0891b2]">
+              云端存储与同步管理
+            </DialogTitle>
+          </div>
         </DialogHeader>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
-          <TabsList className="grid w-full grid-cols-2 bg-blue-50/50">
-            <TabsTrigger value="general" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsList className="grid w-full grid-cols-2 bg-[rgba(239,246,255,0.7)] border-[#dbeafe]">
+            <TabsTrigger value="general" className="data-[state=active]:text-[#1d4ed8]">
               基础设置
             </TabsTrigger>
-            <TabsTrigger value="auth" className="data-[state=active]:bg-white data-[state=active]:shadow-sm flex items-center gap-2">
+            <TabsTrigger value="auth" className="data-[state=active]:text-[#1d4ed8] flex items-center gap-2">
               <ShieldCheck className="w-4 h-4" />
               授权管理
             </TabsTrigger>
@@ -2441,7 +2497,7 @@ function CloudSyncDialog({
 
           <TabsContent value="general" className="space-y-6 mt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="bg-white/70 border border-blue-100 shadow-sm">
+              <Card className="bg-white border border-[#dbeafe] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                 <CardHeader className="pb-2">
                   <div className="flex items-center gap-2">
                     <CloudUpload className="w-4 h-4 text-blue-500" />
@@ -2456,10 +2512,10 @@ function CloudSyncDialog({
                     <button
                       type="button"
                       onClick={() => onChangeProvider("googleDrive")}
-                      className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm border ${
+                      className={`flex items-center justify-between px-3 py-2 rounded-[10px] text-sm border transition-colors ${
                         provider === "googleDrive"
                           ? "border-blue-500 bg-blue-50 text-blue-700"
-                          : "border-gray-200 hover:border-blue-200 hover:bg-blue-50/60 text-gray-700"
+                          : "border-[rgba(32,27,72,0.12)] hover:border-blue-200 hover:bg-blue-50/60 text-[#20203a]"
                       }`}
                     >
                       <span>谷歌云盘</span>
@@ -2472,32 +2528,32 @@ function CloudSyncDialog({
                     <button
                       type="button"
                       onClick={() => onChangeProvider("none")}
-                      className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm border ${
+                      className={`flex items-center justify-between px-3 py-2 rounded-[10px] text-sm border transition-colors ${
                         provider === "none"
-                          ? "border-gray-400 bg-gray-50 text-gray-700"
-                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600"
+                          ? "border-[#9a9ab0] bg-[#f1f1f7] text-[#20203a]"
+                          : "border-[rgba(32,27,72,0.12)] hover:border-[#b8b8cc] hover:bg-[#f7f7fb] text-[#5a5a75]"
                       }`}
                     >
                       <span>不启用云同步</span>
                       {provider === "none" && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-700 text-white">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#5a5a75] text-white">
                           已选择
                         </span>
                       )}
                     </button>
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                    <div className="flex items-center gap-2 text-xs text-[#5a5a75]">
                       <HardDrive className="w-3 h-3 text-blue-500" />
                       <span>可用存储空间</span>
                     </div>
-                    <span className="text-xs font-medium text-gray-800">
+                    <span className="text-xs font-medium text-[#20203a]">
                       {availableStorageText || "待同步后更新"}
                     </span>
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-white/70 border border-blue-100 shadow-sm">
+              <Card className="bg-white border border-[#dbeafe] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                 <CardHeader className="pb-2">
                   <div className="flex items-center gap-2">
                     <Cloud className="w-4 h-4 text-blue-500" />
@@ -2511,15 +2567,15 @@ function CloudSyncDialog({
                   <button
                     type="button"
                     onClick={onToggleAutoSync}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm border ${
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-sm border transition-colors ${
                       autoSync
-                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                        : "border-gray-200 hover:border-emerald-200 hover:bg-emerald-50/60 text-gray-700"
+                        ? "border-[#0f9d6e] bg-[#e8f7f1] text-[#0f9d6e]"
+                        : "border-[rgba(32,27,72,0.12)] hover:border-[#7fd8bd] hover:bg-[#e8f7f1]/60 text-[#20203a]"
                     }`}
                   >
                     <div className="flex flex-col items-start">
                       <span>自动备份</span>
-                      <span className="text-[11px] text-gray-500 mt-0.5">
+                      <span className="text-[11px] text-[#9a9ab0] mt-0.5">
                         记录、分类或附件发生变化后，自动静默上传备份到云端（约 5 秒内完成）。
                       </span>
                     </div>
@@ -2527,9 +2583,9 @@ function CloudSyncDialog({
                       {autoSync ? "已开启" : "已关闭"}
                     </span>
                   </button>
-                  <div className="text-[11px] text-gray-400 leading-relaxed">
+                  <div className="text-[11px] text-[#9a9ab0] leading-relaxed">
                     当前配置：
-                    <span className="ml-1 font-medium text-gray-700">{providerLabel}</span>
+                    <span className="ml-1 font-medium text-[#20203a]">{providerLabel}</span>
                     {autoSync ? "，数据变更后将自动备份。" : "，仅手动点击同步时才上传。"}
                   </div>
                 </CardContent>
@@ -2538,10 +2594,10 @@ function CloudSyncDialog({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <History className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-800">上传队列</span>
+                  <History className="w-4 h-4 text-[#9a9ab0]" />
+                  <span className="text-sm font-medium text-[#20203a]">上传队列</span>
                 </div>
-                <span className="text-[11px] text-gray-400">
+                <span className="text-[11px] text-[#9a9ab0]">
                   仅展示最近 10 次上传任务。
                 </span>
               </div>
@@ -2552,7 +2608,7 @@ function CloudSyncDialog({
                   size="sm"
                   onClick={onPullFromCloud}
                   disabled={cloudPulling || provider === "none"}
-                  className="gap-1 border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
+                  className="gap-1 border-[#bfdbfe] text-[#2563eb] hover:bg-[#eff6ff] hover:border-[#93c5fd]"
                 >
                   {cloudPulling ? (
                     <>
@@ -2568,56 +2624,56 @@ function CloudSyncDialog({
                 </Button>
               </div>
               {hasTasks ? (
-                <div className="border border-blue-100 rounded-xl overflow-hidden bg-white/60 max-h-60">
+                <div className="border border-[#dbeafe] rounded-[14px] overflow-hidden bg-[#fafafd] max-h-60">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-blue-50/60 border-blue-100">
-                        <TableHead className="text-xs text-gray-700 w-32">时间</TableHead>
-                        <TableHead className="text-xs text-gray-700 w-32">云平台</TableHead>
-                        <TableHead className="text-xs text-gray-700">文件名</TableHead>
-                        <TableHead className="text-xs text-gray-700 w-24 text-right">进度</TableHead>
-                        <TableHead className="text-xs text-gray-700 w-32">状态</TableHead>
+                      <TableRow className="bg-[#eff6ff]/60 border-[#dbeafe] hover:bg-[#eff6ff]/60">
+                        <TableHead className="text-xs text-[#20203a] w-32">时间</TableHead>
+                        <TableHead className="text-xs text-[#20203a] w-32">云平台</TableHead>
+                        <TableHead className="text-xs text-[#20203a]">文件名</TableHead>
+                        <TableHead className="text-xs text-[#20203a] w-24 text-right">进度</TableHead>
+                        <TableHead className="text-xs text-[#20203a] w-32">状态</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {tasks.slice(0, 10).map(task => (
                         <TableRow key={task.id}>
-                          <TableCell className="text-xs text-gray-600">
+                          <TableCell className="text-xs text-[#5a5a75]">
                             {new Date(task.createdAt).toLocaleTimeString("zh-CN", {
                               hour: "2-digit",
                               minute: "2-digit",
                               second: "2-digit",
                             })}
                           </TableCell>
-                          <TableCell className="text-xs text-gray-700">
+                          <TableCell className="text-xs text-[#20203a]">
                             {task.provider === "googleDrive" ? "谷歌云盘" : "未配置"}
                           </TableCell>
-                          <TableCell className="text-xs text-gray-700 truncate max-w-[180px]">
+                          <TableCell className="text-xs text-[#20203a] truncate max-w-[180px]">
                             {task.fileName}
                           </TableCell>
-                          <TableCell className="text-xs text-right text-gray-700">
+                          <TableCell className="text-xs text-right text-[#20203a]">
                             {task.status === "pending" || task.status === "waitingAuth"
                               ? "-"
                               : `${task.progress}%`}
                           </TableCell>
                           <TableCell className="text-xs">
                             {task.status === "pending" && (
-                              <span className="text-gray-500">待开始</span>
+                              <span className="text-[#9a9ab0]">待开始</span>
                             )}
                             {task.status === "waitingAuth" && (
-                              <span className="text-amber-600">等待授权</span>
+                              <span className="text-[#d17d00]">等待授权</span>
                             )}
                             {task.status === "uploading" && (
-                              <span className="text-blue-600">上传中</span>
+                              <span className="text-[#2563eb]">上传中</span>
                             )}
                             {task.status === "success" && (
-                              <span className="text-emerald-600">成功</span>
+                              <span className="text-[#0f9d6e]">成功</span>
                             )}
                             {task.status === "failed" && (
-                              <span className="text-rose-600">
+                              <span className="text-[#e5315c]">
                                 失败
                                 {task.errorMessage && (
-                                  <span className="ml-1 text-[10px] text-rose-500">
+                                  <span className="ml-1 text-[10px] text-[#f0476a]">
                                     {task.errorMessage}
                                   </span>
                                 )}
@@ -2630,8 +2686,8 @@ function CloudSyncDialog({
                   </Table>
                 </div>
               ) : (
-                <div className="h-24 flex flex-col items-center justify-center text-gray-400 text-sm border border-dashed border-blue-100 rounded-xl bg-white/40">
-                  <CloudUpload className="w-5 h-5 mb-1 text-blue-300" />
+                <div className="h-24 flex flex-col items-center justify-center text-[#9a9ab0] text-sm border border-dashed border-[#dbeafe] rounded-[14px] bg-[#fafafd]">
+                  <CloudUpload className="w-5 h-5 mb-1 text-[#93c5fd]" />
                   <p>暂无上传任务，将在导入数据并开启云同步后自动生成。</p>
                 </div>
               )}
@@ -2640,14 +2696,14 @@ function CloudSyncDialog({
 
           <TabsContent value="auth" className="mt-4">
             {provider === "none" ? (
-              <div className="flex flex-col items-center justify-center h-64 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                <CloudUpload className="w-8 h-8 mb-2 text-gray-400" />
+              <div className="flex flex-col items-center justify-center h-64 text-[#9a9ab0] bg-[#fafafd] rounded-[14px] border border-dashed border-[rgba(32,27,72,0.16)]">
+                <CloudUpload className="w-8 h-8 mb-2 text-[#9a9ab0]" />
                 <p>请先在“基础设置”中选择一个云存储平台。</p>
               </div>
             ) : (
               <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-                <Card className="border-blue-200 shadow-md overflow-hidden">
-                  <div className="bg-blue-50/50 p-4 border-b border-blue-100 flex justify-between items-center">
+                <Card className="border-[#bfdbfe] shadow-[0_2px_6px_rgba(0,0,0,0.05)] overflow-hidden">
+                  <div className="bg-[#eff6ff]/60 p-4 border-b border-[#dbeafe] flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <UserCog className="w-5 h-5 text-blue-600" />
                       <h3 className="font-medium text-blue-900">
@@ -2655,7 +2711,7 @@ function CloudSyncDialog({
                       </h3>
                     </div>
                     {editingAuth.lastVerified && (
-                      <div className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                      <div className="flex items-center gap-1 text-xs text-[#0f9d6e] bg-[#e8f7f1] px-2 py-1 rounded-full border border-transparent">
                         <CheckCircle2 className="w-3 h-3" />
                         已验证 ({new Date(editingAuth.lastVerified).toLocaleDateString()})
                       </div>
@@ -2664,7 +2720,7 @@ function CloudSyncDialog({
                   <CardContent className="p-6 space-y-4">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2 text-sm">
-                        <span className="text-gray-600">当前授权状态</span>
+                        <span className="text-[#5a5a75]">当前授权状态</span>
                         {(() => {
                           const status = getAuthStatus();
                           return (
@@ -2674,7 +2730,7 @@ function CloudSyncDialog({
                           );
                         })()}
                       </div>
-                      <p className="text-[11px] text-gray-500 max-w-xs text-right">
+                      <p className="text-[11px] text-[#9a9ab0] max-w-xs text-right">
                         {getAuthStatus().desc}
                       </p>
                     </div>
@@ -2706,7 +2762,7 @@ function CloudSyncDialog({
                         size="sm"
                         onClick={handleOpenTokenPage}
                         disabled={tokenPageLoading || provider === "none"}
-                        className="h-7 px-3 gap-1 border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
+                        className="h-7 px-3 gap-1 border-[#bfdbfe] text-[#2563eb] hover:bg-[#eff6ff] hover:border-[#93c5fd]"
                       >
                         {tokenPageLoading ? (
                           <>
@@ -2726,22 +2782,22 @@ function CloudSyncDialog({
                           placeholder="在此粘贴您的授权令牌..."
                           className="pr-10 font-mono text-sm"
                         />
-                        <EyeOff className="w-4 h-4 text-gray-400 absolute right-3 top-3 cursor-pointer hover:text-gray-600" />
+                        <EyeOff className="w-4 h-4 text-[#9a9ab0] absolute right-3 top-3 cursor-pointer hover:text-[#5a5a75]" />
                       </div>
-                      <p className="text-[11px] text-gray-500">
+                      <p className="text-[11px] text-[#9a9ab0]">
                         注意：令牌将使用本地密钥加密存储。
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-gray-100">
+                    <div className="pt-2 border-t border-[rgba(32,27,72,0.09)]">
                       <div className="flex items-center justify-between mb-2">
                         <Label className="mb-0 block">权限控制 (Roles)</Label>
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#eff6ff] text-[#1d4ed8] border border-transparent">
                           当前角色：{getRoleLabel()}
                         </span>
                       </div>
                       <div className="flex gap-4">
-                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <label className="flex items-center gap-2 text-sm text-[#20203a] cursor-pointer">
                           <input
                             type="checkbox"
                             checked={editingAuth.permissions.canUpload}
@@ -2749,11 +2805,11 @@ function CloudSyncDialog({
                               ...editingAuth,
                               permissions: { ...editingAuth.permissions, canUpload: e.target.checked }
                             })}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="size-4 rounded accent-blue-600"
                           />
                           允许上传
                         </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <label className="flex items-center gap-2 text-sm text-[#20203a] cursor-pointer">
                           <input
                             type="checkbox"
                             checked={editingAuth.permissions.canOverwrite}
@@ -2761,11 +2817,11 @@ function CloudSyncDialog({
                               ...editingAuth,
                               permissions: { ...editingAuth.permissions, canOverwrite: e.target.checked }
                             })}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="size-4 rounded accent-blue-600"
                           />
                           允许覆盖
                         </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <label className="flex items-center gap-2 text-sm text-[#20203a] cursor-pointer">
                           <input
                             type="checkbox"
                             checked={editingAuth.permissions.canDelete}
@@ -2773,14 +2829,14 @@ function CloudSyncDialog({
                               ...editingAuth,
                               permissions: { ...editingAuth.permissions, canDelete: e.target.checked }
                             })}
-                            className="rounded border-gray-300 text-rose-600 focus:ring-rose-500"
+                            className="size-4 rounded accent-rose-600"
                           />
-                          <span className="text-rose-600">允许删除</span>
+                          <span className="text-[#e5315c]">允许删除</span>
                         </label>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100 text-xs text-gray-600">
+                    <div className="flex items-center justify-between pt-3 border-t border-[rgba(32,27,72,0.09)] text-xs text-[#5a5a75]">
                       <div className="flex flex-col gap-0.5">
                         <span>
                           绑定账号：
@@ -2789,13 +2845,13 @@ function CloudSyncDialog({
                           </span>
                         </span>
                         {editingAuth.lastVerified && (
-                          <span className="text-[11px] text-gray-500">
+                          <span className="text-[11px] text-[#9a9ab0]">
                             最近验证时间：
                             {new Date(editingAuth.lastVerified).toLocaleString("zh-CN")}
                           </span>
                         )}
                         {editingAuth.lastErrorMessage && (
-                          <span className="text-[11px] text-rose-500">
+                          <span className="text-[11px] text-[#f0476a]">
                             最近错误：{editingAuth.lastErrorMessage}
                           </span>
                         )}
@@ -2804,7 +2860,7 @@ function CloudSyncDialog({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="border-rose-200 text-rose-600 hover:bg-rose-50"
+                        className="border-[#f5c2d0] text-[#e5315c] hover:bg-[#fdeef2]"
                         onClick={() => {
                           const newConfig = { ...authConfig };
                           if (provider === "googleDrive") {
@@ -2828,10 +2884,10 @@ function CloudSyncDialog({
                     </div>
 
                     <div className="flex gap-3 pt-4">
-                      <Button onClick={handleSaveAuth} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                      <Button onClick={handleSaveAuth} className="flex-1 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] text-white shadow-[0_10px_24px_-8px_rgba(37,99,235,0.5)] hover:brightness-[1.06]">
                         保存配置
                       </Button>
-                      <Button variant="outline" onClick={handleTestConnection} className="flex-1 border-blue-200 text-blue-600 hover:bg-blue-50">
+                      <Button variant="outline" onClick={handleTestConnection} className="flex-1 border-[#bfdbfe] text-[#2563eb] hover:bg-[#eff6ff] hover:text-[#2563eb]">
                         测试连接
                       </Button>
                     </div>
@@ -5431,13 +5487,13 @@ export default function App() {
   if (supabaseEnabled) {
     if (authLoading) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-100 via-blue-50 to-pink-50">
+        <div className="min-h-screen flex items-center justify-center bg-[#f5f5fb]">
           <div className="flex flex-col items-center gap-3">
-            <div className="p-4 rounded-full bg-white/80 shadow-lg shadow-violet-100">
-              <Loader2 className="w-6 h-6 text-violet-600 animate-spin" />
+            <div className="p-4 rounded-full bg-white shadow-[0_8px_24px_-8px_rgba(108,92,231,0.25)]">
+              <Loader2 className="w-6 h-6 text-[#6c5ce7] animate-spin" />
             </div>
-            <div className="text-gray-700 text-sm">正在检测登录状态...</div>
-            <div className="text-gray-400 text-xs">通常会在 3 秒内完成，如长时间无响应请检查网络。</div>
+            <div className="text-[#20203a] text-sm">正在检测登录状态...</div>
+            <div className="text-[#9a9ab0] text-xs">通常会在 3 秒内完成，如长时间无响应请检查网络。</div>
           </div>
         </div>
       );
@@ -5456,9 +5512,9 @@ export default function App() {
   }
 
   const sidebarItemClass =
-    "w-full justify-start gap-2.5 rounded-lg border-0 bg-none bg-transparent px-3 text-gray-600 shadow-none backdrop-blur-none hover:bg-violet-50 hover:text-violet-700 hover:shadow-none";
+    "w-full justify-start gap-2.5 rounded-[8px] border-0 bg-transparent px-2.5 h-[34px] text-[13.5px] font-normal text-[#5a5a75] shadow-none backdrop-blur-none hover:bg-[rgba(0,0,0,0.045)] hover:text-[#20203a] hover:shadow-none";
   const sidebarDangerClass =
-    "w-full justify-start gap-2.5 rounded-lg border-0 bg-none bg-transparent px-3 text-rose-600 shadow-none backdrop-blur-none hover:bg-rose-50 hover:text-rose-700 hover:shadow-none";
+    "w-full justify-start gap-2.5 rounded-[8px] border-0 bg-transparent px-2.5 h-[34px] text-[13.5px] font-normal text-[#f0476a] shadow-none backdrop-blur-none hover:bg-[#fdeef2] hover:text-[#f0476a] hover:shadow-none";
   const userFooter =
     supabaseEnabled && supabaseSession ? (
       <UserMenu
@@ -5659,14 +5715,14 @@ export default function App() {
       <ClearAllDataDialog
         disabled={records.length === 0}
         onConfirm={handleClearAllRecords}
-        triggerClassName="h-9 px-4 rounded-lg text-[13px]"
+        triggerClassName="h-9 px-4 rounded-full text-[13px] font-medium border-0 bg-gradient-to-r from-[#f43f5e] to-[#dc2626] text-white shadow-[0_10px_24px_-8px_rgba(244,63,94,0.55)] hover:brightness-[1.06]"
         triggerLabel="删除全部数据"
       />
     ),
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50">
+    <div className="min-h-screen bg-[#f5f5fb]">
       <AppSidebar groups={sidebarGroups} footer={userFooter} />
       <MobileSidebarSheet
         open={mobileSidebarOpen}
@@ -5699,7 +5755,8 @@ export default function App() {
             </>
           }
         />
-        <main className="flex-1 p-4 lg:p-8">
+        <main className="flex-1 px-4 lg:px-7 pt-5 pb-7">
+        <div className="mx-auto w-full max-w-[1200px] space-y-[18px]">
 
         {/* 统计卡片 */}
         <StatsCards records={effectiveRecords} categoriesCount={indicatorCategories.length} />
@@ -5708,82 +5765,90 @@ export default function App() {
         <Tabs
           value={activeTab}
           onValueChange={value => setActiveTab(value as "table" | "chart" | "maintenance")}
-          className="space-y-6"
+          className="space-y-[18px]"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <TabsList className="bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1 rounded-full max-w-full overflow-x-auto">
+            <TabsList className="bg-[#f1f1f7] border-0 shadow-none p-[3px] rounded-full max-w-full overflow-x-auto">
               <TabsTrigger
                 value="table"
-                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
+                className="rounded-full h-8 px-[18px] text-[13px] font-medium data-[state=active]:bg-gradient-to-br data-[state=active]:from-[#7c6ff0] data-[state=active]:to-[#6c5ce7] data-[state=active]:text-white data-[state=active]:shadow-[0_2px_6px_rgba(108,92,231,0.35)]"
               >
                 数据列表
               </TabsTrigger>
               <TabsTrigger
                 value="chart"
-                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-pink-500 data-[state=active]:text-white"
+                className="rounded-full h-8 px-[18px] text-[13px] font-medium data-[state=active]:bg-gradient-to-br data-[state=active]:from-[#7c6ff0] data-[state=active]:to-[#6c5ce7] data-[state=active]:text-white data-[state=active]:shadow-[0_2px_6px_rgba(108,92,231,0.35)]"
               >
                 图表分析
               </TabsTrigger>
               <TabsTrigger
                 value="maintenance"
-                className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-blue-500 data-[state=active]:text-white"
+                className="rounded-full h-8 px-[18px] text-[13px] font-medium data-[state=active]:bg-gradient-to-br data-[state=active]:from-[#7c6ff0] data-[state=active]:to-[#6c5ce7] data-[state=active]:text-white data-[state=active]:shadow-[0_2px_6px_rgba(108,92,231,0.35)]"
               >
                 数据维护
               </TabsTrigger>
             </TabsList>
-            <div className="flex items-center gap-2 rounded-full bg-white/60 backdrop-blur-xl border-0 shadow-lg p-1">
-              <button onClick={() => setAnomalyOnly(false)} className={cn("rounded-full px-4 py-1.5 text-sm font-medium transition-all", !anomalyOnly ? "bg-gradient-to-r from-violet-500 to-blue-500 text-white shadow" : "text-gray-600 hover:bg-white/60")}>所有指标</button>
-              <button onClick={() => setAnomalyOnly(true)} className={cn("rounded-full px-4 py-1.5 text-sm font-medium transition-all", anomalyOnly ? "bg-gradient-to-r from-red-500 to-rose-500 text-white shadow" : "text-gray-600 hover:bg-white/60")}>异常指标</button>
+            <div className="flex items-center gap-[2px] rounded-full bg-[#f1f1f7] p-[2px]">
+              <button onClick={() => setAnomalyOnly(false)} className={cn("rounded-full h-7 px-3.5 text-xs font-semibold transition-all", !anomalyOnly ? "bg-white text-[#20203a] shadow-[0_1px_3px_rgba(0,0,0,0.08)]" : "text-[#5a5a75] hover:text-[#20203a]")}>所有指标</button>
+              <button onClick={() => setAnomalyOnly(true)} className={cn("rounded-full h-7 px-3.5 text-xs font-semibold transition-all", anomalyOnly ? "bg-white text-[#f0476a] shadow-[0_1px_3px_rgba(0,0,0,0.08)]" : "text-[#5a5a75] hover:text-[#20203a]")}>异常指标</button>
             </div>
           </div>
           {anomalyOnly && effectiveRecords.length === 0 && (
-            <div className="rounded-xl border border-red-100 bg-red-50/60 px-4 py-3 text-sm text-red-600">当前无异常指标记录（旧导入数据不含异常标记，重新导入报告后可用）</div>
+            <div className="rounded-[14px] border border-[rgba(240,71,106,0.25)] bg-[#fdeef2]/70 px-4 py-3 text-[13px] text-[#e5315c]">当前无异常指标记录（旧导入数据不含异常标记，重新导入报告后可用）</div>
           )}
 
           <TabsContent value="table">
-            <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
-              <div className="px-6 py-5 border-b border-violet-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="bg-white border border-[rgba(32,27,72,0.09)] rounded-[18px] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
+              <div className="px-6 py-5 border-b border-[rgba(32,27,72,0.09)] flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 className="text-base font-semibold text-gray-800">指标数据</h3>
-                  <p className="text-[13px] text-gray-500 mt-0.5">按指标种类查看具体检测数据</p>
+                  <h3 className="text-base font-bold text-[#20203a]">指标数据</h3>
+                  <p className="text-[12.5px] text-[#9a9ab0] mt-0.5">按指标种类查看具体检测数据</p>
                 </div>
-                <Select
-                  value={indicatorDataCategory?.id ?? ""}
-                  onValueChange={(value: string) => setIndicatorDataCategoryId(value)}
-                >
-                  <SelectTrigger className="w-[220px] border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
-                    <SelectValue placeholder="选择检验指标种类" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
-                    {displayDataCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2.5">
+                  <Select
+                    value={indicatorDataCategory?.id ?? ""}
+                    onValueChange={(value: string) => setIndicatorDataCategoryId(value)}
+                  >
+                    <SelectTrigger className="w-[220px]">
+                      <SelectValue placeholder="选择检验指标种类" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {displayDataCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <AddRecordDialog
+                    onAddRecord={handleAddRecord}
+                    onAddAttachment={handleAddAttachment}
+                    indicatorCategories={indicatorCategories}
+                    triggerClassName="h-9 px-4 rounded-full text-[13px] font-medium gap-1.5 border-0 bg-gradient-to-r from-[#7b6cf6] via-[#6c5ce7] to-[#2f7ff6] text-white shadow-[0_10px_24px_-8px_rgba(99,102,241,0.55)] hover:brightness-[1.06]"
+                  />
+                </div>
               </div>
               {indicatorDataItems.length === 0 ? (
-                <div className="m-6 border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm">
+                <div className="m-6 border border-[rgba(32,27,72,0.09)] bg-[#fafafd] h-40 rounded-[14px] flex flex-col items-center justify-center text-[#9a9ab0] text-sm">
                   暂无可展示的指标数据
                 </div>
               ) : dataListRowsFiltered.length === 0 ? (
-                <div className="m-6 border border-violet-100 bg-white/40 h-40 rounded-xl flex flex-col items-center justify-center text-gray-400 text-sm gap-1">
+                <div className="m-6 border border-[rgba(32,27,72,0.09)] bg-[#fafafd] h-40 rounded-[14px] flex flex-col items-center justify-center text-[#9a9ab0] text-sm gap-1">
                   <span>{searchLower ? "没有匹配搜索关键词的数据" : "当前分类暂无数据"}</span>
                   {searchLower && <span className="text-xs">清空搜索框可查看全部数据</span>}
                 </div>
               ) : (
                 <>
-                  <div className="m-6 border border-violet-100 rounded-xl overflow-hidden bg-white/40">
+                  <div className="m-6 border border-[rgba(32,27,72,0.09)] rounded-[14px] overflow-hidden">
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-violet-100 bg-violet-50/60">
-                          <TableHead className="text-gray-700 text-sm font-semibold w-32 py-3">数据日期</TableHead>
+                        <TableRow className="border-[rgba(32,27,72,0.09)] bg-[#fafafd] hover:bg-[#fafafd]">
+                          <TableHead className="text-[#5a5a75] text-xs font-semibold w-32 py-3">数据日期</TableHead>
                           {indicatorDataItems.map(item => (
-                            <TableHead key={item.id} className="text-gray-700 text-sm font-semibold py-3">
+                            <TableHead key={item.id} className="text-[#5a5a75] text-xs font-semibold py-3">
                               {item.label}
                               {item.unit && (
-                                <span className="ml-1 text-[11px] text-gray-400">
+                                <span className="ml-1 text-[11px] text-[#b8b8cc] font-normal">
                                   ({item.unit})
                                 </span>
                               )}
@@ -5795,15 +5860,15 @@ export default function App() {
                         {dataListPageRows.map(row => (
                           <TableRow
                             key={String(row.date)}
-                            className="border-violet-100 hover:bg-violet-50/40 transition-colors even:bg-white/60"
+                            className="border-[rgba(32,27,72,0.09)] hover:bg-[#f7f7fa] transition-colors"
                           >
-                            <TableCell className="text-sm font-medium text-gray-700 w-32 py-3">
+                            <TableCell className="text-[13.5px] font-medium text-[#20203a] w-32 py-3">
                               {String(row.date)}
                             </TableCell>
                             {indicatorDataItems.map(item => {
                               const cellFlag = ((row.flags ?? {}) as Record<string, "H" | "L" | undefined>)[item.id];
                               return (
-                                <TableCell key={item.id} className="text-sm text-gray-700 py-3">
+                                <TableCell key={item.id} className="text-[13.5px] text-[#20203a] py-3">
                                   <span className="inline-flex items-center gap-1">
                                     {formatIndicatorValue((row as Record<string, unknown>)[item.id])}
                                     {cellFlag === "H" && (
@@ -5821,8 +5886,8 @@ export default function App() {
                       </TableBody>
                     </Table>
                   </div>
-                  <div className="px-6 py-4 border-t border-violet-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="text-[13px] text-gray-500">
+                  <div className="px-6 py-4 border-t border-[rgba(32,27,72,0.09)] flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="text-[12.5px] text-[#9a9ab0]">
                       {`共 ${dataListRowsFiltered.length} 条记录，显示第 ${(dataListSafePage - 1) * DATA_LIST_PAGE_SIZE + 1}-${Math.min(dataListSafePage * DATA_LIST_PAGE_SIZE, dataListRowsFiltered.length)} 条`}
                     </div>
                     <div className="flex items-center gap-1">
@@ -5832,13 +5897,13 @@ export default function App() {
                         aria-label="上一页"
                         disabled={dataListSafePage <= 1}
                         onClick={() => setDataListPage(dataListSafePage - 1)}
-                        className="h-9 w-9 rounded-md border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
+                        className="h-8 w-8 rounded-[8px] border-transparent text-[#5a5a75] hover:bg-[#f1f1f7] hover:text-[#20203a] disabled:opacity-40"
                       >
                         <ChevronLeft className="w-4 h-4" />
                       </Button>
                       {dataListPageItems.map((page, index) =>
                         page === "ellipsis" ? (
-                          <span key={`ellipsis-${index}`} className="px-1.5 text-gray-400 text-sm">
+                          <span key={`ellipsis-${index}`} className="px-1.5 text-[#9a9ab0] text-sm">
                             …
                           </span>
                         ) : (
@@ -5850,10 +5915,10 @@ export default function App() {
                             aria-current={page === dataListSafePage ? "page" : undefined}
                             onClick={() => setDataListPage(page)}
                             className={cn(
-                              "h-9 w-9 rounded-md text-sm",
+                              "h-8 w-8 rounded-[8px] text-[13px]",
                               page === dataListSafePage
-                                ? "bg-gradient-to-r from-violet-500 to-blue-500 border-0 text-white hover:from-violet-600 hover:to-blue-600"
-                                : "border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700",
+                                ? "bg-gradient-to-br from-[#7c6ff0] to-[#6c5ce7] border-transparent text-white shadow-[0_2px_6px_rgba(108,92,231,0.35)] hover:brightness-[1.06]"
+                                : "border-transparent text-[#5a5a75] hover:bg-[#f1f1f7] hover:text-[#20203a]",
                             )}
                           >
                             {page}
@@ -5866,7 +5931,7 @@ export default function App() {
                         aria-label="下一页"
                         disabled={dataListSafePage >= dataListTotalPages}
                         onClick={() => setDataListPage(dataListSafePage + 1)}
-                        className="h-9 w-9 rounded-md border-violet-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
+                        className="h-8 w-8 rounded-[8px] border-transparent text-[#5a5a75] hover:bg-[#f1f1f7] hover:text-[#20203a] disabled:opacity-40"
                       >
                         <ChevronRight className="w-4 h-4" />
                       </Button>
@@ -5894,17 +5959,17 @@ export default function App() {
               onManualSync={handleManualSync}
               slots={maintenanceSlots}
             >
-              <div className="bg-white/60 backdrop-blur-xl border border-violet-100 rounded-2xl shadow-xl shadow-violet-100/40 overflow-hidden">
-                <div className="px-6 py-5 border-b border-violet-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="bg-white border border-[rgba(32,27,72,0.09)] rounded-[18px] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
+                <div className="px-6 py-5 border-b border-[rgba(32,27,72,0.09)] flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="text-base font-semibold text-gray-800">记录列表</h3>
-                    <p className="text-[13px] text-gray-500 mt-0.5">筛选分类后查看与编辑具体检验记录</p>
+                    <h3 className="text-base font-bold text-[#20203a]">记录列表</h3>
+                    <p className="text-[12.5px] text-[#9a9ab0] mt-0.5">筛选分类后查看与编辑具体检验记录</p>
                   </div>
                   <Select value={maintenanceCategoryId} onValueChange={setMaintenanceCategoryId}>
-                    <SelectTrigger className="w-[220px] border-violet-200 focus:border-violet-400 focus:ring-violet-400 bg-white/80">
+                    <SelectTrigger className="w-[220px]">
                       <SelectValue placeholder="全部指标分类" />
                     </SelectTrigger>
-                    <SelectContent className="bg-white/95 backdrop-blur-xl border-violet-200">
+                    <SelectContent>
                       <SelectItem value="__all__">全部指标分类</SelectItem>
                       {indicatorCategories.map(category => (
                         <SelectItem key={category.id} value={category.id}>
@@ -5929,11 +5994,11 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <div className="text-base font-semibold bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent mb-3">
+                  <div className="text-base font-bold text-[#20203a] mb-3">
                     变更记录
                   </div>
                   {maintenanceLogs.length === 0 ? (
-                    <div className="border border-violet-100 rounded-2xl bg-white/40 h-32 flex items-center justify-center text-gray-400 text-sm">
+                    <div className="border border-[rgba(32,27,72,0.09)] rounded-[14px] bg-[#fafafd] h-32 flex items-center justify-center text-[#9a9ab0] text-sm">
                       暂无变更记录
                     </div>
                   ) : (
@@ -5946,19 +6011,19 @@ export default function App() {
                         const label = indicator ? indicator.label : indicatorType || "-";
                         const date = log.after?.date ?? log.before?.date ?? "-";
                         let actionLabel = "";
-                        let actionTone = "text-gray-600 bg-gray-50 border-gray-100";
+                        let actionTone = "text-[#5a5a75] bg-[#f1f1f7] border-transparent";
                         if (log.type === "create") {
                           actionLabel = "新增";
-                          actionTone = "text-emerald-600 bg-emerald-50 border-emerald-100";
+                          actionTone = "text-[#0f9d6e] bg-[#e8f7f1] border-transparent";
                         } else if (log.type === "update") {
                           actionLabel = "修改";
-                          actionTone = "text-blue-600 bg-blue-50 border-blue-100";
+                          actionTone = "text-[#6c5ce7] bg-[#efedfd] border-transparent";
                         } else if (log.type === "delete") {
                           actionLabel = "删除";
-                          actionTone = "text-rose-600 bg-rose-50 border-rose-100";
+                          actionTone = "text-[#e5315c] bg-[#fdeef2] border-transparent";
                         } else if (log.type === "clear") {
                           actionLabel = "清空";
-                          actionTone = "text-amber-600 bg-amber-50 border-amber-100";
+                          actionTone = "text-[#d17d00] bg-[#fdf3e3] border-transparent";
                         }
                         let changeText = "";
                         if (log.type === "update" && log.before && log.after) {
@@ -5974,10 +6039,10 @@ export default function App() {
                         return (
                           <div
                             key={log.id}
-                            className="flex flex-col gap-3 rounded-2xl border border-violet-100 bg-white/70 px-4 py-3 shadow-sm"
+                            className="flex flex-col gap-3 rounded-[14px] border border-[rgba(32,27,72,0.09)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <div className="flex items-center gap-2 text-xs text-[#9a9ab0]">
                                 <span className={`px-2 py-0.5 rounded-full border text-[11px] ${actionTone}`}>
                                   {actionLabel}
                                 </span>
@@ -5989,19 +6054,19 @@ export default function App() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleRestoreFromLog(log)}
-                                  className="h-7 px-2 text-xs border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                                  className="h-7 px-2.5 text-xs rounded-full border-[#bbf0dd] text-[#0f9d6e] hover:bg-[#e8f7f1] hover:text-[#0f9d6e] hover:border-[#bbf0dd]"
                                 >
                                   <RotateCcw className="w-3 h-3 mr-1" />
                                   恢复
                                 </Button>
                               )}
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-2 text-sm text-gray-700">
-                              <div className="text-gray-500">数据日期</div>
+                            <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-2 text-[13.5px] text-[#20203a]">
+                              <div className="text-[#9a9ab0]">数据日期</div>
                               <div>{date}</div>
-                              <div className="text-gray-500">检验指标</div>
+                              <div className="text-[#9a9ab0]">检验指标</div>
                               <div>{label}</div>
-                              <div className="text-gray-500">变更内容</div>
+                              <div className="text-[#9a9ab0]">变更内容</div>
                               <div>{changeText || "-"}</div>
                             </div>
                           </div>
@@ -6015,6 +6080,7 @@ export default function App() {
             </DataMaintenancePage>
           </TabsContent>
         </Tabs>
+        </div>
         </main>
       </div>
 

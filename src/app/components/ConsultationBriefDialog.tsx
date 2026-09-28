@@ -3,7 +3,7 @@ import { Button } from "@/app/components/ui/button";
 import { Checkbox } from "@/app/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/app/components/ui/dialog";
 import { cn } from "@/app/components/ui/utils";
-import { ClipboardList, Copy, Download, Sparkles } from "lucide-react";
+import { Calendar, ClipboardList, Clock, Copy, Download, FileText, FlaskConical, Info, PanelTop, Printer, Sparkles } from "lucide-react";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
@@ -774,136 +774,207 @@ export function ConsultationBriefDialog({ categories, records, triggerClassName 
       }}
     >
       <DialogTrigger asChild>
-        <Button
-          className={cn(
-            "gap-2 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 transition-all duration-300",
-            triggerClassName,
-          )}
-        >
+        <Button className={cn("gap-2", triggerClassName)}>
           <ClipboardList className="w-4 h-4" />
           问诊简报
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[860px] max-h-[88vh] overflow-y-auto bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-2xl bg-gradient-to-r from-emerald-600 to-cyan-600 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-emerald-500" />
-            问诊简报生成
-          </DialogTitle>
+      <DialogContent className="sm:max-w-[880px] max-h-[880px] gap-0 overflow-y-auto p-0">
+        <DialogHeader className="flex-row items-start gap-4 px-[30px] pt-[30px] text-left">
+          <div
+            aria-hidden="true"
+            className="flex size-[52px] shrink-0 items-center justify-center rounded-[15px] bg-[linear-gradient(140deg,#6c5ce7_0%,#7c6ef0_45%,#06b6d4_100%)] shadow-[0_10px_22px_rgba(108,92,231,0.38),inset_0_1px_0_rgba(255,255,255,0.35)]"
+          >
+            <Sparkles className="size-[26px] text-white" />
+          </div>
+          <div className="min-w-0 pt-0.5">
+            <DialogTitle className="bg-gradient-to-r from-[#6c5ce7] via-[#5b54e0] to-[#3b6fe8] text-2xl leading-[1.25] tracking-[-0.018em]">
+              问诊简报生成
+            </DialogTitle>
+            <p className="mt-[5px] text-[13.5px] leading-normal text-[#9a9ab8]">
+              AI 辅助整理健康数据，生成可用于问诊沟通的档案报告
+            </p>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4 mt-3">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
-            <div className="text-sm font-medium text-emerald-800 mb-2">选择模式</div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={selectionMode === "single" ? "default" : "outline"}
-                onClick={() => applySelectionMode("single")}
-                className="h-8"
+        <div className="flex flex-col gap-3.5 px-[30px] pb-7 pt-[22px]">
+          <section className="relative overflow-hidden rounded-[18px] border border-[rgba(108,92,231,0.12)] bg-[linear-gradient(110deg,#f5f3ff_0%,#eef2ff_100%)] py-4 pl-[22px] pr-[18px] before:absolute before:bottom-[14px] before:left-0 before:top-[14px] before:w-1 before:rounded-r before:bg-gradient-to-b before:from-[#6c5ce7] before:to-[#8b7ff0] before:content-['']">
+            <h3 className="mb-[11px] flex items-center gap-[7px] text-sm font-semibold leading-[1.4] text-[#5448c8]">
+              <PanelTop className="size-[15px] text-[#6c5ce7]" aria-hidden="true" />
+              选择模式
+            </h3>
+            <div className="flex items-center justify-between gap-3.5">
+              <div
+                role="group"
+                aria-label="选择模式"
+                className="inline-flex h-[38px] items-center gap-[3px] rounded-[11px] bg-[rgba(108,92,231,0.12)] p-[3px] shadow-[inset_0_1px_2px_rgba(76,62,170,0.12)]"
               >
-                单选
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={selectionMode === "multiple" ? "default" : "outline"}
-                onClick={() => applySelectionMode("multiple")}
-                className="h-8"
-              >
-                多选
-              </Button>
-              <span className="text-xs text-gray-500 ml-2">
+                <button
+                  type="button"
+                  onClick={() => applySelectionMode("single")}
+                  className={cn(
+                    "inline-flex h-8 items-center rounded-[8px] px-6 text-[13.5px] font-medium transition-all",
+                    selectionMode === "single"
+                      ? "bg-white font-semibold text-[#5a49d6] shadow-[0_2px_6px_rgba(76,62,170,0.18),0_1px_2px_rgba(76,62,170,0.10)]"
+                      : "text-[#6b6494] hover:text-[#4f46a5]",
+                  )}
+                >
+                  单选
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySelectionMode("multiple")}
+                  className={cn(
+                    "inline-flex h-8 items-center rounded-[8px] px-6 text-[13.5px] font-medium transition-all",
+                    selectionMode === "multiple"
+                      ? "bg-white font-semibold text-[#5a49d6] shadow-[0_2px_6px_rgba(76,62,170,0.18),0_1px_2px_rgba(76,62,170,0.10)]"
+                      : "text-[#6b6494] hover:text-[#4f46a5]",
+                  )}
+                >
+                  多选
+                </button>
+              </div>
+              <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-[rgba(108,92,231,0.18)] bg-white/75 px-3.5 text-[12.5px] font-semibold text-[#6c5ce7]">
+                <Clock className="size-[13px]" aria-hidden="true" />
                 {selectionMode === "single" ? "单个分类深度问诊" : "多个分类综合问诊"}
               </span>
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-xl border border-violet-100 bg-white/80 p-3">
-            <div className="text-sm font-medium text-gray-700 mb-2">检验指标种类</div>
+          <section className="relative overflow-hidden rounded-[18px] border-[1.2px] border-[rgba(108,92,231,0.22)] bg-white py-4 pl-[22px] pr-[18px] shadow-[0_2px_10px_rgba(108,92,231,0.05)] before:absolute before:bottom-[14px] before:left-0 before:top-[14px] before:w-1 before:rounded-r before:bg-gradient-to-b before:from-[#6c5ce7] before:to-[#a78bfa] before:content-['']">
+            <h3 className="mb-[11px] flex items-center gap-[7px] text-sm font-semibold leading-[1.4] text-[#20203a]">
+              <FlaskConical className="size-[15px] text-[#6c5ce7]" aria-hidden="true" />
+              检验指标种类
+            </h3>
             {categoriesWithData.length === 0 ? (
-              <div className="text-sm text-gray-500">暂无可用数据，请先录入或导入体检记录。</div>
+              <div className="text-[13.5px] text-[#9a9ab0]">暂无可用数据，请先录入或导入体检记录。</div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                 {categoriesWithData.map(category => {
                   const checked = selectedCategoryIds.includes(category.id);
                   return (
                     <label
                       key={category.id}
-                      className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50/40 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-violet-50"
+                      className={cn(
+                        "flex h-[42px] cursor-pointer items-center gap-[9px] rounded-[12px] border px-3.5 text-sm font-semibold transition-all",
+                        checked
+                          ? "border-transparent bg-gradient-to-br from-[#6c5ce7] via-[#7c6ef0] to-[#8b5cf6] text-white shadow-[0_6px_14px_rgba(108,92,231,0.32),inset_0_1px_0_rgba(255,255,255,0.28)]"
+                          : "border-[rgba(108,92,231,0.12)] bg-[#f4f2ff] text-[#4b4574] hover:border-[rgba(108,92,231,0.28)] hover:bg-[#ece9ff]",
+                      )}
                     >
-                      <Checkbox checked={checked} onCheckedChange={value => toggleCategory(category.id, value === true)} />
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={value => toggleCategory(category.id, value === true)}
+                        className="size-[18px] rounded-[6px] border-[1.5px] border-[rgba(108,92,231,0.35)] bg-white/70 shadow-none data-[state=checked]:border-white/75 data-[state=checked]:bg-white/20 data-[state=checked]:bg-none data-[state=checked]:text-white"
+                      />
                       <span className="truncate">{category.name}</span>
                     </label>
                   );
                 })}
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
-            <div className="text-sm font-medium text-sky-800 mb-2">时间范围（可选）</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="consult-date-from" className="text-sm text-gray-600">从</Label>
+          <section className="relative overflow-hidden rounded-[18px] border border-[rgba(6,182,212,0.16)] bg-[linear-gradient(110deg,#f0f9ff_0%,#ecfeff_100%)] py-4 pl-[22px] pr-[18px] before:absolute before:bottom-[14px] before:left-0 before:top-[14px] before:w-1 before:rounded-r before:bg-gradient-to-b before:from-[#0ea5e9] before:to-[#06b6d4] before:content-['']">
+            <h3 className="mb-[11px] flex items-center gap-[7px] text-sm font-semibold leading-[1.4] text-[#0e6e84]">
+              <Calendar className="size-[15px] text-[#0891b2]" aria-hidden="true" />
+              时间范围（可选）
+            </h3>
+            <div className="flex flex-wrap items-center gap-[9px]">
+              <Label htmlFor="consult-date-from" className="text-[13.5px] font-semibold text-[#3f6f80]">从</Label>
               <Input
                 id="consult-date-from"
                 type="date"
                 value={dateFrom}
                 onChange={e => setDateFrom(e.target.value)}
-                className="h-8 w-[150px] border-sky-200 focus:border-sky-400 focus:ring-sky-400"
+                className="h-[38px] w-[162px] rounded-[11px] border-[rgba(8,145,178,0.20)] bg-white/75 text-[13px] text-[#23495a] shadow-[inset_0_1px_1px_rgba(8,145,178,0.05)] focus-visible:border-[#06b6d4] focus-visible:bg-white focus-visible:ring-[rgba(6,182,212,0.18)] focus-visible:ring-[3px]"
               />
-              <Label htmlFor="consult-date-to" className="text-sm text-gray-600">至</Label>
+              <Label htmlFor="consult-date-to" className="text-[13.5px] font-semibold text-[#3f6f80]">至</Label>
               <Input
                 id="consult-date-to"
                 type="date"
                 value={dateTo}
                 onChange={e => setDateTo(e.target.value)}
-                className="h-8 w-[150px] border-sky-200 focus:border-sky-400 focus:ring-sky-400"
+                className="h-[38px] w-[162px] rounded-[11px] border-[rgba(8,145,178,0.20)] bg-white/75 text-[13px] text-[#23495a] shadow-[inset_0_1px_1px_rgba(8,145,178,0.05)] focus-visible:border-[#06b6d4] focus-visible:bg-white focus-visible:ring-[rgba(6,182,212,0.18)] focus-visible:ring-[3px]"
               />
               {(dateFrom || dateTo) && (
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-gray-400"
+                  className="h-8 rounded-lg px-2.5 text-[13px] font-semibold text-[#8aa6b2] underline decoration-[rgba(8,145,178,0.35)] underline-offset-[3px] transition-colors hover:bg-[rgba(8,145,178,0.07)] hover:text-[#0e7490]"
                   onClick={() => { setDateFrom(""); setDateTo(""); }}
                 >
                   清除
-                </Button>
+                </button>
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">不选择则导出全部数据</p>
-          </div>
+            <p className="mt-[9px] flex items-center gap-1.5 text-[12.5px] text-[#7aa2b0]">
+              <Info className="size-[13px]" aria-hidden="true" />
+              不选择则导出全部数据
+            </p>
+          </section>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={handleGenerateReport} disabled={categoriesWithData.length === 0}>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Button
+              type="button"
+              onClick={handleGenerateReport}
+              disabled={categoriesWithData.length === 0}
+              className="h-11 rounded-full px-6 text-sm font-semibold"
+            >
+              <Sparkles className="size-[17px] text-[#fde68a]" />
               生成报告
             </Button>
-            <Button type="button" variant="outline" onClick={handleCopy} disabled={!plainText}>
-              <Copy className="w-4 h-4" />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCopy}
+              disabled={!plainText}
+              className="h-11 flex-1 rounded-full border-[1.2px] border-[rgba(108,92,231,0.35)] bg-white/90 text-sm font-semibold text-[#5a49d6] hover:border-[rgba(108,92,231,0.55)] hover:bg-[#f6f5ff] hover:text-[#5a49d6] hover:shadow-[0_6px_14px_rgba(108,92,231,0.12)] [&_svg]:text-[#6c5ce7]"
+            >
+              <Copy className="size-[17px]" />
               {copied ? "已复制" : "复制摘要"}
             </Button>
-            <Button type="button" variant="outline" onClick={handleDownloadHtml} disabled={!report}>
-              <Download className="w-4 h-4" />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDownloadHtml}
+              disabled={!report}
+              className="h-11 flex-1 rounded-full border-[1.2px] border-[rgba(108,92,231,0.35)] bg-white/90 text-sm font-semibold text-[#5a49d6] hover:border-[rgba(108,92,231,0.55)] hover:bg-[#f6f5ff] hover:text-[#5a49d6] hover:shadow-[0_6px_14px_rgba(108,92,231,0.12)] [&_svg]:text-[#6c5ce7]"
+            >
+              <Download className="size-[17px]" />
               下载 HTML
             </Button>
-            <Button type="button" variant="outline" onClick={handlePrint} disabled={!report}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePrint}
+              disabled={!report}
+              className="h-11 flex-1 rounded-full border-[1.2px] border-[rgba(108,92,231,0.35)] bg-white/90 text-sm font-semibold text-[#5a49d6] hover:border-[rgba(108,92,231,0.55)] hover:bg-[#f6f5ff] hover:text-[#5a49d6] hover:shadow-[0_6px_14px_rgba(108,92,231,0.12)] [&_svg]:text-[#6c5ce7]"
+            >
+              <Printer className="size-[17px]" />
               打印 / 导出 PDF
             </Button>
           </div>
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-gray-700">报告预览</div>
+          <section className="mt-0.5">
+            <h3 className="mb-2.5 flex items-center gap-[7px] text-sm font-semibold text-[#20203a]">
+              <FileText className="size-[15px] text-[#6c5ce7]" aria-hidden="true" />
+              报告预览
+            </h3>
 
             {!report && (
-              <div className="rounded-lg border border-dashed border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
-                {message || "点击\u201C生成报告\u201D后在此查看档案式问诊报告"}
+              <div className="relative flex h-[200px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[18px] border-[1.5px] border-dashed border-[rgba(108,92,231,0.28)] bg-[#fbfaff] text-center">
+                <div className="flex size-[68px] items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#ffffff_0%,#ece9ff_70%,#e2ddff_100%)] shadow-[0_10px_26px_rgba(108,92,231,0.20),inset_0_0_0_1px_rgba(108,92,231,0.10)]">
+                  <FileText className="size-[30px] text-[#6c5ce7]" />
+                </div>
+                <p className="max-w-[380px] text-[13.5px] leading-relaxed text-[#9a9ab8]">
+                  <strong className="mb-[3px] block text-[14.5px] font-semibold text-[#7a739c]">暂无报告内容</strong>
+                {message || "点击“生成报告”后在此查看档案式问诊报告"}
+                </p>
               </div>
             )}
 
             {report && (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="relative overflow-hidden rounded-[18px] border-[1.2px] border-[rgba(108,92,231,0.22)] bg-white py-4 pl-[22px] pr-[18px] shadow-[0_2px_10px_rgba(108,92,231,0.05)] before:absolute before:bottom-[14px] before:left-0 before:top-[14px] before:w-1 before:rounded-r before:bg-gradient-to-b before:from-[#6c5ce7] before:to-[#a78bfa] before:content-['']">
                 <div className="mx-auto max-w-[760px] bg-white px-8 py-8 text-gray-900 shadow-sm">
                   {/* Title */}
                   <div className="text-center pb-4 mb-4 border-b border-gray-300">
@@ -1018,7 +1089,7 @@ export function ConsultationBriefDialog({ categories, records, triggerClassName 
                 </div>
               </div>
             )}
-          </div>
+          </section>
         </div>
       </DialogContent>
     </Dialog>

@@ -170,29 +170,29 @@ export function RecordTable({
   const colClass = "w-[13%]";
 
   return (
-    <div className="border border-violet-100 overflow-hidden bg-white/40">
+    <div className="border border-[rgba(32,27,72,0.09)] rounded-[14px] overflow-hidden bg-white">
       <Table>
         <TableHeader>
-          <TableRow className="border-violet-100 hover:bg-violet-50/50">
-            <TableHead className={`text-gray-700 ${colClass}`}>数据日期</TableHead>
-            <TableHead className={`text-gray-700 ${colClass}`}>检验指标</TableHead>
-            <TableHead className={`text-gray-700 ${colClass}`}>数值</TableHead>
-            <TableHead className={`text-gray-700 ${colClass}`}>参考范围</TableHead>
-            <TableHead className={`text-gray-700 ${colClass}`}>操作日期</TableHead>
-            <TableHead className={`text-gray-700 ${colClass}`}>附件</TableHead>
-            <TableHead className={`${colClass} text-right text-gray-700`}>操作</TableHead>
+          <TableRow className="border-[rgba(32,27,72,0.09)] hover:bg-transparent">
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>数据日期</TableHead>
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>检验指标</TableHead>
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>数值</TableHead>
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>参考范围</TableHead>
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>操作日期</TableHead>
+            <TableHead className={`text-[12px] font-semibold text-[#5a5a75] ${colClass}`}>附件</TableHead>
+            <TableHead className={`${colClass} text-right text-[12px] font-semibold text-[#5a5a75]`}>操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {sortedRecords.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={7} className="text-center text-[#9a9ab0] py-12">
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center mb-2">
-                    <Database className="w-8 h-8 text-violet-400" />
+                  <div className="w-16 h-16 rounded-[18px] bg-[#f1f1f7] flex items-center justify-center mb-2">
+                    <Database className="w-8 h-8 text-[#b8b8cc]" />
                   </div>
-                  <p className="text-gray-600">暂无数据</p>
-                  <p className="text-sm text-gray-400">点击上方按钮添加记录</p>
+                  <p className="text-[#5a5a75]">暂无数据</p>
+                  <p className="text-[13px] text-[#9a9ab0]">点击上方按钮添加记录</p>
                 </div>
               </TableCell>
             </TableRow>
@@ -205,21 +205,20 @@ export function RecordTable({
               return (
                 <TableRow
                   key={record.id}
-                  className="border-violet-100 hover:bg-violet-50/30 transition-colors"
                 >
-                  <TableCell className="text-gray-700 py-3 align-middle whitespace-nowrap">
+                  <TableCell className="text-[13.5px] font-medium text-[#20203a] py-3 align-middle whitespace-nowrap">
                     {isEditing ? (
                       <Input
                         type="date"
                         value={editDate}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setEditDate(e.target.value)}
-                        className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                        className="h-8"
                       />
                     ) : (
                       record.date
                     )}
                   </TableCell>
-                  <TableCell className="text-gray-700 py-3 align-middle">
+                  <TableCell className="text-[13.5px] font-medium text-[#20203a] py-3 align-middle">
                     {getIndicatorLabel(record.indicatorType)}
                   </TableCell>
                   <TableCell className="py-3 align-middle">
@@ -230,16 +229,16 @@ export function RecordTable({
                         value={editValue}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setEditValue(e.target.value)}
                         placeholder="输入数值"
-                        className="h-8 border-violet-200 focus:border-violet-400 focus:ring-violet-400"
+                        className="h-8"
                       />
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        <span className={`text-[13.5px] ${
                           rangeStatus === "above"
-                            ? "bg-red-50 text-red-600"
+                            ? "font-semibold text-[#f0476a]"
                             : rangeStatus === "below"
-                              ? "bg-red-50 text-red-600"
-                              : "bg-gradient-to-r from-violet-100 to-blue-100 text-violet-700"
+                              ? "font-semibold text-[#f0476a]"
+                              : "font-medium text-[#20203a]"
                         }`}>
                           {record.value} {record.unit}
                         </span>
@@ -255,10 +254,10 @@ export function RecordTable({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-gray-500 text-sm py-3 align-middle">
+                  <TableCell className="text-[13px] text-[#9a9ab0] py-3 align-middle">
                     {range || "-"}
                   </TableCell>
-                  <TableCell className="text-xs text-gray-500 py-3 align-middle whitespace-nowrap">
+                  <TableCell className="text-[12px] text-[#9a9ab0] py-3 align-middle whitespace-nowrap">
                     {formatOperationAt(record.operationAt)}
                   </TableCell>
                   <TableCell className="text-center">
@@ -269,7 +268,7 @@ export function RecordTable({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
+                              className="h-7 w-7 p-0 rounded-[8px] text-[#6c5ce7] hover:text-[#5a49d6] hover:bg-[#efedfd]"
                               onClick={() => onPreviewAttachment?.(record.attachmentId!)}
                             >
                               <Paperclip className="h-4 w-4" />
@@ -277,7 +276,7 @@ export function RecordTable({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                              className="h-7 w-7 p-0 rounded-[8px] text-[#d97706] hover:text-[#b45309] hover:bg-[#fdf3e3]"
                               onClick={() => setEditAttachmentMode("replace")}
                               title="替换附件"
                             >
@@ -286,7 +285,7 @@ export function RecordTable({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 p-0 text-rose-400 hover:text-rose-500 hover:bg-rose-50"
+                              className="h-7 w-7 p-0 rounded-[8px] text-[#f0476a] hover:text-[#d93a5c] hover:bg-[#fdeef2]"
                               onClick={() => {
                                 if (onDeleteAttachment && record.attachmentId) {
                                   onDeleteAttachment(record.attachmentId);
@@ -300,12 +299,12 @@ export function RecordTable({
                           </div>
                         ) : editAttachmentFile ? (
                           <div className="flex items-center gap-1">
-                            <Paperclip className="h-3.5 w-3.5 text-violet-500" />
-                            <span className="text-xs text-gray-600 truncate max-w-[60px]">{editAttachmentFile.name}</span>
+                            <Paperclip className="h-3.5 w-3.5 text-[#6c5ce7]" />
+                            <span className="text-xs text-[#5a5a75] truncate max-w-[60px]">{editAttachmentFile.name}</span>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 p-0 text-rose-400 hover:text-rose-500"
+                              className="h-6 w-6 p-0 text-[#f0476a] hover:text-[#d93a5c] hover:bg-[#fdeef2]"
                               onClick={() => {
                                 setEditAttachmentFile(null);
                                 setEditAttachmentDataUrl("");
@@ -337,7 +336,7 @@ export function RecordTable({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 p-0 text-violet-500 hover:text-violet-600 hover:bg-violet-50"
+                          className="h-[30px] w-[30px] p-0 rounded-[8px] text-[#9a9ab0] hover:text-[#6c5ce7] hover:bg-[#efedfd]"
                           onClick={() => onPreviewAttachment(record.attachmentId!)}
                         >
                           <Paperclip className="h-4 w-4" />
@@ -352,7 +351,7 @@ export function RecordTable({
                           variant="outline"
                           size="sm"
                           onClick={() => handleSaveEdit(record)}
-                          className="h-8 border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                          className="h-8 border-[rgba(15,157,110,0.4)] text-[#0f9d6e] hover:bg-[#e8f7f1] hover:text-[#0f9d6e] hover:border-[rgba(15,157,110,0.4)]"
                         >
                           保存
                         </Button>
@@ -360,7 +359,7 @@ export function RecordTable({
                           variant="outline"
                           size="sm"
                           onClick={handleCancelEdit}
-                          className="h-8 border-gray-200 text-gray-600 hover:bg-gray-50"
+                          className="h-8 border-[rgba(32,27,72,0.12)] text-[#5a5a75] hover:bg-[#f1f1f7] hover:text-[#5a5a75] hover:border-[rgba(32,27,72,0.12)]"
                         >
                           取消
                         </Button>
@@ -368,7 +367,7 @@ export function RecordTable({
                           variant="outline"
                           size="sm"
                           onClick={() => handleSaveAsNew(record)}
-                          className="h-8 border-violet-200 text-violet-600 hover:bg-violet-50"
+                          className="h-8 border-[rgba(108,92,231,0.4)] text-[#6c5ce7] hover:bg-[#efedfd] hover:text-[#6c5ce7] hover:border-[rgba(108,92,231,0.4)]"
                         >
                           <PlusCircle className="w-4 h-4 mr-1" />
                           新增后续
@@ -380,7 +379,7 @@ export function RecordTable({
                           variant="ghost"
                           size="sm"
                           onClick={() => handleStartEdit(record)}
-                          className="h-8 w-8 p-0 text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                          className="h-[30px] w-[30px] p-0 rounded-[8px] text-[#9a9ab0] hover:text-[#6c5ce7] hover:bg-[#efedfd]"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -392,7 +391,7 @@ export function RecordTable({
                             if (!ok) return;
                             onDeleteRecord(record.id);
                           }}
-                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
+                          className="h-[30px] w-[30px] p-0 rounded-[8px] text-[#9a9ab0] hover:text-[#f0476a] hover:bg-[#fdeef2]"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
