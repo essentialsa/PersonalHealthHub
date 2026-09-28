@@ -54,16 +54,18 @@ export function FileUploadZone({
 
   if (selectedFile) {
     return (
-      <div className={cn("flex items-center gap-2 p-2 border border-violet-200 rounded-lg bg-violet-50/50", className)}>
-        <FileText className="h-4 w-4 text-violet-500 shrink-0" />
-        <span className="text-sm text-gray-700 truncate flex-1">{selectedFile.name}</span>
-        <span className="text-xs text-gray-400 shrink-0">
+      <div className={cn("flex items-center gap-2 p-2 border border-[rgba(32,27,72,0.09)] rounded-[12px] bg-[#fafafd]", className)}>
+        <div className="size-7 rounded-[8px] bg-gradient-to-br from-[#7b6cf6] to-[#6c5ce7] flex items-center justify-center shrink-0">
+          <FileText className="h-3.5 w-3.5 text-white" />
+        </div>
+        <span className="text-sm text-[#20203a] truncate flex-1">{selectedFile.name}</span>
+        <span className="text-xs text-[#9a9ab0] shrink-0">
           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
         </span>
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 text-gray-400 hover:text-rose-500"
+          className="h-6 w-6 shrink-0 text-[#9a9ab0] hover:text-[#e5315c] hover:bg-[#fdeef2]"
           onClick={onFileRemove}
         >
           <X className="h-3 w-3" />
@@ -76,21 +78,21 @@ export function FileUploadZone({
     <div className={cn("space-y-2", className)}>
       <div
         className={cn(
-          "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
+          "border-2 border-dashed rounded-[14px] p-4 text-center cursor-pointer transition-colors",
           dragOver
-            ? "border-violet-400 bg-violet-50"
-            : "border-gray-200 hover:border-violet-300 hover:bg-violet-50/30",
+            ? "border-[#8b5cf6] bg-[#f4f2fe]"
+            : "border-[#ddd6fe] hover:border-[#a78bfa] hover:bg-[#f4f2fe]/50",
         )}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <UploadCloud className="h-6 w-6 mx-auto text-gray-400 mb-1" />
-        <p className="text-sm text-gray-500">
-          拖拽文件到此处，或<span className="text-violet-500">点击选择</span>
+        <UploadCloud className="h-6 w-6 mx-auto text-[#9a9ab0] mb-1" />
+        <p className="text-sm text-[#5a5a75]">
+          拖拽文件到此处，或<span className="text-[#6c5ce7] font-semibold">点击选择</span>
         </p>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-[#9a9ab0] mt-1">
           支持图片和 PDF，最大 10MB
         </p>
       </div>
@@ -102,7 +104,7 @@ export function FileUploadZone({
         onChange={handleInputChange}
       />
       {error && (
-        <p className="text-xs text-rose-500">{error}</p>
+        <p className="text-xs text-[#e5315c]">{error}</p>
       )}
     </div>
   );
