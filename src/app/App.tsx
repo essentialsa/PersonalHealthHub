@@ -4983,7 +4983,7 @@ export default function App() {
    * 基于 indicatorCategoriesRef 读当前分类树并在写回时同步更新该 ref，
    * 保证同一轮导入中连续多次调用（多个分类/分组）不会互相覆盖。
    */
-  const handleEnsureCategoryItems = (groupName: string, items: { label: string; unit: string }[]): Record<string, string> | null => {
+  const handleEnsureCategoryItems = (groupName: string, items: { label: string; unit: string; referenceRange?: string }[]): Record<string, string> | null => {
     const trimmedGroupName = groupName.trim();
     if (!trimmedGroupName) {
       return null;
@@ -4999,12 +4999,23 @@ export default function App() {
       if (!trimmedLabel) {
         return null;
       }
-      const existingItem = nextItems.find(candidate => candidate.label.trim() === trimmedLabel);
-      if (existingItem) {
+      const reportRange = item.referenceRange?.trim() || "";
+      const existingItemIndex = nextItems.findIndex(candidate => candidate.label.trim() === trimmedLabel);
+      if (existingItemIndex >= 0) {
+        const existingItem = nextItems[existingItemIndex];
+        // 复用已有指标项：其参考范围为空且报告提供了范围时顺带回填（不覆盖已维护值）
+        if (reportRange && !(existingItem.referenceRange ?? "").trim()) {
+          nextItems[existingItemIndex] = { ...existingItem, referenceRange: reportRange };
+        }
         labelToItemId[item.label] = existingItem.id;
         continue;
       }
-      const newItem: IndicatorItem = { id: newId(), label: trimmedLabel, unit: item.unit };
+      const newItem: IndicatorItem = {
+        id: newId(),
+        label: trimmedLabel,
+        unit: item.unit,
+        referenceRange: reportRange || undefined,
+      };
       nextItems.push(newItem);
       labelToItemId[item.label] = newItem.id;
     }
@@ -5018,6 +5029,46 @@ export default function App() {
     setIndicatorCategories(nextCategories);
     triggerAutoBackup("categories-updated");
     return labelToItemId;
+  };
+  /**
+   * 报告导入-参考范围回填：把报告识别出的参考范围补进库中范围为空的指标项。
+   * 已维护的范围一律不覆盖；与 handleEnsureCategoryItems 一样走 ref 同步模式，
+   * 保证同一轮导入中建库与回填不会互相覆盖。
+   */
+  const handleBackfillReferenceRanges = (entries: { itemId: string; referenceRange: string }[]) => {
+    if (!entries || entries.length === 0) {
+      return;
+    }
+    const rangeByItemId = new Map<string, string>();
+    for (const entry of entries) {
+      const range = entry.referenceRange?.trim() || "";
+      if (entry.itemId && range && !rangeByItemId.has(entry.itemId)) {
+        rangeByItemId.set(entry.itemId, range);
+      }
+    }
+    if (rangeByItemId.size === 0) {
+      return;
+    }
+    let changed = false;
+    const nextCategories = indicatorCategoriesRef.current.map(category => {
+      let categoryChanged = false;
+      const items = category.items.map(item => {
+        const range = rangeByItemId.get(item.id);
+        if (range && !(item.referenceRange ?? "").trim()) {
+          categoryChanged = true;
+          changed = true;
+          return { ...item, referenceRange: range };
+        }
+        return item;
+      });
+      return categoryChanged ? { ...category, items } : category;
+    });
+    if (!changed) {
+      return;
+    }
+    indicatorCategoriesRef.current = nextCategories;
+    setIndicatorCategories(nextCategories);
+    triggerAutoBackup("categories-updated");
   };
   const handleDeleteRecord = (id: string) => {
     applyRecordsUpdate(
@@ -5561,6 +5612,7 @@ export default function App() {
           onImportRecords={handleImportRecords}
           onAddAttachment={handleAddAttachment}
           onEnsureCategoryItems={handleEnsureCategoryItems}
+          onBackfillReferenceRanges={handleBackfillReferenceRanges}
           existingRecords={records}
           existingCategories={indicatorCategories.map(category => ({
             id: category.id,

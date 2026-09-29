@@ -911,7 +911,7 @@ describe("MedicalReportImportDialog E2E", () => {
     fireEvent.click(screen.getByText(/确认导入 \(2 条\)/));
 
     await waitFor(() => expect(onEnsureCategoryItems).toHaveBeenCalledTimes(1));
-    expect(onEnsureCategoryItems).toHaveBeenCalledWith("肾功能", [{ label: "尿酸", unit: "μmol/L" }]);
+    expect(onEnsureCategoryItems).toHaveBeenCalledWith("肾功能", [{ label: "尿酸", unit: "μmol/L", referenceRange: "150-420" }]);
     await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
     const records = mockImportRecords.mock.calls[0][0];
     expect(records).toHaveLength(2);
@@ -1140,5 +1140,83 @@ describe("MedicalReportImportDialog E2E", () => {
     records.forEach((r: { date: string }) => {
       expect(r.date).toBe("2025-01-01");
     });
+  });
+
+  it("确认导入时回填库中范围为空的指标参考范围（不覆盖已维护值）", async () => {
+    const onBackfill = vi.fn();
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onBackfillReferenceRanges={onBackfill}
+        existingCategories={[
+          {
+            id: "cat_bs",
+            name: "血常规",
+            code: "",
+            items: [
+              { id: "blood_glucose", label: "血糖", unit: "mmol/L", code: "", referenceRange: "", aliases: [] },
+              { id: "blood_pressure_systolic", label: "收缩压", unit: "mmHg", code: "", referenceRange: "90-140", aliases: [] },
+            ],
+          },
+        ]}
+      />,
+    );
+    await openAndParseReport();
+    await waitFor(() => expect(screen.getByText(/确认导入/)).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText(/确认导入/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    expect(onBackfill).toHaveBeenCalledTimes(1);
+    const entries = onBackfill.mock.calls[0][0];
+    // 血糖库中范围为空 → 用报告范围回填；收缩压已维护 90-140 → 不上报
+    expect(entries).toEqual([{ itemId: "blood_glucose", referenceRange: "3.9-6.1" }]);
+  });
+
+  it("库中指标均已维护参考范围时不上报回填", async () => {
+    const onBackfill = vi.fn();
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onBackfillReferenceRanges={onBackfill}
+        existingCategories={[
+          {
+            id: "cat_bs",
+            name: "血常规",
+            code: "",
+            items: [
+              { id: "blood_glucose", label: "血糖", unit: "mmol/L", code: "", referenceRange: "3.9-6.1", aliases: [] },
+              { id: "blood_pressure_systolic", label: "收缩压", unit: "mmHg", code: "", referenceRange: "90-140", aliases: [] },
+            ],
+          },
+        ]}
+      />,
+    );
+    await openAndParseReport();
+    await waitFor(() => expect(screen.getByText(/确认导入/)).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText(/确认导入/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    expect(onBackfill).not.toHaveBeenCalled();
+  });
+
+  it("建议新增指标建库时携带报告参考范围", async () => {
+    const onEnsure = vi.fn(() => ({ 尿酸: "ua_item" }));
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue([
+      ...mockMatched,
+      { rawLabel: "血尿酸", value: 420, unit: "μmol/L", referenceRange: "150-420", pageIndex: 0, systemId: "uric_acid", systemLabel: "尿酸", categoryId: "cat_bs", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "create_item" as const, userItemFound: false },
+    ]);
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onEnsureCategoryItems={onEnsure}
+        existingCategories={[{ id: "cat_bs", name: "代谢", code: "", items: [] }]}
+      />,
+    );
+    await openAndParseReport();
+    await waitFor(() => expect(screen.getByText(/确认导入/)).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText(/确认导入/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    expect(onEnsure).toHaveBeenCalled();
+    const [categoryName, itemDefs] = onEnsure.mock.calls[0] as unknown as [string, { label: string; unit: string; referenceRange?: string }[]];
+    expect(categoryName).toBe("代谢");
+    expect(itemDefs).toEqual([{ label: "尿酸", unit: "μmol/L", referenceRange: "150-420" }]);
   });
 });

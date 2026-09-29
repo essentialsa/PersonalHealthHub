@@ -172,10 +172,12 @@ interface Props {
   triggerClassName?: string;
   triggerLabel?: string;
   /** 整组导入：确保分类与指标项存在，返回 label → itemId 映射；null 表示失败 */
-  onEnsureCategoryItems?: (groupName: string, items: { label: string; unit: string }[]) => Record<string, string> | null;
+  onEnsureCategoryItems?: (groupName: string, items: { label: string; unit: string; referenceRange?: string }[]) => Record<string, string> | null;
+  /** 确认导入时回填指标参考范围：仅上报库中范围为空的已匹配指标项（不覆盖已维护值） */
+  onBackfillReferenceRanges?: (entries: { itemId: string; referenceRange: string }[]) => void;
 }
 
-export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], existingRecords = [], triggerClassName, triggerLabel, onEnsureCategoryItems }: Props) {
+export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, existingCategories = [], existingRecords = [], triggerClassName, triggerLabel, onEnsureCategoryItems, onBackfillReferenceRanges }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"upload" | "preview">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -419,15 +421,19 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (!onEnsureCategoryItems) {
       return null;
     }
-    // 1. 收集指标定义：每簇一条，canonicalLabel 归一化相同则合并
-    const defByKey = new Map<string, { label: string; unit: string }>();
-    const itemDefs: { label: string; unit: string }[] = [];
+    // 1. 收集指标定义：每簇一条，canonicalLabel 归一化相同则合并（顺带携带报告参考范围建库）
+    const defByKey = new Map<string, { label: string; unit: string; referenceRange?: string }>();
+    const itemDefs: { label: string; unit: string; referenceRange?: string }[] = [];
     for (const cluster of group.clusters) {
       const key = normalizeIndicatorText(cluster.canonicalLabel);
       if (defByKey.has(key)) {
         continue;
       }
-      const def = { label: cluster.canonicalLabel, unit: cluster.items[0]?.unit || "" };
+      const def = {
+        label: cluster.canonicalLabel,
+        unit: cluster.items[0]?.unit || "",
+        referenceRange: cluster.items[0]?.referenceRange?.trim() || undefined,
+      };
       defByKey.set(key, def);
       itemDefs.push(def);
     }
@@ -516,7 +522,11 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         }
         const failedGroups: string[] = [];
         for (const [categoryName, groupItems] of groups) {
-          const itemDefs = groupItems.map(g => ({ label: g.systemLabel || g.rawLabel, unit: g.unit }));
+          const itemDefs = groupItems.map(g => ({
+            label: g.systemLabel || g.rawLabel,
+            unit: g.unit,
+            referenceRange: g.referenceRange?.trim() || undefined,
+          }));
           let labelToItemId: Record<string, string> | null = null;
           try {
             labelToItemId = onEnsureCategoryItems(categoryName, itemDefs);
@@ -571,6 +581,29 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
     if (importedGroupItems.length > 0) {
       const removedItems = new Set(importedGroupItems);
       setMatched(prev => prev.filter(m => !removedItems.has(m)));
+    }
+
+    // 参考范围回填：库中范围为空的已匹配指标，用报告识别出的范围补全（不覆盖用户已维护值）。
+    // 只统计本次实际勾选导入的已匹配项；疑似重复被跳过的指标同样享受回填（匹配关系仍然有效）。
+    if (onBackfillReferenceRanges) {
+      const libraryItemById = new Map(
+        existingCategories.flatMap(category => category.items.map(item => [item.id, item] as const)),
+      );
+      const rangeByItemId = new Map<string, string>();
+      matched.forEach((m, index) => {
+        if (m.action !== "import" || !m.userItemId || excludedImports.has(index)) return;
+        const reportRange = (m.referenceRange || "").trim();
+        if (!reportRange || rangeByItemId.has(m.userItemId)) return;
+        const libraryItem = libraryItemById.get(m.userItemId);
+        if (libraryItem && !(libraryItem.referenceRange ?? "").trim()) {
+          rangeByItemId.set(m.userItemId, reportRange);
+        }
+      });
+      if (rangeByItemId.size > 0) {
+        onBackfillReferenceRanges(
+          [...rangeByItemId].map(([itemId, referenceRange]) => ({ itemId, referenceRange })),
+        );
+      }
     }
 
     // 保留原始报告作为附件
