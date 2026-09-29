@@ -6,6 +6,7 @@ import { Trash2, Database, Pencil, PlusCircle, Paperclip, ArrowUp, ArrowDown, Re
 import { HealthRecord, IndicatorItem } from "./AddRecordDialog";
 import type { HealthAttachment } from "@/app/services/attachment";
 import { FileUploadZone } from "./FileUploadZone";
+import { getValueStatus } from "@/app/services/referenceRange";
 
 interface RecordTableProps {
   records: HealthRecord[];
@@ -18,26 +19,6 @@ interface RecordTableProps {
   onAddAttachment?: (attachment: HealthAttachment) => boolean;
   onDeleteAttachment?: (attachmentId: string) => void;
 }
-
-const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
-  if (!range) return null;
-  const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
-  const parts = cleaned.split("-").filter(Boolean);
-  if (parts.length === 2) {
-    const min = parseFloat(parts[0]);
-    const max = parseFloat(parts[1]);
-    if (!isNaN(min) && !isNaN(max)) return { min, max };
-  }
-  return null;
-};
-
-const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
-  const parsed = parseReferenceRange(range);
-  if (!parsed) return "normal";
-  if (parsed.max !== undefined && value > parsed.max) return "above";
-  if (parsed.min !== undefined && value < parsed.min) return "below";
-  return "normal";
-};
 
 export function RecordTable({
   records,
@@ -200,7 +181,7 @@ export function RecordTable({
             sortedRecords.map(record => {
               const isEditing = editingId === record.id;
               const range = getIndicatorRange(record.indicatorType);
-              const rangeStatus = checkRange(record.value, range);
+              const rangeStatus = getValueStatus(record.value, range, record.abnormalFlag);
 
               return (
                 <TableRow

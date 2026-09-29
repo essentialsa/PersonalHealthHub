@@ -7,6 +7,7 @@ import { Calendar, ClipboardList, Clock, Copy, Download, FileText, FlaskConical,
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
+import { parseReferenceRange } from "@/app/services/referenceRange";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,11 +20,6 @@ interface ConsultationBriefDialogProps {
   records: HealthRecord[];
   triggerClassName?: string;
 }
-
-type NumericRange = {
-  min: number;
-  max: number;
-};
 
 type PivotCell = {
   value: string;
@@ -82,34 +78,15 @@ const formatNumber = (value: number) => {
   return value.toFixed(2);
 };
 
-const parseNumericRange = (text?: string): NumericRange | null => {
-  if (!text) {
-    return null;
-  }
-  const match = text.trim().match(/(-?\d+(?:\.\d+)?)\s*[-~—–]\s*(-?\d+(?:\.\d+)?)/);
-  if (!match) {
-    return null;
-  }
-  const min = Number(match[1]);
-  const max = Number(match[2]);
-  if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    return null;
-  }
-  return {
-    min: Math.min(min, max),
-    max: Math.max(min, max),
-  };
-};
-
 const describeRangeStatus = (item: IndicatorItem, latestValue: number) => {
-  const range = parseNumericRange(item.referenceRange);
+  const range = parseReferenceRange(item.referenceRange);
   if (!range) {
     return null;
   }
-  if (latestValue > range.max) {
+  if (range.max !== undefined && latestValue > range.max) {
     return `高于参考范围(${item.referenceRange})`;
   }
-  if (latestValue < range.min) {
+  if (range.min !== undefined && latestValue < range.min) {
     return `低于参考范围(${item.referenceRange})`;
   }
   return `处于参考范围(${item.referenceRange})`;

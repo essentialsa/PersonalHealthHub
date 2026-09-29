@@ -6,6 +6,7 @@ import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { useState, useEffect, type ChangeEvent } from "react";
 import { HealthRecord, IndicatorCategory, IndicatorItem } from "./AddRecordDialog";
+import { getValueStatus } from "@/app/services/referenceRange";
 import { TrendingUp, Paperclip, Pencil, Trash2, ArrowUp, ArrowDown, RefreshCw, X } from "lucide-react";
 import type { HealthAttachment } from "@/app/services/attachment";
 import { FileUploadZone } from "./FileUploadZone";
@@ -113,26 +114,6 @@ export function RecordChart({ records, indicators, categories, attachments = [],
   const [editAttachmentDataUrl, setEditAttachmentDataUrl] = useState<string>("");
   const [editAttachmentMode, setEditAttachmentMode] = useState<"none" | "add" | "replace">("none");
 
-  const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
-    if (!range) return null;
-    const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
-    const parts = cleaned.split("-").filter(Boolean);
-    if (parts.length === 2) {
-      const min = parseFloat(parts[0]);
-      const max = parseFloat(parts[1]);
-      if (!isNaN(min) && !isNaN(max)) return { min, max };
-    }
-    return null;
-  };
-
-  const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
-    const parsed = parseReferenceRange(range);
-    if (!parsed) return "normal";
-    if (parsed.max !== undefined && value > parsed.max) return "above";
-    if (parsed.min !== undefined && value < parsed.min) return "below";
-    return "normal";
-  };
-
   const getIndicatorRange = (type: string): string | undefined => {
     const indicator = indicators.find(t => t.id === type);
     return indicator?.referenceRange;
@@ -237,11 +218,13 @@ export function RecordChart({ records, indicators, categories, attachments = [],
       const existing = acc.find(entry => entry.date === record.date);
       if (existing) {
         existing[record.indicatorType] = record.value;
+        (existing.flags as Record<string, "H" | "L" | undefined>)[record.indicatorType] = record.abnormalFlag;
         return acc;
       }
       acc.push({
         date: record.date,
         [record.indicatorType]: record.value,
+        flags: { [record.indicatorType]: record.abnormalFlag },
       });
       return acc;
     }, []);
@@ -617,7 +600,8 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                       {activeItems.map(item => {
                         const value = (row as Record<string, unknown>)[item.id];
                         const range = getIndicatorRange(item.id);
-                        const rangeStatus = checkRange(typeof value === "number" ? value : 0, range);
+                        const cellFlag = ((((row as Record<string, unknown>).flags) ?? {}) as Record<string, "H" | "L" | undefined>)[item.id];
+                        const rangeStatus = getValueStatus(value, range, cellFlag);
 
                         return (
                           <TableCell key={item.id} className="text-xs text-[#5a5a75] w-[14%] text-center">
@@ -636,14 +620,16 @@ export function RecordChart({ records, indicators, categories, attachments = [],
                                 {typeof value === "number" ? (
                                   <>
                                     <span className={`min-w-[3rem] text-center inline-block ${
-                                      rangeStatus === "above" || rangeStatus === "below"
-                                        ? "text-[#f0476a] font-medium"
-                                        : "text-[#20203a]"
+                                      rangeStatus === "above"
+                                        ? "text-red-500 font-medium"
+                                        : rangeStatus === "below"
+                                          ? "text-blue-500 font-medium"
+                                          : "text-[#20203a]"
                                     }`}>
                                       {value}
                                     </span>
-                                    {rangeStatus === "above" && <ArrowUp className="w-3 h-3 text-[#f0476a] ml-0.5" />}
-                                    {rangeStatus === "below" && <ArrowDown className="w-3 h-3 text-[#f0476a] ml-0.5" />}
+                                    {rangeStatus === "above" && <ArrowUp aria-label="偏高" className="w-3 h-3 text-red-500 ml-0.5" />}
+                                    {rangeStatus === "below" && <ArrowDown aria-label="偏低" className="w-3 h-3 text-blue-500 ml-0.5" />}
                                   </>
                                 ) : (
                                   <span className="text-[#b8b8cc]">-</span>

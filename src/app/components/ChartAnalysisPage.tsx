@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { ChartArea, ChartBar, ChartLine, ChevronsDown, ChevronsUp, LayoutGrid, Minus } from "lucide-react";
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
+import { getValueStatus, scoreAgainstRange } from "@/app/services/referenceRange";
 
 const CHART_VIEW_STORAGE_KEY = "health_chart_view";
 const CHART_LINE_COLORS = [
@@ -30,26 +31,6 @@ const CHART_LINE_COLORS = [
 ];
 const GRID_COLOR = "rgba(32,27,72,0.06)";
 const TICK_COLOR = "#9a9ab0";
-
-const parseReferenceRange = (range?: string): { min?: number; max?: number } | null => {
-  if (!range) return null;
-  const cleaned = range.replace(/[^\d.\-~～]/g, "").replace(/[~～]/g, "-");
-  const parts = cleaned.split("-").filter(Boolean);
-  if (parts.length === 2) {
-    const min = parseFloat(parts[0]);
-    const max = parseFloat(parts[1]);
-    if (!isNaN(min) && !isNaN(max)) return { min, max };
-  }
-  return null;
-};
-
-const checkRange = (value: number, range?: string): "above" | "below" | "normal" => {
-  const parsed = parseReferenceRange(range);
-  if (!parsed) return "normal";
-  if (parsed.max !== undefined && value > parsed.max) return "above";
-  if (parsed.min !== undefined && value < parsed.min) return "below";
-  return "normal";
-};
 
 type TimeRange = "7d" | "30d" | "90d" | "all";
 
@@ -86,6 +67,41 @@ const shortDateLabel = (date: string) => {
 interface OverlaySeries {
   item: IndicatorItem;
   color: string;
+}
+
+export interface RadarSeriesPoint {
+  value: number;
+}
+
+export interface RadarSeries {
+  item: Pick<IndicatorItem, "label" | "referenceRange">;
+  points: RadarSeriesPoint[];
+}
+
+/**
+ * 健康雷达评分：基于参考范围对最新值打分（scoreAgainstRange）。
+ * 无参考范围/不可评分的指标不纳入；可评分指标不足 3 个时返回 null（隐藏雷达卡）。
+ */
+export function buildRadarData(indicatorSeries: RadarSeries[]) {
+  const scores = indicatorSeries
+    .map(series => {
+      const latest = series.points[series.points.length - 1]?.value;
+      const score = scoreAgainstRange(latest, series.item.referenceRange);
+      return score === null ? null : { label: series.item.label, score };
+    })
+    .filter((entry): entry is { label: string; score: number } => entry !== null);
+  if (scores.length < 3) {
+    return null;
+  }
+  const avg = scores.reduce((sum, entry) => sum + entry.score, 0) / scores.length;
+  const best = scores.reduce((a, b) => (b.score > a.score ? b : a));
+  const worst = scores.reduce((a, b) => (b.score < a.score ? b : a));
+  return {
+    data: scores.map(entry => ({ indicator: entry.label, score: Number(entry.score.toFixed(1)) })),
+    score: Math.round(avg),
+    best: best.label,
+    worst: worst.label,
+  };
 }
 
 /** 叠加图 tooltip：按日期列出各可见指标的原始值+单位 */
@@ -208,34 +224,14 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
             rawDate: record.date,
             label: shortDateLabel(record.date),
             value: record.value,
+            flag: record.abnormalFlag ?? null,
           }));
         return { item, points, color: CHART_LINE_COLORS[index % CHART_LINE_COLORS.length] };
       })
       .filter(series => series.points.length > 0);
   }, [category, records, cutoffMs, query]);
 
-  const radarData = useMemo(() => {
-    if (indicatorSeries.length < 3) {
-      return null;
-    }
-    const scores = indicatorSeries.map(series => {
-      const values = series.points.map(point => point.value);
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const latest = values[values.length - 1];
-      const score = max === min ? 100 : ((latest - min) / (max - min)) * 100;
-      return { label: series.item.label, score };
-    });
-    const avg = scores.reduce((sum, entry) => sum + entry.score, 0) / scores.length;
-    const best = scores.reduce((a, b) => (b.score > a.score ? b : a));
-    const worst = scores.reduce((a, b) => (b.score < a.score ? b : a));
-    return {
-      data: scores.map(entry => ({ indicator: entry.label, score: Number(entry.score.toFixed(1)) })),
-      score: Math.round(avg),
-      best: best.label,
-      worst: worst.label,
-    };
-  }, [indicatorSeries]);
+  const radarData = useMemo(() => buildRadarData(indicatorSeries), [indicatorSeries]);
 
   /** 叠加视图：可见线、是否归一化、按日期合并的数据行 */
   const overlayVisibleSeries = indicatorSeries.filter(series => !hiddenIds.has(series.item.id));
@@ -511,7 +507,8 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
               const deltaText =
                 delta === 0 ? "持平" : `${delta > 0 ? "+" : "-"}${formatNumber(Math.abs(delta))}${series.item.unit || ""}`;
               const chartType = CHART_TYPES[index % CHART_TYPES.length];
-              const rangeStatus = checkRange(latest, series.item.referenceRange);
+              const latestFlag = series.points[series.points.length - 1].flag;
+              const rangeStatus = getValueStatus(latest, series.item.referenceRange, latestFlag);
               return (
                 <div
                   key={series.item.id}
@@ -527,13 +524,21 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                     </span>
                     <span
                       className={`inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full text-[11.5px] font-semibold ${
-                        rangeStatus === "normal"
-                          ? "bg-[#e8f7f1] text-[#0f9d6e]"
-                          : "bg-[#fdeef2] text-[#f0476a]"
+                        rangeStatus === "unknown"
+                          ? "bg-[#f1f1f7] text-[#9a9ab0]"
+                          : rangeStatus === "normal"
+                            ? "bg-[#e8f7f1] text-[#0f9d6e]"
+                            : "bg-[#fdeef2] text-[#f0476a]"
                       }`}
                     >
                       <span className="w-[5px] h-[5px] rounded-full bg-current" />
-                      {rangeStatus === "normal" ? "正常" : rangeStatus === "above" ? "偏高" : "偏低"}
+                      {rangeStatus === "unknown"
+                        ? "无参考"
+                        : rangeStatus === "normal"
+                          ? "正常"
+                          : rangeStatus === "above"
+                            ? "偏高"
+                            : "偏低"}
                     </span>
                   </div>
                   <div className="h-[220px]">
@@ -600,7 +605,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                     健康指标雷达
                   </span>
                   <span className="inline-flex items-center h-[22px] px-2.5 rounded-full bg-[#efedfd] text-[#6d28d9] text-[11.5px] font-semibold">
-                    归一化对比
+                    按参考范围评分
                   </span>
                 </div>
                 <div className="h-[220px]">
@@ -622,7 +627,7 @@ export function ChartAnalysisPage({ records, categories, searchQuery }: ChartAna
                           background: "#ffffff",
                           fontSize: 12,
                         }}
-                        formatter={(value: number | string) => [`${Number(value).toFixed(1)} 分`, "相对水平"]}
+                        formatter={(value: number | string) => [`${Number(value).toFixed(1)} 分`, "健康得分"]}
                       />
                     </RadarChart>
                   </ResponsiveContainer>
