@@ -95,6 +95,26 @@ const isAttachmentIdbAvailable = (): Promise<boolean> => {
   return idbAvailability;
 };
 
+/** 附件 blob 存储后端：idb = blob 存 IndexedDB（localStorage 仅元数据）；localStorage = 降级（blob 随列表存储） */
+export type AttachmentBackend = 'idb' | 'localStorage';
+
+let backendCache: AttachmentBackend | null = null;
+
+/** 解析后端并缓存（首次调用触发一次 IDB 探测） */
+export const resolveAttachmentBackend = async (): Promise<AttachmentBackend> => {
+  if (backendCache) {
+    return backendCache;
+  }
+  backendCache = (await isAttachmentIdbAvailable()) ? 'idb' : 'localStorage';
+  return backendCache;
+};
+
+/**
+ * 已解析的后端缓存；未解析时返回 null。
+ * 持久化层拿到 null 应跳过写入（避免启动竞态误写/误清），并触发一次 resolveAttachmentBackend 预热。
+ */
+export const getAttachmentBackendCache = (): AttachmentBackend | null => backendCache;
+
 const runAttachmentStoreRequest = async <T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,

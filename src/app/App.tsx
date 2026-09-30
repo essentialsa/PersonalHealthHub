@@ -83,6 +83,8 @@ import {
   bytesToDataUrl,
   loadAttachmentData,
   migrateAttachmentBlobsToIdb,
+  resolveAttachmentBackend,
+  getAttachmentBackendCache,
 } from "@/app/services/attachment";
 import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 import { isTimeLikeUnit } from "@/app/services/medicalReport";
@@ -3026,6 +3028,8 @@ export default function App() {
   const [cloudPulling, setCloudPulling] = useState(false);
   const [authConfig, setAuthConfig] = useState<CloudAuthConfig>({});
   const [attachments, setAttachments] = useState<HealthAttachment[]>([]);
+  // 附件 state 当前所属的存储键：持久化 effect 仅在 state 与当前键匹配时写入，防启动竞态误清存量数据
+  const attachmentsScopeRef = useRef<string | null>(null);
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [previewAttachmentLoading, setPreviewAttachmentLoading] = useState(false);
   const [indicatorDataCategoryId, setIndicatorDataCategoryId] = useState<string>("");
@@ -3252,24 +3256,25 @@ export default function App() {
   useEffect(() => {
     if (supabaseEnabled && !activeUserId) return;
     const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
-    void (async () => {
-      // 附件内容迁往 IndexedDB（幂等）：迁移后 localStorage 列表只含元数据
-      try {
-        await migrateAttachmentBlobsToIdb({
-          attachmentsKey: scopedKey,
-          recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
-        });
-      } catch (error) {
-        console.warn("[Attachments] IndexedDB 迁移未完成，按现状加载", error);
-      }
-      try {
-        const raw = localStorage.getItem(scopedKey);
-        const saved = raw ? JSON.parse(raw) as HealthAttachment[] : [];
-        setAttachments(saved);
-      } catch {
-        // ignore parse errors
-      }
-    })();
+    // 同步读入旧数据（必须先于持久化 effect 完成，避免空态误清键）
+    let saved: HealthAttachment[] = [];
+    try {
+      const raw = localStorage.getItem(scopedKey);
+      saved = raw ? (JSON.parse(raw) as HealthAttachment[]) : [];
+    } catch {
+      // ignore parse errors
+    }
+    attachmentsScopeRef.current = scopedKey;
+    setAttachments(saved);
+    // 预热存储后端缓存（供持久化 effect 决定 localStorage 是否保留 data）
+    void resolveAttachmentBackend();
+    // 异步迁移：blob 迁入 IndexedDB，localStorage 列表转纯元数据（幂等）
+    void migrateAttachmentBlobsToIdb({
+      attachmentsKey: scopedKey,
+      recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
+    }).catch(error => {
+      console.warn("[Attachments] IndexedDB 迁移未完成，按现状继续", error);
+    });
   }, [supabaseEnabled, activeUserId]);
 
   useEffect(() => {
@@ -3512,8 +3517,18 @@ export default function App() {
   useEffect(() => {
     if (supabaseEnabled && !activeUserId) return;
     const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
-    if (attachments.length > 0) {
-      safeSetItem(scopedKey, JSON.stringify(attachments));
+    // state 尚未完成当前键的加载（启动/切换用户竞态）：跳过，避免空态误清存量数据
+    if (attachmentsScopeRef.current !== scopedKey) return;
+    const backend = getAttachmentBackendCache();
+    // 后端未解析：暂不写入（保留 localStorage 现状），并触发预热待下次 state 变更时生效
+    if (!backend) {
+      void resolveAttachmentBackend();
+      return;
+    }
+    // IDB 后端：localStorage 只存元数据（blob 在 IndexedDB）；降级后端：维持整表存储
+    const list = backend === "idb" ? attachments.map(toAttachmentMeta) : attachments;
+    if (list.length > 0) {
+      safeSetItem(scopedKey, JSON.stringify(list));
     } else {
       localStorage.removeItem(scopedKey);
     }
@@ -4986,6 +5001,11 @@ export default function App() {
       console.warn("[Attachments] 删除附件内容失败", error);
     });
     setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+    // 同步解除记录的附件关联（内存状态与存储一致，避免残留无效附件入口）
+    applyRecordsUpdate(
+      prev => prev.map(r => (r.attachmentId === attachmentId ? { ...r, attachmentId: undefined } : r)),
+      () => [],
+    );
     triggerAutoBackup("attachment-deleted");
   };
 
