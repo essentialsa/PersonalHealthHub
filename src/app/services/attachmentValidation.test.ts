@@ -40,11 +40,11 @@ describe('validateFile', () => {
     });
   });
 
-  it('rejects file exceeding 10MB', () => {
-    const file = makeFile('application/pdf', 11 * 1024 * 1024);
+  it('rejects file exceeding 50MB', () => {
+    const file = makeFile('application/pdf', 51 * 1024 * 1024);
     expect(validateFile(file)).toEqual({
       valid: false,
-      error: '文件大小超过限制（最大 10MB）',
+      error: '文件大小超过限制（最大 50MB）',
     });
   });
 

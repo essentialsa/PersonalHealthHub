@@ -81,9 +81,12 @@ import {
   planAttachmentCacheEviction,
   applyAttachmentCacheEviction,
   bytesToDataUrl,
+  loadAttachmentData,
+  migrateAttachmentBlobsToIdb,
 } from "@/app/services/attachment";
 import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 import { isTimeLikeUnit } from "@/app/services/medicalReport";
+import { parseReferenceRange } from "@/app/services/referenceRange";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -3249,15 +3252,24 @@ export default function App() {
   useEffect(() => {
     if (supabaseEnabled && !activeUserId) return;
     const scopedKey = buildUserStorageKey(ATTACHMENTS_KEY, activeUserId);
-    try {
-      const raw = localStorage.getItem(scopedKey);
-      const saved = raw ? JSON.parse(raw) as HealthAttachment[] : [];
-      if (saved.length > 0) {
-        setAttachments(saved);
+    void (async () => {
+      // 附件内容迁往 IndexedDB（幂等）：迁移后 localStorage 列表只含元数据
+      try {
+        await migrateAttachmentBlobsToIdb({
+          attachmentsKey: scopedKey,
+          recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
+        });
+      } catch (error) {
+        console.warn("[Attachments] IndexedDB 迁移未完成，按现状加载", error);
       }
-    } catch {
-      // ignore parse errors
-    }
+      try {
+        const raw = localStorage.getItem(scopedKey);
+        const saved = raw ? JSON.parse(raw) as HealthAttachment[] : [];
+        setAttachments(saved);
+      } catch {
+        // ignore parse errors
+      }
+    })();
   }, [supabaseEnabled, activeUserId]);
 
   useEffect(() => {
@@ -3777,7 +3789,8 @@ export default function App() {
     if (!accessToken) {
       return false;
     }
-    const pending = cloudPayloadRef.current.attachments.filter(a => a.data && !a.driveFileId);
+    // 附件内容存于 IndexedDB（localStorage 只存元数据）：凡未上云的附件都尝试从 IDB 取 blob 上传
+    const pending = cloudPayloadRef.current.attachments.filter(a => !a.driveFileId);
     if (pending.length === 0) {
       return true;
     }
@@ -3815,7 +3828,13 @@ export default function App() {
     let allOk = true;
     for (const attachment of pending) {
       try {
-        const driveFileId = await uploadGoogleDriveAttachmentContent(accessToken, folderId, attachment);
+        // blob 可能在 state（刚添加/预览回填）或 IndexedDB（迁移后/常态），都没有则无可上传内容
+        const blob = attachment.data ?? (await loadAttachmentData(attachment.id).catch(() => undefined));
+        if (!blob) {
+          console.warn("[CloudSync] 附件无本地内容可上传，跳过", { id: attachment.id });
+          continue;
+        }
+        const driveFileId = await uploadGoogleDriveAttachmentContent(accessToken, folderId, { ...attachment, data: blob });
         if (!driveFileId) {
           allOk = false;
           continue;
@@ -3946,18 +3965,35 @@ export default function App() {
     }, 5000);
   };
 
-  // 预览附件时若本地缓存已被清理，从云端按需取回
+  // 预览附件：优先从 IndexedDB 取本地 blob；无本地副本且已上云时按需从 Drive 取回
   useEffect(() => {
     if (!previewAttachmentId) {
       return;
     }
     const attachment = cloudPayloadRef.current.attachments.find(a => a.id === previewAttachmentId);
-    if (!attachment || attachment.data || !attachment.driveFileId) {
+    if (!attachment || attachment.data) {
       return;
     }
     let cancelled = false;
     setPreviewAttachmentLoading(true);
-    void fetchGoogleDriveAttachmentData(attachment).finally(() => {
+    void (async () => {
+      try {
+        const localData = await loadAttachmentData(previewAttachmentId);
+        if (localData) {
+          if (!cancelled) {
+            setAttachments(prev =>
+              prev.map(a => (a.id === previewAttachmentId ? { ...a, data: localData } : a)),
+            );
+          }
+          return;
+        }
+      } catch (error) {
+        console.warn("[Attachments] 从 IndexedDB 读取附件内容失败", error);
+      }
+      if (attachment.driveFileId) {
+        await fetchGoogleDriveAttachmentData(attachment);
+      }
+    })().finally(() => {
       if (!cancelled) {
         setPreviewAttachmentLoading(false);
       }
@@ -4929,8 +4965,8 @@ export default function App() {
     recordsKey: buildUserStorageKey(STORAGE_KEY, activeUserId),
   };
 
-  const handleAddAttachment = (attachment: HealthAttachment): boolean => {
-    const success = addAttachmentStorage(attachment, attachmentStorageScope);
+  const handleAddAttachment = async (attachment: HealthAttachment): Promise<boolean> => {
+    const success = await addAttachmentStorage(attachment, attachmentStorageScope);
     if (success) {
       setAttachments(prev => [...prev, attachment]);
       // 新附件尽快上传云盘（Drive 为持久层），随后防抖同步快照元数据
@@ -4946,7 +4982,9 @@ export default function App() {
   };
 
   const handleDeleteAttachment = (attachmentId: string) => {
-    deleteAttachmentStorage(attachmentId, attachmentStorageScope);
+    void deleteAttachmentStorage(attachmentId, attachmentStorageScope).catch(error => {
+      console.warn("[Attachments] 删除附件内容失败", error);
+    });
     setAttachments(prev => prev.filter(a => a.id !== attachmentId));
     triggerAutoBackup("attachment-deleted");
   };
@@ -5919,17 +5957,53 @@ export default function App() {
                             </TableCell>
                             {indicatorDataItems.map(item => {
                               const cellFlag = ((row.flags ?? {}) as Record<string, "H" | "L" | undefined>)[item.id];
+                              const cellValue = (row as Record<string, unknown>)[item.id];
+                              const cellRangeText = anomalyOnly && cellFlag && item.referenceRange?.trim()
+                                ? item.referenceRange
+                                : undefined;
+                              let cellDeviation: { text: string; className: string } | null = null;
+                              if (cellRangeText) {
+                                const parsed = parseReferenceRange(cellRangeText);
+                                const numericValue = typeof cellValue === "number" && Number.isFinite(cellValue) ? cellValue : null;
+                                if (parsed && numericValue !== null) {
+                                  if (cellFlag === "H" && parsed.max !== undefined && numericValue > parsed.max) {
+                                    cellDeviation = { text: `+${Math.round((numericValue - parsed.max) * 100) / 100}`, className: "text-[#f0476a]" };
+                                  } else if (cellFlag === "L" && parsed.min !== undefined && numericValue < parsed.min) {
+                                    cellDeviation = { text: `-${Math.round((parsed.min - numericValue) * 100) / 100}`, className: "text-[#3b82f6]" };
+                                  }
+                                }
+                              }
                               return (
                                 <TableCell key={item.id} className="text-[13.5px] text-[#20203a] py-3">
-                                  <span className="inline-flex items-center gap-1">
-                                    {formatIndicatorValue((row as Record<string, unknown>)[item.id])}
-                                    {cellFlag === "H" && (
-                                      <ArrowUp aria-label="偏高" className="w-3.5 h-3.5 text-red-500" />
-                                    )}
-                                    {cellFlag === "L" && (
-                                      <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
-                                    )}
-                                  </span>
+                                  {cellRangeText ? (
+                                    <div className="flex flex-col">
+                                      <span className="inline-flex items-center gap-1">
+                                        {formatIndicatorValue(cellValue)}
+                                        {cellFlag === "H" && (
+                                          <ArrowUp aria-label="偏高" className="w-3.5 h-3.5 text-red-500" />
+                                        )}
+                                        {cellFlag === "L" && (
+                                          <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
+                                        )}
+                                      </span>
+                                      <span className="whitespace-nowrap text-[11px] leading-[1.2] text-[#9a9ab0]">
+                                        {`参考 ${cellRangeText}`}
+                                        {cellDeviation && (
+                                          <span className={cellDeviation.className}>{` · ${cellDeviation.text}`}</span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1">
+                                      {formatIndicatorValue(cellValue)}
+                                      {cellFlag === "H" && (
+                                        <ArrowUp aria-label="偏高" className="w-3.5 h-3.5 text-red-500" />
+                                      )}
+                                      {cellFlag === "L" && (
+                                        <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
+                                      )}
+                                    </span>
+                                  )}
                                 </TableCell>
                               );
                             })}

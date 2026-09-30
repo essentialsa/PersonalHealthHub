@@ -19,7 +19,7 @@ interface RecordChartProps {
   onPreviewAttachment?: (attachmentId: string) => void;
   onUpdateRecord?: (record: HealthRecord) => void;
   onDeleteRecord?: (id: string) => void;
-  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onAddAttachment?: (attachment: HealthAttachment) => Promise<boolean> | boolean;
   onDeleteAttachment?: (attachmentId: string) => void;
 }
 
@@ -134,7 +134,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
     setEditAttachmentMode("none");
   };
 
-  const handleSaveRowEdit = (dateStr: string) => {
+  const handleSaveRowEdit = async (dateStr: string) => {
     if (!onUpdateRecord) return;
     const dateRecords = records.filter(r => r.date === dateStr);
 
@@ -159,7 +159,7 @@ export function RecordChart({ records, indicators, categories, attachments = [],
         date: dateStr,
         createdAt: new Date().toISOString(),
       };
-      if (onAddAttachment(attachment)) {
+      if (await onAddAttachment(attachment)) {
         // Update all records of this date with the new attachment
         dateRecords.forEach(record => {
           onUpdateRecord({ ...record, attachmentId: newAttachmentId });

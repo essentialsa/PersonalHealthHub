@@ -166,7 +166,7 @@ function GroupImportBar({
 
 interface Props {
   onImportRecords: (records: HealthRecord[]) => void;
-  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onAddAttachment?: (attachment: HealthAttachment) => Promise<boolean> | boolean;
   existingCategories?: UserIndicatorCategory[];
   existingRecords?: HealthRecord[];
   triggerClassName?: string;
@@ -620,7 +620,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
       }
       if (onAddAttachment) {
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           const attachment: HealthAttachment = {
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             fileName: file.name,
@@ -633,7 +633,7 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
           // 显式检查保存结果：失败时明确告知，且记录不引用不存在的附件
           let saved = false;
           try {
-            saved = onAddAttachment(attachment);
+            saved = await onAddAttachment(attachment);
           } catch {
             saved = false;
           }

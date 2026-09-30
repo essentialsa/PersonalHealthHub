@@ -14,7 +14,10 @@ export interface HealthAttachment {
 
 export const ATTACHMENTS_KEY = 'health_attachments_v1';
 export const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+/** IndexedDB 可用时的单文件上限（data 存入 IndexedDB，不受 localStorage 配额约束） */
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+/** IndexedDB 不可用（降级为 data 直存 localStorage）时的单文件上限，保持旧行为 */
+export const LEGACY_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 /** 健康记录在 localStorage 中的基础键（登录态下实际键带 `__userId` 后缀） */
 export const RECORDS_BASE_KEY = 'health_records_v1';
 
@@ -50,15 +53,147 @@ export const saveAttachments = (attachments: HealthAttachment[], scope?: Attachm
   localStorage.setItem(resolveKeys(scope).attachmentsKey, JSON.stringify(attachments));
 };
 
-export const addAttachment = (attachment: HealthAttachment, scope?: AttachmentStorageScope): boolean => {
-  const attachments = loadAttachments(scope);
+// ---------- IndexedDB blob 存储层 ----------
+// 附件 data URL 存 IndexedDB（key 为附件 id），localStorage 只保留元数据，
+// 解除 localStorage 配额对附件大小的约束。
+const ATTACHMENT_IDB_NAME = 'health_attachments_db';
+const ATTACHMENT_IDB_STORE = 'blobs';
+const IDB_UNAVAILABLE_ERROR = 'attachment IndexedDB unavailable';
 
-  if (attachment.fileSize > MAX_FILE_SIZE) {
+let idbAvailability: Promise<boolean> | null = null;
+
+const openAttachmentIdb = (): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(ATTACHMENT_IDB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(ATTACHMENT_IDB_STORE)) {
+        db.createObjectStore(ATTACHMENT_IDB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('failed to open attachment idb'));
+    request.onblocked = () => reject(new Error('attachment idb open blocked'));
+  });
+
+/**
+ * 打开一次并缓存结果；打开失败即进入降级态，
+ * 后续所有 IDB 调用直接按不可用处理，不反复尝试报错。
+ */
+const isAttachmentIdbAvailable = (): Promise<boolean> => {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.resolve(false);
+  }
+  if (!idbAvailability) {
+    idbAvailability = openAttachmentIdb()
+      .then(db => {
+        db.close();
+        return true;
+      })
+      .catch(() => false);
+  }
+  return idbAvailability;
+};
+
+const runAttachmentStoreRequest = async <T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> => {
+  if (!(await isAttachmentIdbAvailable())) {
+    throw new Error(IDB_UNAVAILABLE_ERROR);
+  }
+  const db = await openAttachmentIdb();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const tx = db.transaction(ATTACHMENT_IDB_STORE, mode);
+      const request = run(tx.objectStore(ATTACHMENT_IDB_STORE));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('attachment idb request failed'));
+    });
+  } finally {
+    db.close();
+  }
+};
+
+/** 保存附件 data URL 到 IndexedDB（调用方需先确认 IDB 可用；不可用时抛错） */
+export const saveAttachmentData = async (id: string, data: string): Promise<void> => {
+  await runAttachmentStoreRequest('readwrite', store => store.put(data, id));
+};
+
+/** 从 IndexedDB 读取附件 data URL；不存在或 IDB 不可用时返回 undefined */
+export const loadAttachmentData = async (id: string): Promise<string | undefined> => {
+  if (!(await isAttachmentIdbAvailable())) {
+    return undefined;
+  }
+  const result = await runAttachmentStoreRequest<string>('readonly', store => store.get(id));
+  return typeof result === 'string' ? result : undefined;
+};
+
+/** 删除单个附件 blob（调用方需先确认 IDB 可用；不可用时抛错） */
+export const deleteAttachmentData = async (id: string): Promise<void> => {
+  await runAttachmentStoreRequest('readwrite', store => store.delete(id));
+};
+
+/** 单事务批量删除附件 blob（调用方需先确认 IDB 可用；不可用时抛错） */
+export const deleteAttachmentsData = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) return;
+  if (!(await isAttachmentIdbAvailable())) {
+    throw new Error(IDB_UNAVAILABLE_ERROR);
+  }
+  const db = await openAttachmentIdb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(ATTACHMENT_IDB_STORE, 'readwrite');
+      const store = tx.objectStore(ATTACHMENT_IDB_STORE);
+      ids.forEach(id => {
+        store.delete(id);
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('attachment idb batch delete failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('attachment idb batch delete aborted'));
+    });
+  } finally {
+    db.close();
+  }
+};
+
+/**
+ * 新增附件：校验大小后先把元数据写入 localStorage（IDB 可用时元数据项不落 data），
+ * IDB 可用时再把 data 写入 IndexedDB；IDB 不可用时维持旧行为（data 直存 localStorage，
+ * 且上限回落 10MB）。任一写失败返回 false 并尽量回滚已写入的元数据。
+ */
+export const addAttachment = async (
+  attachment: HealthAttachment,
+  scope?: AttachmentStorageScope,
+): Promise<boolean> => {
+  const idbAvailable = await isAttachmentIdbAvailable();
+  const sizeLimit = idbAvailable ? MAX_FILE_SIZE : LEGACY_MAX_FILE_SIZE;
+  if (attachment.fileSize > sizeLimit) {
     return false;
   }
 
-  attachments.push(attachment);
-  saveAttachments(attachments, scope);
+  const attachments = loadAttachments(scope);
+  attachments.push(idbAvailable ? { ...attachment, data: undefined } : attachment);
+  try {
+    saveAttachments(attachments, scope);
+  } catch {
+    return false;
+  }
+
+  if (idbAvailable && attachment.data) {
+    try {
+      await saveAttachmentData(attachment.id, attachment.data);
+    } catch {
+      // 回滚已写入的元数据
+      attachments.pop();
+      try {
+        saveAttachments(attachments, scope);
+      } catch {
+        // ignore rollback failures
+      }
+      return false;
+    }
+  }
   return true;
 };
 
@@ -175,18 +310,25 @@ export const findOrphanedAttachments = (scope?: AttachmentStorageScope): HealthA
   }
 };
 
-// 清理孤立附件
-export const cleanupOrphanedAttachments = (scope?: AttachmentStorageScope): number => {
+// 清理孤立附件（联动删除对应 IDB blob）
+export const cleanupOrphanedAttachments = async (scope?: AttachmentStorageScope): Promise<number> => {
   const orphaned = findOrphanedAttachments(scope);
   if (orphaned.length === 0) return 0;
   const orphanedIds = new Set(orphaned.map(a => a.id));
   const attachments = loadAttachments(scope);
   const cleaned = attachments.filter(a => !orphanedIds.has(a.id));
   saveAttachments(cleaned, scope);
+  if (await isAttachmentIdbAvailable()) {
+    try {
+      await deleteAttachmentsData(Array.from(orphanedIds));
+    } catch {
+      // ignore blob delete failures；残留 blob 无引用，后续可再清
+    }
+  }
   return orphaned.length;
 };
 
-export const deleteAttachment = (attachmentId: string, scope?: AttachmentStorageScope) => {
+export const deleteAttachment = async (attachmentId: string, scope?: AttachmentStorageScope): Promise<void> => {
   const keys = resolveKeys(scope);
   const attachments = loadAttachments(scope);
   const filtered = attachments.filter(a => a.id !== attachmentId);
@@ -203,5 +345,37 @@ export const deleteAttachment = (attachmentId: string, scope?: AttachmentStorage
     }
   } catch {
     // ignore record update failures
+  }
+
+  if (await isAttachmentIdbAvailable()) {
+    try {
+      await deleteAttachmentData(attachmentId);
+    } catch {
+      // ignore blob delete failures；元数据已删，残留 blob 无引用
+    }
+  }
+};
+
+/**
+ * 幂等迁移：把 localStorage 元数据中内联的 data 搬到 IndexedDB，
+ * 成功后该项 data 置 undefined，最后统一写回列表。
+ * 单条失败仅 console.warn 并继续下一条；IDB 不可用时直接返回。重复执行无副作用。
+ */
+export const migrateAttachmentBlobsToIdb = async (scope?: AttachmentStorageScope): Promise<void> => {
+  if (!(await isAttachmentIdbAvailable())) return;
+  const attachments = loadAttachments(scope);
+  let migrated = false;
+  for (const attachment of attachments) {
+    if (!attachment.data) continue;
+    try {
+      await saveAttachmentData(attachment.id, attachment.data);
+      attachment.data = undefined;
+      migrated = true;
+    } catch (error) {
+      console.warn(`附件 ${attachment.id} 迁移到 IndexedDB 失败`, error);
+    }
+  }
+  if (migrated) {
+    saveAttachments(attachments, scope);
   }
 };

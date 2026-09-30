@@ -16,7 +16,7 @@ interface RecordTableProps {
   onAddFollowupRecord: (base: HealthRecord, payload: { date: string; value: number }) => void;
   attachments?: HealthAttachment[];
   onPreviewAttachment?: (attachmentId: string) => void;
-  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onAddAttachment?: (attachment: HealthAttachment) => Promise<boolean> | boolean;
   onDeleteAttachment?: (attachmentId: string) => void;
 }
 
@@ -77,7 +77,7 @@ export function RecordTable({
     setEditAttachmentMode("none");
   };
 
-  const handleSaveEdit = (record: HealthRecord) => {
+  const handleSaveEdit = async (record: HealthRecord) => {
     if (!editDate) return;
     const parsed = parseFloat(editValue.replace(",", "."));
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -105,7 +105,7 @@ export function RecordTable({
           date: editDate,
           createdAt: new Date().toISOString(),
         };
-        if (onAddAttachment(attachment)) {
+        if (await onAddAttachment(attachment)) {
           attachmentId = newAttachmentId;
         }
       }
@@ -117,7 +117,7 @@ export function RecordTable({
     handleCancelEdit();
   };
 
-  const handleSaveAsNew = (record: HealthRecord) => {
+  const handleSaveAsNew = async (record: HealthRecord) => {
     if (!editDate) return;
     const parsed = parseFloat(editValue.replace(",", "."));
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -139,7 +139,7 @@ export function RecordTable({
         date: editDate,
         createdAt: new Date().toISOString(),
       };
-      if (onAddAttachment(attachment)) {
+      if (await onAddAttachment(attachment)) {
         attachmentId = newAttachmentId;
       }
     }

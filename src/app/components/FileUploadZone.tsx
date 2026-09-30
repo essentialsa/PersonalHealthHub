@@ -93,7 +93,7 @@ export function FileUploadZone({
           拖拽文件到此处，或<span className="text-[#6c5ce7] font-semibold">点击选择</span>
         </p>
         <p className="text-xs text-[#9a9ab0] mt-1">
-          支持图片和 PDF，最大 10MB
+          支持图片和 PDF，最大 {MAX_FILE_SIZE / 1024 / 1024}MB
         </p>
       </div>
       <input

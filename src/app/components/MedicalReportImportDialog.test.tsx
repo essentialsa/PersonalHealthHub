@@ -244,13 +244,13 @@ describe("MedicalReportImportDialog E2E", () => {
     expect(onAddAttachment).toHaveBeenCalledTimes(1);
   });
 
-  it("保留附件但文件超过附件上限时警告并可继续导入（不含附件）", async () => {
+  it("11MB 报告文件在附件上限提升后可正常保留为附件", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const onAddAttachment = vi.fn(() => true);
     render(<MedicalReportImportDialog onImportRecords={mockImportRecords} onAddAttachment={onAddAttachment} />);
     fireEvent.click(screen.getByText("报告导入"));
 
-    // 11MB 文件：解析上限（50MB）内、附件上限（10MB）外
+    // 11MB 文件：解析上限（50MB）与附件上限（50MB）内，旧版 10MB 附件上限外
     const file = new File(["x".repeat(11 * 1024 * 1024)], "big.pdf", { type: "application/pdf" });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(input, "files", { value: [file], writable: false });
@@ -262,14 +262,14 @@ describe("MedicalReportImportDialog E2E", () => {
     await waitFor(() => expect(screen.getByText(/确认导入/)).toBeInTheDocument(), { timeout: 5000 });
     fireEvent.click(screen.getByText(/确认导入/));
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("附件大小上限"));
-    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    // 不再出现附件上限警告；附件保存成功且记录关联 attachmentId
+    expect(confirmSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(onAddAttachment).toHaveBeenCalledTimes(1), { timeout: 10000 });
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1), { timeout: 10000 });
     const records = mockImportRecords.mock.calls[0][0];
     records.forEach((r: { attachmentId?: string }) => {
-      expect(r.attachmentId).toBeUndefined();
+      expect(r.attachmentId).toBeDefined();
     });
-    // 超限路径不应尝试保存附件
-    expect(onAddAttachment).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 

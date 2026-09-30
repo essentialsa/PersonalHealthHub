@@ -34,8 +34,8 @@ describe("HealthAttachment constants", () => {
     expect(ALLOWED_TYPES).toContain("application/pdf");
   });
 
-  it("MAX_FILE_SIZE is 10MB", () => {
-    expect(MAX_FILE_SIZE).toBe(10 * 1024 * 1024);
+  it("MAX_FILE_SIZE is 50MB", () => {
+    expect(MAX_FILE_SIZE).toBe(50 * 1024 * 1024);
   });
 
   it("ATTACHMENT_CACHE_BUDGET is 4MB", () => {
@@ -113,27 +113,27 @@ describe('attachment storage', () => {
     expect(loaded[1].fileName).toBe('scan.jpg');
   });
 
-  it('addAttachment succeeds when under size limits', () => {
+  it('addAttachment succeeds when under size limits', async () => {
     const a = makeAttachment({ fileSize: 1024 });
-    expect(addAttachment(a)).toBe(true);
+    expect(await addAttachment(a)).toBe(true);
     expect(loadAttachments()).toHaveLength(1);
   });
 
-  it('addAttachment fails when single file exceeds 10MB', () => {
+  it('addAttachment fails when single file exceeds 10MB', async () => {
     const a = makeAttachment({ fileSize: 11 * 1024 * 1024 });
-    expect(addAttachment(a)).toBe(false);
+    expect(await addAttachment(a)).toBe(false);
     expect(loadAttachments()).toHaveLength(0);
   });
 
-  it('addAttachment no longer enforces a total size limit (Drive is the persistence layer)', () => {
+  it('addAttachment no longer enforces a total size limit (Drive is the persistence layer)', async () => {
     const a1 = makeAttachment({ id: '1', fileSize: 9.5 * 1024 * 1024 });
     const a2 = makeAttachment({ id: '2', fileSize: 10 * 1024 * 1024 });
-    addAttachment(a1);
-    expect(addAttachment(a2)).toBe(true);
+    await addAttachment(a1);
+    expect(await addAttachment(a2)).toBe(true);
     expect(loadAttachments()).toHaveLength(2);
   });
 
-  it('deleteAttachment removes attachment and clears referencing records', () => {
+  it('deleteAttachment removes attachment and clears referencing records', async () => {
     const a = makeAttachment({ id: 'att1' });
     saveAttachments([a]);
     const records = [
@@ -142,7 +142,7 @@ describe('attachment storage', () => {
     ];
     localStorage.setItem('health_records_v1', JSON.stringify(records));
 
-    deleteAttachment('att1');
+    await deleteAttachment('att1');
 
     expect(loadAttachments()).toHaveLength(0);
     const updatedRecords = JSON.parse(localStorage.getItem('health_records_v1') || '[]');
@@ -162,7 +162,7 @@ describe('user-scoped attachment storage', () => {
     recordsKey: `${RECORDS_BASE_KEY}__${userId}`,
   };
 
-  it('orphan cleanup operates on scoped keys when scope is provided', () => {
+  it('orphan cleanup operates on scoped keys when scope is provided', async () => {
     const referenced = makeAttachment({ id: 'kept' });
     const orphaned = makeAttachment({ id: 'orphan' });
     saveAttachments([referenced, orphaned], scoped);
@@ -178,7 +178,7 @@ describe('user-scoped attachment storage', () => {
     const found = findOrphanedAttachments(scoped);
     expect(found.map(a => a.id)).toEqual(['orphan']);
 
-    const removed = cleanupOrphanedAttachments(scoped);
+    const removed = await cleanupOrphanedAttachments(scoped);
     expect(removed).toBe(1);
     expect(loadAttachments(scoped).map(a => a.id)).toEqual(['kept']);
     // 基础键数据保持原样
@@ -186,7 +186,7 @@ describe('user-scoped attachment storage', () => {
     expect(loadAttachments().map(a => a.id)).toEqual(['legacy-att']);
   });
 
-  it('orphan cleanup defaults to base keys for backward compatibility', () => {
+  it('orphan cleanup defaults to base keys for backward compatibility', async () => {
     const referenced = makeAttachment({ id: 'kept' });
     const orphaned = makeAttachment({ id: 'orphan' });
     saveAttachments([referenced, orphaned]);
@@ -196,11 +196,11 @@ describe('user-scoped attachment storage', () => {
     );
 
     expect(findOrphanedAttachments().map(a => a.id)).toEqual(['orphan']);
-    expect(cleanupOrphanedAttachments()).toBe(1);
+    expect(await cleanupOrphanedAttachments()).toBe(1);
     expect(loadAttachments().map(a => a.id)).toEqual(['kept']);
   });
 
-  it('deleteAttachment with scope only touches scoped keys', () => {
+  it('deleteAttachment with scope only touches scoped keys', async () => {
     const a = makeAttachment({ id: 'att1' });
     saveAttachments([a], scoped);
     localStorage.setItem(
@@ -211,16 +211,16 @@ describe('user-scoped attachment storage', () => {
     const baseRecords = [{ id: 'base-r', attachmentId: 'base-att' }];
     localStorage.setItem(RECORDS_BASE_KEY, JSON.stringify(baseRecords));
 
-    deleteAttachment('att1', scoped);
+    await deleteAttachment('att1', scoped);
 
     expect(loadAttachments(scoped)).toHaveLength(0);
     expect(JSON.parse(localStorage.getItem(scoped.recordsKey) || '[]')[0].attachmentId).toBeUndefined();
     expect(JSON.parse(localStorage.getItem(RECORDS_BASE_KEY) || '[]')).toEqual(baseRecords);
   });
 
-  it('addAttachment with scope writes to scoped key only', () => {
+  it('addAttachment with scope writes to scoped key only', async () => {
     const a = makeAttachment({ id: 'scoped-att' });
-    expect(addAttachment(a, scoped)).toBe(true);
+    expect(await addAttachment(a, scoped)).toBe(true);
     expect(loadAttachments(scoped)).toHaveLength(1);
     expect(loadAttachments()).toHaveLength(0);
   });

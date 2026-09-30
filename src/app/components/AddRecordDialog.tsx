@@ -46,7 +46,7 @@ export interface HealthRecord {
 
 interface AddRecordDialogProps {
   onAddRecord: (record: HealthRecord) => void;
-  onAddAttachment?: (attachment: HealthAttachment) => boolean;
+  onAddAttachment?: (attachment: HealthAttachment) => Promise<boolean> | boolean;
   indicatorCategories: IndicatorCategory[];
   triggerClassName?: string;
 }
@@ -74,7 +74,7 @@ export function AddRecordDialog({ onAddRecord, onAddAttachment, indicatorCategor
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [attachmentDataUrl, setAttachmentDataUrl] = useState<string>("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedCategoryId || !date) {
@@ -109,7 +109,7 @@ export function AddRecordDialog({ onAddRecord, onAddAttachment, indicatorCategor
         date,
         createdAt: new Date().toISOString(),
       };
-      if (onAddAttachment(attachment)) {
+      if (await onAddAttachment(attachment)) {
         attachmentId = newAttachmentId;
       }
     }
