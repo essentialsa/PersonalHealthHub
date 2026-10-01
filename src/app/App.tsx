@@ -6000,7 +6000,7 @@ export default function App() {
                                   {showRangeVisual ? (
                                     <div className="flex flex-col w-full">
                                       <div className="flex items-center gap-1.5">
-                                        <span className={`font-semibold tabular-nums ${cellFlag === "H" ? "text-[#f0476a]" : "text-[#3b82f6]"}`}>
+                                        <span className={`font-medium tabular-nums ${cellFlag === "H" ? "text-[#f0476a]" : "text-[#3b82f6]"}`}>
                                           {formatIndicatorValue(cellValue)}
                                         </span>
                                         {cellFlag === "H" && (
@@ -6010,7 +6010,7 @@ export default function App() {
                                           <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
                                         )}
                                         {cellDeviation && (
-                                          <span className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold leading-[1.5] tabular-nums ${cellDeviation.badgeClass}`}>
+                                          <span className={`ml-auto px-1.5 py-px rounded-full text-[10.5px] font-semibold leading-[1.5] tabular-nums ${cellDeviation.badgeClass}`}>
                                             {cellDeviation.text}
                                           </span>
                                         )}
