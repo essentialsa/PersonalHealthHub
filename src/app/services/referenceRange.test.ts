@@ -3,6 +3,7 @@ import {
   parseReferenceRange,
   getValueStatus,
   scoreAgainstRange,
+  getRangeBarGeometry,
 } from "@/app/services/referenceRange";
 
 describe("parseReferenceRange", () => {
@@ -198,5 +199,50 @@ describe("scoreAgainstRange", () => {
     expect(scoreAgainstRange("abc", "3.9-6.1")).toBeNull();
     expect(scoreAgainstRange(undefined, "3.9-6.1")).toBeNull();
     expect(scoreAgainstRange(NaN, "3.9-6.1")).toBeNull();
+  });
+});
+
+describe("getRangeBarGeometry", () => {
+  it("双侧范围：正常段铺满，标记点按比例定位", () => {
+    const g = getRangeBarGeometry(4.0, "2.8-5.2");
+    expect(g).not.toBeNull();
+    expect(g!.segLeftPct).toBe(0);
+    expect(g!.segWidthPct).toBe(100);
+    expect(g!.dotPct).toBeCloseTo(50, 1);
+    expect(g!.minLabel).toBe("2.8");
+    expect(g!.maxLabel).toBe("5.2");
+  });
+
+  it("双侧范围：越界标记点吸附条端（偏高→100%，偏低→0%）", () => {
+    expect(getRangeBarGeometry(5.86, "2.8-5.2")!.dotPct).toBe(100);
+    expect(getRangeBarGeometry(0.78, "0.9-1.8")!.dotPct).toBe(0);
+  });
+
+  it("仅上限范围：域 [0, max×1.32]，正常段约 76%，标签 0 与范围原文", () => {
+    const g = getRangeBarGeometry(3.78, "<3.4");
+    expect(g).not.toBeNull();
+    expect(g!.segLeftPct).toBe(0);
+    expect(g!.segWidthPct).toBeCloseTo(75.76, 1);
+    expect(g!.dotPct).toBeCloseTo(84.23, 1);
+    expect(g!.minLabel).toBe("0");
+    expect(g!.maxLabel).toBe("<3.4");
+  });
+
+  it("仅下限范围：正常段在右侧约 24%，左标签范围原文、右标签留空", () => {
+    const g = getRangeBarGeometry(1.1, ">1.0");
+    expect(g).not.toBeNull();
+    expect(g!.segLeftPct).toBeCloseTo(75.76, 1);
+    expect(g!.segWidthPct).toBeCloseTo(24.24, 1);
+    expect(g!.dotPct).toBeCloseTo(83.33, 1);
+    expect(g!.minLabel).toBe(">1.0");
+    expect(g!.maxLabel).toBe("");
+  });
+
+  it("退化输入返回 null", () => {
+    expect(getRangeBarGeometry(5.0)).toBeNull();
+    expect(getRangeBarGeometry(5.0, "阴性")).toBeNull();
+    expect(getRangeBarGeometry(NaN, "2.8-5.2")).toBeNull();
+    expect(getRangeBarGeometry(5.0, "5.2-5.2")).toBeNull();
+    expect(getRangeBarGeometry(5.0, "<0")).toBeNull();
   });
 });

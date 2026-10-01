@@ -120,3 +120,73 @@ export function scoreAgainstRange(
   }
   return null;
 }
+
+/** 迷你范围条几何：正常段位置、数值标记点位置与两侧标签（百分比均为 0-100） */
+export interface RangeBarGeometry {
+  segLeftPct: number;
+  segWidthPct: number;
+  dotPct: number;
+  minLabel: string;
+  maxLabel: string;
+}
+
+/** 边界数字展示：去掉浮点尾巴（2.80 → "2.8"，5.20 → "5.2"） */
+const formatRangeNumber = (n: number): string => String(Math.round(n * 100) / 100);
+
+/** 单侧范围的展示域放大系数：让正常段约占轨道 76%，越界点有可视余量 */
+const ONE_SIDED_DOMAIN_FACTOR = 1.32;
+
+const clampPct = (p: number): number => Math.min(100, Math.max(0, p));
+
+/**
+ * 计算数值在参考范围迷你条上的几何位置。
+ * - 双侧 [min,max]：轨道域即 [min,max]，正常段铺满，标记点 clamp((v−min)/span)
+ * - 仅上限 max：域 [0, max×1.32]，正常段 [0, max]，左标签 "0"、右标签为范围原文（如 "<3.4"）
+ * - 仅下限 min：域 [0, min×1.32]，正常段 [min, 域右端]，左标签为范围原文（如 ">1.0"）、右标签留空（域右端为人工值无意义）
+ * 无法解析或域退化（span≤0、单侧边界≤0）返回 null。
+ */
+export function getRangeBarGeometry(
+  value: number,
+  rangeText?: string | null
+): RangeBarGeometry | null {
+  if (!Number.isFinite(value)) return null;
+  const parsed = parseReferenceRange(rangeText);
+  if (!parsed) return null;
+  const { min, max } = parsed;
+
+  if (min !== undefined && max !== undefined) {
+    const span = max - min;
+    if (span <= 0) return null;
+    return {
+      segLeftPct: 0,
+      segWidthPct: 100,
+      dotPct: clampPct(((value - min) / span) * 100),
+      minLabel: formatRangeNumber(min),
+      maxLabel: formatRangeNumber(max),
+    };
+  }
+  if (max !== undefined) {
+    if (max <= 0) return null;
+    const domainMax = max * ONE_SIDED_DOMAIN_FACTOR;
+    return {
+      segLeftPct: 0,
+      segWidthPct: (max / domainMax) * 100,
+      dotPct: clampPct((value / domainMax) * 100),
+      minLabel: "0",
+      maxLabel: (rangeText ?? "").trim(),
+    };
+  }
+  if (min !== undefined) {
+    if (min <= 0) return null;
+    const domainMax = min * ONE_SIDED_DOMAIN_FACTOR;
+    const segLeftPct = (min / domainMax) * 100;
+    return {
+      segLeftPct,
+      segWidthPct: 100 - segLeftPct,
+      dotPct: clampPct((value / domainMax) * 100),
+      minLabel: (rangeText ?? "").trim(),
+      maxLabel: "",
+    };
+  }
+  return null;
+}

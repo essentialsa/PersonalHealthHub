@@ -88,7 +88,7 @@ import {
 } from "@/app/services/attachment";
 import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 import { isTimeLikeUnit } from "@/app/services/medicalReport";
-import { parseReferenceRange } from "@/app/services/referenceRange";
+import { parseReferenceRange, getRangeBarGeometry } from "@/app/services/referenceRange";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -5978,40 +5978,64 @@ export default function App() {
                             {indicatorDataItems.map(item => {
                               const cellFlag = ((row.flags ?? {}) as Record<string, "H" | "L" | undefined>)[item.id];
                               const cellValue = (row as Record<string, unknown>)[item.id];
-                              const cellRangeText = anomalyOnly && cellFlag && item.referenceRange?.trim()
-                                ? item.referenceRange
-                                : undefined;
-                              let cellDeviation: { text: string; className: string } | null = null;
-                              if (cellRangeText) {
-                                const parsed = parseReferenceRange(cellRangeText);
-                                const numericValue = typeof cellValue === "number" && Number.isFinite(cellValue) ? cellValue : null;
-                                if (parsed && numericValue !== null) {
-                                  if (cellFlag === "H" && parsed.max !== undefined && numericValue > parsed.max) {
-                                    cellDeviation = { text: `+${Math.round((numericValue - parsed.max) * 100) / 100}`, className: "text-[#f0476a]" };
-                                  } else if (cellFlag === "L" && parsed.min !== undefined && numericValue < parsed.min) {
-                                    cellDeviation = { text: `-${Math.round((parsed.min - numericValue) * 100) / 100}`, className: "text-[#3b82f6]" };
+                              const numericCellValue = typeof cellValue === "number" && Number.isFinite(cellValue) ? cellValue : null;
+                              // 异常模式：偏差徽章（越界才有）与迷你范围条（范围可解析且值为数值才有）
+                              let cellDeviation: { text: string; badgeClass: string } | null = null;
+                              if (anomalyOnly && cellFlag && item.referenceRange?.trim() && numericCellValue !== null) {
+                                const parsed = parseReferenceRange(item.referenceRange);
+                                if (parsed) {
+                                  if (cellFlag === "H" && parsed.max !== undefined && numericCellValue > parsed.max) {
+                                    cellDeviation = { text: `+${Math.round((numericCellValue - parsed.max) * 100) / 100}`, badgeClass: "bg-[#fde8ee] text-[#f0476a]" };
+                                  } else if (cellFlag === "L" && parsed.min !== undefined && numericCellValue < parsed.min) {
+                                    cellDeviation = { text: `-${Math.round((parsed.min - numericCellValue) * 100) / 100}`, badgeClass: "bg-[#e6efff] text-[#3b82f6]" };
                                   }
                                 }
                               }
+                              const cellBarGeometry = anomalyOnly && cellFlag && numericCellValue !== null
+                                ? getRangeBarGeometry(numericCellValue, item.referenceRange)
+                                : null;
+                              const showRangeVisual = Boolean(anomalyOnly && cellFlag && (cellDeviation || cellBarGeometry));
                               return (
                                 <TableCell key={item.id} className="text-[13.5px] text-[#20203a] py-3">
-                                  {cellRangeText ? (
-                                    <div className="flex flex-col">
-                                      <span className="inline-flex items-center gap-1">
-                                        {formatIndicatorValue(cellValue)}
+                                  {showRangeVisual ? (
+                                    <div className="flex flex-col w-full">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={`font-semibold tabular-nums ${cellFlag === "H" ? "text-[#f0476a]" : "text-[#3b82f6]"}`}>
+                                          {formatIndicatorValue(cellValue)}
+                                        </span>
                                         {cellFlag === "H" && (
                                           <ArrowUp aria-label="偏高" className="w-3.5 h-3.5 text-red-500" />
                                         )}
                                         {cellFlag === "L" && (
                                           <ArrowDown aria-label="偏低" className="w-3.5 h-3.5 text-blue-500" />
                                         )}
-                                      </span>
-                                      <span className="whitespace-nowrap text-[11px] leading-[1.2] text-[#9a9ab0]">
-                                        {`参考 ${cellRangeText}`}
                                         {cellDeviation && (
-                                          <span className={cellDeviation.className}>{` · ${cellDeviation.text}`}</span>
+                                          <span className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold leading-[1.5] tabular-nums ${cellDeviation.badgeClass}`}>
+                                            {cellDeviation.text}
+                                          </span>
                                         )}
-                                      </span>
+                                      </div>
+                                      {cellBarGeometry && (
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <span className="text-[10.5px] text-[#b8b8cc] tabular-nums whitespace-nowrap">{cellBarGeometry.minLabel}</span>
+                                          <div className="relative flex-1 min-w-[60px] h-[5px] rounded-[3px] bg-[#ececf2]">
+                                            <div
+                                              className="absolute inset-y-0 rounded-[3px] bg-gradient-to-r from-[#b8e6d0] to-[#8dd9b0]"
+                                              style={{ left: `${cellBarGeometry.segLeftPct}%`, width: `${cellBarGeometry.segWidthPct}%` }}
+                                            />
+                                            <div
+                                              className={cn(
+                                                "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 size-[9px] rounded-full border-2 border-white",
+                                                cellFlag === "H"
+                                                  ? "bg-[#f0476a] range-dot-pulse-h"
+                                                  : "bg-[#3b82f6] range-dot-pulse-l",
+                                              )}
+                                              style={{ left: `${cellBarGeometry.dotPct}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-[10.5px] text-[#b8b8cc] tabular-nums whitespace-nowrap">{cellBarGeometry.maxLabel}</span>
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                     <span className="inline-flex items-center gap-1">

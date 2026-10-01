@@ -211,3 +211,18 @@
     line-height: 1.5;
   }
 }
+
+/* 异常指标迷你范围条：数值标记点呼吸光晕（偏高红/偏低蓝） */
+@keyframes range-dot-pulse-h {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(240, 71, 106, 0.18); }
+  50% { box-shadow: 0 0 0 5px rgba(240, 71, 106, 0.10); }
+}
+@keyframes range-dot-pulse-l {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
+  50% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.10); }
+}
+.range-dot-pulse-h { animation: range-dot-pulse-h 2.4s ease-in-out infinite; }
+.range-dot-pulse-l { animation: range-dot-pulse-l 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .range-dot-pulse-h, .range-dot-pulse-l { animation: none; }
+}
