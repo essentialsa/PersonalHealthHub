@@ -8,7 +8,7 @@ import { BookOpen, Check, ChevronDown, CloudDownload, Download, FileText, Folder
 
 interface ExportDialogProps {
   categories: IndicatorCategory[];
-  onExport: (indicatorIds: string[] | null, format: "xlsx" | "csv" | "md", onProgress?: (value: number) => void) => void;
+  onExport: (indicatorIds: string[] | null, format: "xlsx" | "csv" | "md", onProgress?: (value: number) => void, layout?: "category" | "timeline") => void;
   triggerClassName?: string;
   triggerLabel?: string;
 }
@@ -23,6 +23,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");
   const [progress, setProgress] = useState(0);
   const [format, setFormat] = useState<"xlsx" | "csv" | "md">("xlsx");
+  const [layout, setLayout] = useState<"category" | "timeline">("category");
 
   const toggleCategory = (id: string, checked: boolean | "indeterminate") => {
     const isChecked = checked === true;
@@ -63,7 +64,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
     try {
       onExport(idsToExport, format, value => {
         setProgress(value);
-      });
+      }, layout);
       setStatus("done");
     } finally {
       setExporting(false);
@@ -131,6 +132,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
           setSelectorOpen(false);
           setExportAll(true);
           setSelectedCategoryIds(allCategoryIds);
+          setLayout("category");
         }
       }}
     >
@@ -257,6 +259,38 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
               })}
             </div>
           </div>
+          {format === "md" && (
+            <div className="space-y-2">
+              <span className="text-[13px] font-semibold text-[#5a5a75]">布局</span>
+              <div className="grid grid-cols-2 gap-2.5">
+                {(
+                  [
+                    { value: "category", name: "按分类" },
+                    { value: "timeline", name: "按时间线" },
+                  ] as Array<{ value: "category" | "timeline"; name: string }>
+                ).map(option => {
+                  const isActive = layout === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setLayout(option.value)}
+                      className={cn(
+                        "relative flex h-10 items-center justify-center rounded-[12px] border-[1.5px] text-left transition active:scale-[0.985]",
+                        isActive
+                          ? "border-transparent bg-gradient-to-br from-[#8a79ff] via-[#6c5ce7] to-[#4f7df9] text-white"
+                          : "border-[rgba(108,92,231,0.28)] bg-white text-[#20203a]",
+                      )}
+                    >
+                      <span className="text-[13px] font-semibold leading-[1.2]">
+                        {option.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3 text-xs text-[#9a9ab0]">
             <span>
               当前共 {categories.length} 个检验指标分类。

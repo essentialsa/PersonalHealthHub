@@ -1,11 +1,15 @@
 /**
  * 健康数据结构化 Markdown 导出（纯函数）：供本地留存、任意 AI 读取分析。
- * 结构：元信息头 + 异常指标汇总（可选）+ 每分类一张透视表（日期 × 指标）。
+ * 结构：元信息头 + 异常指标汇总（可选）+ 分类布局为每分类一张透视表（日期 × 指标），
+ * 时间线布局为按日期升序的逐日长表节。
  */
 import type { HealthRecord, IndicatorCategory, IndicatorItem } from "@/app/components/AddRecordDialog";
 import { parseReferenceRange } from "@/app/services/referenceRange";
 
 export type AnomalyDirection = "high" | "low";
+
+/** 导出布局：按分类透视表 或 按时间线逐日长表 */
+export type MarkdownLayout = "category" | "timeline";
 
 /** Markdown 表格单元格转义：竖线破坏表格结构，换行压成空格 */
 const escapeCell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
@@ -43,6 +47,7 @@ export function buildHealthDataMarkdown(
   records: HealthRecord[],
   categories: IndicatorCategory[],
   now: Date = new Date(),
+  layout: MarkdownLayout = "category",
 ): string {
   const itemById = new Map<string, { item: IndicatorItem; categoryName: string }>();
   for (const category of categories) {
@@ -110,6 +115,38 @@ export function buildHealthDataMarkdown(
     );
   }
 
+  // 时间线布局：逐日一节，日期升序；行顺序按分类顺序 → 分类内指标顺序稳定排列
+  const timelineSections: string[] = [];
+  if (layout === "timeline") {
+    // 与分类布局 recordMap 口径一致：同日期+同指标重复记录后写入覆盖
+    const timelineRecordMap = new Map<string, HealthRecord>();
+    knownRecords.forEach(record => timelineRecordMap.set(`${formatDate(record.date)}__${record.indicatorType}`, record));
+    const timelineDates = Array.from(new Set(knownRecords.map(record => formatDate(record.date)))).sort();
+
+    for (const date of timelineDates) {
+      const rows: string[] = [];
+      for (const category of categories) {
+        for (const item of category.items) {
+          const record = timelineRecordMap.get(`${date}__${item.id}`);
+          if (!record) continue;
+          const direction = detectAnomaly(record, item.referenceRange);
+          rows.push(
+            `| ${escapeCell(item.label)} | ${formatNumber(record.value)} | ${escapeCell(item.unit || "-")} | ${direction === "high" ? "偏高 ↑" : direction === "low" ? "偏低 ↓" : ""} | ${escapeCell(item.referenceRange?.trim() || "-")} |`,
+          );
+        }
+      }
+      timelineSections.push(
+        [
+          `## ${escapeCell(date)}`,
+          "",
+          "| 指标 | 数值 | 单位 | 方向 | 参考范围 |",
+          "|---|---|---|---|---|",
+          ...rows,
+        ].join("\n"),
+      );
+    }
+  }
+
   const formattedDates = knownRecords.map(record => formatDate(record.date)).sort();
   const rangeText = formattedDates.length > 0
     ? `${formattedDates[0]} ~ ${formattedDates[formattedDates.length - 1]}`
@@ -124,6 +161,7 @@ export function buildHealthDataMarkdown(
       `- 数据区间：${rangeText}`,
       `- 记录总数：${knownRecords.length} 条（异常 ${anomalies.length} 条）`,
       `- 分类数：${sections.length}`,
+      `- 布局：${layout === "category" ? "按分类" : "按时间线"}`,
     ].join("\n"),
   );
 
@@ -141,7 +179,7 @@ export function buildHealthDataMarkdown(
     );
   }
 
-  blocks.push(...sections);
+  blocks.push(...(layout === "timeline" ? timelineSections : sections));
 
   return `${blocks.join("\n\n")}\n`;
 }

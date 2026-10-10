@@ -5304,6 +5304,7 @@ export default function App() {
     indicatorIds: string[] | null,
     format: "xlsx" | "csv" | "md",
     onProgress?: (value: number) => void,
+    layout: "category" | "timeline" = "category",
   ) => {
     // Markdown 导出用于完整留存，使用全量记录（不受「异常指标」筛选影响）；xlsx/csv 维持现状
     const sourceRecords = format === "md" ? records : effectiveRecords;
@@ -5396,7 +5397,7 @@ export default function App() {
       const categoriesForExport = indicatorCategories.filter(category =>
         category.items.some(item => effectiveIndicatorIds.includes(item.id)),
       );
-      const markdown = buildHealthDataMarkdown(filteredRecords, categoriesForExport);
+      const markdown = buildHealthDataMarkdown(filteredRecords, categoriesForExport, new Date(), layout);
       const blob = new Blob([markdown], {
         type: "text/markdown;charset=utf-8;",
       });

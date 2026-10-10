@@ -119,6 +119,70 @@ describe("buildHealthDataMarkdown", () => {
 
     expect(md).toContain("- 记录总数：1 条（异常 0 条）");
   });
+
+  it("元信息头：分类布局标注「按分类」、时间线布局标注「按时间线」", () => {
+    const records = [record({ id: "r1", value: 43.7 })];
+
+    const categoryMd = buildHealthDataMarkdown(records, categories, NOW, "category");
+    const timelineMd = buildHealthDataMarkdown(records, categories, NOW, "timeline");
+
+    expect(categoryMd).toContain("- 布局：按分类");
+    expect(timelineMd).toContain("- 布局：按时间线");
+  });
+
+  it("默认布局与显式 category 输出完全一致", () => {
+    const records = [
+      record({ id: "r1", value: 43.7 }),
+      record({ id: "r2", indicatorType: "minerals", value: 4.42, abnormalFlag: "H" }),
+    ];
+
+    const defaultMd = buildHealthDataMarkdown(records, categories, NOW);
+    const categoryMd = buildHealthDataMarkdown(records, categories, NOW, "category");
+
+    expect(defaultMd).toBe(categoryMd);
+  });
+
+  it("时间线：两日期按升序生成两节，表行含单位/参考范围缺省 -", () => {
+    const records = [
+      record({ id: "r1", date: "2025-12-19", indicatorType: "tbw", value: 44.1, unit: "L" }),
+      record({ id: "r2", date: "2025-12-18", indicatorType: "minerals", value: 4, unit: "kg" }),
+      record({ id: "r3", date: "2025-12-18", indicatorType: "none", value: 2, unit: "" }),
+    ];
+
+    const md = buildHealthDataMarkdown(records, categories, NOW, "timeline");
+
+    // 日期升序：2025-12-18 节在前；不再生成分类透视表节
+    expect(md.indexOf("## 2025-12-18")).toBeLessThan(md.indexOf("## 2025-12-19"));
+    expect(md).not.toContain("## 人体成分分析");
+
+    // 表头与数据行精确断言（单位缺省 -、参考范围缺省 -、方向为空）
+    expect(md).toContain("| 指标 | 数值 | 单位 | 方向 | 参考范围 |");
+    expect(md).toContain("|---|---|---|---|---|");
+    expect(md).toContain("| 无机盐 | 4 | kg |  | 3.4-4.4 |");
+    expect(md).toContain("| 不存在 | 2 | - |  | - |");
+    expect(md).toContain("| 身体总水分 | 44.1 | L |  | - |");
+
+    // 行顺序：同日内按分类顺序 → 分类内指标顺序（无机盐先于不存在）
+    expect(md.indexOf("| 无机盐 |")).toBeLessThan(md.indexOf("| 不存在 |"));
+  });
+
+  it("时间线：方向标注覆盖标记、越界与正常三种情况", () => {
+    const records = [
+      record({ id: "r1", indicatorType: "minerals", value: 4.42, abnormalFlag: "H", unit: "kg" }),
+      record({ id: "r2", indicatorType: "alt", value: 60, unit: "U/L" }),
+      record({ id: "r3", indicatorType: "tbw", value: 43.7, unit: "L" }),
+    ];
+
+    const md = buildHealthDataMarkdown(records, categories, NOW, "timeline");
+
+    // abnormalFlag H 标注偏高；无标记但越参考范围也标注；异常汇总节仍保留
+    expect(md).toContain("| 无机盐 | 4.42 | kg | 偏高 ↑ | 3.4-4.4 |");
+    expect(md).toContain("| 谷丙转氨酶 | 60 | U/L | 偏高 ↑ | 9-50 |");
+    expect(md).toContain("## 异常指标汇总");
+
+    // 正常行方向为空（两个竖线之间仅空格）
+    expect(md).toContain("| 身体总水分 | 43.7 | L |  | - |");
+  });
 });
 
 describe("detectAnomaly", () => {
