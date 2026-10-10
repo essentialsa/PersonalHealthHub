@@ -4,11 +4,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Checkbox } from "@/app/components/ui/checkbox";
 import { cn } from "@/app/components/ui/utils";
 import type { IndicatorCategory } from "@/app/components/AddRecordDialog";
-import { Check, ChevronDown, CloudDownload, Download, FileText, Folder, Info, X } from "lucide-react";
+import { BookOpen, Check, ChevronDown, CloudDownload, Download, FileText, Folder, Info, X } from "lucide-react";
 
 interface ExportDialogProps {
   categories: IndicatorCategory[];
-  onExport: (indicatorIds: string[] | null, format: "xlsx" | "csv", onProgress?: (value: number) => void) => void;
+  onExport: (indicatorIds: string[] | null, format: "xlsx" | "csv" | "md", onProgress?: (value: number) => void) => void;
   triggerClassName?: string;
   triggerLabel?: string;
 }
@@ -22,7 +22,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
   const [exportAll, setExportAll] = useState(true);
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");
   const [progress, setProgress] = useState(0);
-  const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
+  const [format, setFormat] = useState<"xlsx" | "csv" | "md">("xlsx");
 
   const toggleCategory = (id: string, checked: boolean | "indeterminate") => {
     const isChecked = checked === true;
@@ -83,7 +83,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
   const canConfirm = exportAll || selectedCategoryIds.length > 0;
 
   const formatOptions: Array<{
-    value: "xlsx" | "csv";
+    value: "xlsx" | "csv" | "md";
     name: string;
     sub: string;
     icon: ReactNode;
@@ -105,6 +105,16 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
       icon: (
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#efedfd] text-[#6c5ce7]">
           <FileText className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </span>
+      ),
+    },
+    {
+      value: "md",
+      name: "Markdown",
+      sub: "AI 可读 .md",
+      icon: (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#efedfd] text-[#6c5ce7]">
+          <BookOpen className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </span>
       ),
     },
@@ -213,7 +223,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
           </div>
           <div className="space-y-2">
             <span className="text-[13px] font-semibold text-[#5a5a75]">导出格式</span>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-3 gap-2.5">
               {formatOptions.map(option => {
                 const isActive = format === option.value;
                 return (

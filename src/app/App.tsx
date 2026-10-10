@@ -89,6 +89,7 @@ import {
 import { refreshGoogleDriveAccessToken, isTokenExpiring } from "@/app/services/googleDriveToken";
 import { isTimeLikeUnit } from "@/app/services/medicalReport";
 import { parseReferenceRange, getRangeBarGeometry } from "@/app/services/referenceRange";
+import { buildHealthDataMarkdown } from "@/app/services/markdownExport";
 
 const STORAGE_VERSION = "v1";
 const STORAGE_KEY = `health_records_${STORAGE_VERSION}`;
@@ -5301,18 +5302,20 @@ export default function App() {
 
   const handleExport = (
     indicatorIds: string[] | null,
-    format: "xlsx" | "csv",
+    format: "xlsx" | "csv" | "md",
     onProgress?: (value: number) => void,
   ) => {
-    if (effectiveRecords.length === 0) {
+    // Markdown 导出用于完整留存，使用全量记录（不受「异常指标」筛选影响）；xlsx/csv 维持现状
+    const sourceRecords = format === "md" ? records : effectiveRecords;
+    if (sourceRecords.length === 0) {
       alert("暂无数据可导出");
       return;
     }
 
     const baseRecords =
       indicatorIds && indicatorIds.length > 0
-        ? effectiveRecords.filter(record => indicatorIds.includes(record.indicatorType))
-        : effectiveRecords;
+        ? sourceRecords.filter(record => indicatorIds.includes(record.indicatorType))
+        : sourceRecords;
 
     if (baseRecords.length === 0) {
       alert("所选指标暂无可导出的数据");
@@ -5387,6 +5390,30 @@ export default function App() {
       emptySheets: 0,
       totalRows: 0,
     };
+
+    if (format === "md") {
+      // 单文件结构化导出：元信息头 + 异常汇总 + 每分类透视表，供本地留存与 AI 读取
+      const categoriesForExport = indicatorCategories.filter(category =>
+        category.items.some(item => effectiveIndicatorIds.includes(item.id)),
+      );
+      const markdown = buildHealthDataMarkdown(filteredRecords, categoriesForExport);
+      const blob = new Blob([markdown], {
+        type: "text/markdown;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const date = new Date().toISOString().split("T")[0];
+      link.download = `健康数据_${date}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      if (onProgress) {
+        onProgress(100);
+      }
+      return;
+    }
 
     if (format === "csv") {
       const uniqueDates = Array.from(
