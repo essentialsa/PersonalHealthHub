@@ -111,7 +111,7 @@ describe("Excel 导出空指标与数据过滤", () => {
     });
     render(<AppDynamic />);
 
-    const openButton = await screen.findByRole("button", { name: /导出Excel/ });
+    const openButton = await screen.findByRole("button", { name: /数据导出/ });
     fireEvent.click(openButton);
 
     const confirmButton = await screen.findByRole("button", { name: /开始导出/ });
@@ -185,7 +185,7 @@ describe("Excel 导出空指标与数据过滤", () => {
     });
     render(<AppDynamic />);
 
-    const openButton = await screen.findByRole("button", { name: /导出Excel/ });
+    const openButton = await screen.findByRole("button", { name: /数据导出/ });
     fireEvent.click(openButton);
 
     const confirmButton = await screen.findByRole("button", { name: /开始导出/ });

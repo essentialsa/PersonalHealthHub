@@ -5824,7 +5824,7 @@ export default function App() {
         categories={indicatorCategories}
         onExport={handleExport}
         triggerClassName={cardBtnPrimary}
-        triggerLabel="导出Excel"
+        triggerLabel="数据导出"
       />
     ),
     importReport: (

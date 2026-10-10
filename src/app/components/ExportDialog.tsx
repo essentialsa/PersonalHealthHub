@@ -142,7 +142,7 @@ export function ExportDialog({ categories, onExport, triggerClassName, triggerLa
           className={cn("gap-2", triggerClassName)}
         >
           <Download className="w-4 h-4" />
-          {triggerLabel ?? "导出Excel"}
+          {triggerLabel ?? "数据导出"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
