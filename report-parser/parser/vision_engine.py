@@ -80,6 +80,18 @@ DOCTOR_REVIEW_SYSTEM_PROMPT = """
 4. 没有把握给出修正值时 suggestedValue 返回 null，不要编造数值。
 """.strip()
 
+STANDARD_RANGE_SYSTEM_PROMPT = """
+你是一名临床检验专家。用户会给出缺少参考范围的检验指标清单，
+每行格式为「指标名: 数值 单位」。请对给定指标返回成人标准医学参考范围。
+
+严格遵守：
+1. referenceRange 必须与给定指标的单位口径一致，不要做单位换算。
+2. 无法确信的指标、单位不常见的指标不要返回，不要臆造范围。
+3. 只返回一个 JSON 对象，不要输出解释、Markdown 或任何额外文字。
+4. 输出必须严格是如下结构：
+   {"ranges": [{"label": "与输入完全一致的指标名", "referenceRange": "参考范围", "unit": "单位"}]}
+""".strip()
+
 METADATA_KEYWORDS = (
     "report date", "sample date", "test date", "collection date",
     "检验日期", "报告日期", "采样日期", "送检日期", "日期", "报告时间", "打印时间",
@@ -105,6 +117,12 @@ REVIEW_MIN_BUDGET_SEC = 8.0
 REVIEW_MAX_LINES = 200
 # 医生复核：单次文本调用超时上限（实际取 min(该值, 剩余预算-3)）
 REVIEW_CALL_TIMEOUT_CAP_SEC = 20.0
+# 标准参考范围补全：剩余预算低于该值直接跳过纯文本补全
+STANDARD_RANGE_MIN_BUDGET_SEC = 8.0
+# 标准参考范围补全：送补指标清单最大行数（避免超长文本输入）
+STANDARD_RANGE_MAX_LINES = 200
+# 标准参考范围补全：单次文本调用超时上限（实际取 min(该值, 剩余预算-3)）
+STANDARD_RANGE_TIMEOUT_CAP_SEC = 20.0
 
 MOCK_INDICATORS = [
     {"rawLabel": "收缩压", "value": 118, "unit": "mmHg", "referenceRange": "90-139", "reportCategory": "体征检查", "abnormalFlag": "", "pageIndex": 0},
@@ -194,6 +212,54 @@ def _normalize_label(value: str) -> str:
 _REF_RANGE_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*[-~～至]\s*(\d+(?:\.\d+)?)"
 )
+
+# 参考范围文本解析（与前端 parseReferenceRange 口径一致）：
+# 参考范围几乎不含负数，因此约定分隔符两侧都是数字时按双侧解析
+_RANGE_NUM = r"\d+(?:\.\d+)?"
+# 双侧：3.9-6.1 / 4.0 - 10.0 / 2.8~5.7 / 3.9～6.1 / 3.9–6.1 / 3.9—6.1 / 3.9－6.1
+TWO_SIDED = re.compile(rf"({_RANGE_NUM})\s*[-~～\u2013\u2014\uff0d]\s*({_RANGE_NUM})")
+# 单侧比较符：<5.2 ≤5.2 ＜5.2 >200 ≥150 ＞3.0（可带空格，后随单位文字）
+LE_COMPARATOR = re.compile(rf"[<≤\uff1c]\s*({_RANGE_NUM})")
+GE_COMPARATOR = re.compile(rf"[>≥\uff1e]\s*({_RANGE_NUM})")
+# 中文后缀：5.2以下 / 150以上
+CN_MAX = re.compile(rf"({_RANGE_NUM})\s*以下")
+CN_MIN = re.compile(rf"({_RANGE_NUM})\s*以上")
+
+
+def parse_reference_range(text: Any) -> Optional[Dict[str, float]]:
+    """解析参考范围文本为 {"min"/"max"}（可缺侧）；无法解析返回 None。
+
+    与前端 parseReferenceRange 口径一致：优先双侧，避免把 "3.9-6.1" 错拆成单侧。
+    """
+    if not isinstance(text, str):
+        return None
+    s = text.strip()
+    if not s:
+        return None
+    two = TWO_SIDED.search(s)
+    if two:
+        low, high = float(two.group(1)), float(two.group(2))
+        if low > high:
+            low, high = high, low
+        return {"min": low, "max": high}
+    le = LE_COMPARATOR.search(s)
+    if le:
+        return {"max": float(le.group(1))}
+    ge = GE_COMPARATOR.search(s)
+    if ge:
+        return {"min": float(ge.group(1))}
+    cn_max = CN_MAX.search(s)
+    if cn_max:
+        return {"max": float(cn_max.group(1))}
+    cn_min = CN_MIN.search(s)
+    if cn_min:
+        return {"min": float(cn_min.group(1))}
+    return None
+
+
+def _looks_like_range(text: Any) -> bool:
+    """文本是否形如可解析的参考范围（双侧/比较符/中文后缀任一口径命中）。"""
+    return parse_reference_range(text) is not None
 
 
 def _fix_decimal_shift(value: float, reference_range: str) -> Optional[float]:
@@ -461,6 +527,11 @@ class VisionEngine:
         review = self._doctor_review(deduped, remaining, get_page)
         if review is not None:
             result["review"] = review
+        # 标准参考范围补全：共享同一剩余预算计算方式；失败降级为不挂键
+        remaining = PARSE_DEADLINE_SEC - (time.monotonic() - parse_started)
+        standard_ranges = self._fill_standard_ranges(deduped, remaining)
+        if standard_ranges is not None:
+            result["standardRanges"] = standard_ranges
         return result
 
     def _request_chunk(self, chunk: List[tuple], page_offset: int, budget_sec: float = PARSE_DEADLINE_SEC) -> Dict[str, Any]:
@@ -593,7 +664,84 @@ class VisionEngine:
             return reread_value
         return None
 
-    def _review_text_call(self, text: str, timeout: float) -> Dict[str, Any]:
+    # ------------------------------------------------------------------
+    # 标准参考范围补全：对缺参考范围的指标调用文本模型补全成人标准范围。
+    # 任何失败降级为 None（不影响主解析结果）。
+    def _fill_standard_ranges(
+        self,
+        indicators: List[Dict[str, Any]],
+        budget_sec: float,
+    ) -> Optional[List[Dict[str, Any]]]:
+        if budget_sec < STANDARD_RANGE_MIN_BUDGET_SEC:
+            return None
+        missing = [
+            item for item in indicators[:STANDARD_RANGE_MAX_LINES]
+            if not (item.get("referenceRange") or "").strip()
+        ]
+        if not missing:
+            return None
+
+        # 归一化 label 索引：过滤模型臆造名、回查原指标做单位/矛盾校验
+        label_map: Dict[str, Dict[str, Any]] = {}
+        for item in indicators:
+            label_map.setdefault(_normalize_label(item["rawLabel"]), item)
+
+        lines = [
+            f"{item['rawLabel']}: {item['value']} {item.get('unit', '')}"
+            for item in missing
+        ]
+        timeout = min(STANDARD_RANGE_TIMEOUT_CAP_SEC, budget_sec - 3)
+        try:
+            payload = self._review_text_call(
+                "\n".join(lines), timeout, system_prompt=STANDARD_RANGE_SYSTEM_PROMPT,
+            )
+        except Exception as exc:
+            logger.warning("standard_range_call_failed error=%s", exc)
+            return None
+
+        raw_ranges = payload.get("ranges") if isinstance(payload, dict) else None
+        if not isinstance(raw_ranges, list):
+            raw_ranges = []
+        ranges: List[Dict[str, Any]] = []
+        for entry in raw_ranges:
+            if not isinstance(entry, dict):
+                continue
+            label = entry.get("label")
+            if not isinstance(label, str) or not label.strip():
+                continue
+            target = label_map.get(_normalize_label(label))
+            if target is None:
+                continue
+            reference_range = entry.get("referenceRange")
+            if not isinstance(reference_range, str) or not _looks_like_range(reference_range):
+                continue
+            unit = entry.get("unit")
+            unit = unit if isinstance(unit, str) else ""
+            if _normalize_unit(unit) != _normalize_unit(target.get("unit", "")):
+                continue
+            # 矛盾校验：模型范围与本次数值/异常标记方向不符 → 丢弃
+            flag = target.get("abnormalFlag", "")
+            if flag:
+                value = float(target["value"])
+                parsed = parse_reference_range(reference_range) or {}
+                range_min, range_max = parsed.get("min"), parsed.get("max")
+                if flag == "H" and range_max is not None and value <= range_max:
+                    continue
+                if flag == "L" and range_min is not None and value >= range_min:
+                    continue
+            ranges.append({
+                "label": target["rawLabel"],
+                "referenceRange": reference_range.strip(),
+                "unit": target.get("unit", ""),
+            })
+        return ranges
+
+    def _review_text_call(
+        self,
+        text: str,
+        timeout: float,
+        system_prompt: str = DOCTOR_REVIEW_SYSTEM_PROMPT,
+    ) -> Dict[str, Any]:
         """纯文本 chat/completions 复核调用；模型/凭证复用免费模型配置。"""
         if not self.api_key and not self.fallback_api_key:
             raise VisionEngineError("模型服务未配置 API Key")
@@ -605,7 +753,7 @@ class VisionEngine:
             "temperature": 0,
             "max_tokens": 1024,
             "messages": [
-                {"role": "system", "content": DOCTOR_REVIEW_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text},
             ],
             "response_format": {"type": "json_object"},

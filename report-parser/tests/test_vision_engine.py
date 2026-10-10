@@ -405,12 +405,13 @@ def test_deadline_budget_skips_remaining_pages(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前检查 10s（放行），
-    # 第 2 个 chunk 提交前检查 60s（超 52s 预算，停止提交），60s 供日志复用。
+    # 第 2 个 chunk 提交前检查 60s（超 52s 预算，停止提交），
+    # 复核/补全预算检查 60s（剩余 -8 < 8 → 两者都跳过）。
     # 线程感知：worker 线程内的预算时钟调用返回常量 10s（与提交时刻一致，剩余 42s 允许调用），
     # 主线程按脚本序列消费，避免并行实现下迭代器耗尽
     import threading
     main_id = threading.get_ident()
-    clock = iter([0.0, 10.0, 60.0, 60.0])
+    clock = iter([0.0, 10.0, 60.0, 60.0, 60.0])
 
     def fake_monotonic():
         return next(clock) if threading.get_ident() == main_id else 10.0
@@ -459,11 +460,12 @@ def test_budget_returns_partial_with_parsed_range(monkeypatch):
     monkeypatch.setattr(ve.httpx, "post", lambda *a, **k: FakeResponse())
 
     # 假时钟：入口 0s，第 1 个 chunk 提交前 10s（放行），
-    # 第 2 个 chunk 提交前 60s（超 52s 预算停止）。
+    # 第 2 个 chunk 提交前 60s（超 52s 预算停止），
+    # 复核/补全预算检查 60s（剩余 -8 < 8 → 两者都跳过）。
     # 线程感知：worker 线程的预算时钟调用返回常量 10s（剩余 42s 允许调用），主线程按脚本序列消费
     import threading
     main_id = threading.get_ident()
-    clock = iter([0.0, 10.0, 60.0, 60.0])
+    clock = iter([0.0, 10.0, 60.0, 60.0, 60.0])
 
     def fake_monotonic():
         return next(clock) if threading.get_ident() == main_id else 10.0
@@ -507,12 +509,13 @@ def test_fallback_timeout_capped_by_remaining_budget(monkeypatch):
 
     monkeypatch.setattr(ve.httpx, "post", fake_post)
 
-    # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s, 复核预算检查 60s（剩余 -8 < 8 → 跳过复核）]；
+    # 线程感知假时钟：主线程 [入口 0s, 提交检查 10s,
+    # 复核/补全预算检查 60s（剩余 -8 < 8 → 两者都跳过）]；
     # worker 线程 [预算基准 10s（deadline=10+42=52）, 主模型剩余检查 10s（剩 42→timeout 42）,
     # 备用模型剩余检查 49s（剩 3→timeout 封顶 3）]
     import threading
     main_id = threading.get_ident()
-    main_clock = iter([0.0, 10.0, 60.0])
+    main_clock = iter([0.0, 10.0, 60.0, 60.0])
     worker_clock = iter([10.0, 10.0, 49.0])
 
     def fake_monotonic():
@@ -888,7 +891,7 @@ def test_doctor_review_skipped_when_budget_low(monkeypatch):
     assert engine._doctor_review(indicators, 7.9) is None
     assert calls == []
 
-    # 解析流程内同样跳过：假时钟使复核预算检查时剩余 7s（52-45）
+    # 解析流程内同样跳过：假时钟使复核/补全预算检查时剩余 7s（52-45）
     class FakeResponse:
         status_code = 200
         def json(self):
@@ -910,7 +913,7 @@ def test_doctor_review_skipped_when_budget_low(monkeypatch):
 
     import threading
     main_id = threading.get_ident()
-    clock = iter([0.0, 10.0, 45.0])
+    clock = iter([0.0, 10.0, 45.0, 45.0])
 
     def fake_monotonic():
         return next(clock) if threading.get_ident() == main_id else 10.0
@@ -1099,3 +1102,245 @@ def test_decimal_shift_correction():
     # 无参考范围/无法解析的范围不处理
     assert _fix_decimal_shift(14.5, "") is None
     assert _fix_decimal_shift(14.5, "升高") is None
+
+
+def test_looks_like_range_formats():
+    """范围格式判定与前端 parseReferenceRange 口径一致（双侧/比较符/中文后缀）。"""
+    from parser.vision_engine import _looks_like_range
+    assert _looks_like_range("3.9-6.1") is True
+    assert _looks_like_range("4.0 - 10.0") is True
+    assert _looks_like_range("2.8~5.7") is True
+    assert _looks_like_range("<5.2") is True
+    assert _looks_like_range("≥150") is True
+    assert _looks_like_range("5.2以下") is True
+    assert _looks_like_range("150以上") is True
+    assert _looks_like_range("正常范围") is False
+    assert _looks_like_range("") is False
+    assert _looks_like_range(None) is False
+
+
+def _empty_range_indicator(label, value, unit, flag=""):
+    return {
+        "rawLabel": label, "value": value, "unit": unit,
+        "referenceRange": "", "reportCategory": "", "abnormalFlag": flag,
+        "pageIndex": 0,
+    }
+
+
+def test_fill_standard_ranges_success(monkeypatch):
+    """空范围指标补全成功：返回原始 rawLabel、模型范围 strip、指标 unit。"""
+    import parser.vision_engine as ve
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    calls = []
+
+    def fake_text_call(text, timeout, system_prompt=ve.DOCTOR_REVIEW_SYSTEM_PROMPT):
+        calls.append({"text": text, "timeout": timeout, "system": system_prompt})
+        return {"ranges": [
+            # 全角括号写法：归一化后命中本次指标，回查输出原始 rawLabel
+            {"label": "白细胞（WBC）", "referenceRange": " 3.5-9.5 ", "unit": "×10^9/L"},
+        ]}
+
+    engine._review_text_call = fake_text_call
+    indicators = [
+        _empty_range_indicator("白细胞(WBC)", 6.5, "×10^9/L"),
+        {"rawLabel": "血红蛋白", "value": 158, "unit": "g/L",
+         "referenceRange": "130-175", "reportCategory": "", "abnormalFlag": "",
+         "pageIndex": 0},
+    ]
+    ranges = engine._fill_standard_ranges(indicators, 30.0)
+
+    assert ranges == [{"label": "白细胞(WBC)", "referenceRange": "3.5-9.5", "unit": "×10^9/L"}]
+    # 只送缺范围的指标，格式为「label: value unit」；超时 = min(20, 30-3)
+    assert calls[0]["text"] == "白细胞(WBC): 6.5 ×10^9/L"
+    assert calls[0]["timeout"] == 20
+    assert calls[0]["system"] == ve.STANDARD_RANGE_SYSTEM_PROMPT
+
+    # 无缺范围指标时不调用模型，直接返回 None
+    assert engine._fill_standard_ranges([indicators[1]], 30.0) is None
+    assert len(calls) == 1
+
+
+def test_fill_standard_ranges_drops_invalid_entries(monkeypatch):
+    """校验链：单位不一致/臆造 label/非法范围/标记与范围矛盾/空单位不一致均丢弃。"""
+    import parser.vision_engine as ve
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+
+    def fake_text_call(text, timeout, system_prompt=ve.DOCTOR_REVIEW_SYSTEM_PROMPT):
+        return {"ranges": [
+            # 合法：接受
+            {"label": "甘油三酯", "referenceRange": "0.45-1.7", "unit": "mmol/L"},
+            # 单位不一致（模型换成 mg/dL）→ 丢弃
+            {"label": "肌酐", "referenceRange": "0.6-1.2", "unit": "mg/dL"},
+            # 臆造指标（不在本次清单）→ 丢弃
+            {"label": "不存在的指标", "referenceRange": "1-100", "unit": "u"},
+            # 范围格式非法 → 丢弃
+            {"label": "尿酸", "referenceRange": "正常范围", "unit": "umol/L"},
+            # abnormalFlag H 但数值落在范围上限内 → 矛盾丢弃
+            {"label": "尿酸", "referenceRange": "150-500", "unit": "umol/L"},
+            # 指标 unit 为空，模型给非空单位 → 丢弃
+            {"label": "心率", "referenceRange": "60-100", "unit": "次/分"},
+        ]}
+
+    engine._review_text_call = fake_text_call
+    indicators = [
+        _empty_range_indicator("甘油三酯", 1.5, "mmol/L"),
+        _empty_range_indicator("肌酐", 80, "umol/L"),
+        _empty_range_indicator("尿酸", 486, "umol/L", flag="H"),
+        _empty_range_indicator("心率", 80, ""),
+    ]
+    ranges = engine._fill_standard_ranges(indicators, 30.0)
+
+    assert ranges == [{"label": "甘油三酯", "referenceRange": "0.45-1.7", "unit": "mmol/L"}]
+
+
+def test_fill_standard_ranges_skipped_when_budget_low(monkeypatch):
+    """预算不足 8s：不发文本请求，返回 None。"""
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    calls = []
+
+    def fake_text_call(text, timeout, system_prompt=None):
+        calls.append(text)
+        raise AssertionError("预算不足时不应发起请求")
+
+    engine._review_text_call = fake_text_call
+    indicators = [_empty_range_indicator("尿酸", 486, "umol/L")]
+    assert engine._fill_standard_ranges(indicators, 7.9) is None
+    assert calls == []
+
+
+def test_fill_standard_ranges_degrades_on_call_error(monkeypatch):
+    """文本调用抛异常：降级返回 None，不上抛。"""
+    import parser.vision_engine as ve
+
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+
+    def fake_text_call(text, timeout, system_prompt=ve.DOCTOR_REVIEW_SYSTEM_PROMPT):
+        raise ve.VisionEngineError("参考范围补全模型响应超时")
+
+    engine._review_text_call = fake_text_call
+    indicators = [_empty_range_indicator("尿酸", 486, "umol/L")]
+    assert engine._fill_standard_ranges(indicators, 30.0) is None
+
+
+def test_parse_result_includes_standard_ranges(monkeypatch):
+    """解析流程端到端：补全结果挂在 result['standardRanges']。"""
+    import parser.vision_engine as ve
+
+    class VisualResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "尿酸", "value": 486, "unit": "umol/L",
+                     "referenceRange": "", "abnormalFlag": "H", "pageIndex": 0},
+                ],
+            })}}]}
+
+    class ReviewResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({"issues": []})}}]}
+
+    class RangeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({"ranges": [{
+                "label": "尿酸", "referenceRange": "208-428", "unit": "umol/L",
+            }]})}}]}
+
+    text_calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            text_calls.append(json["messages"][0]["content"])
+            if "临床检验专家" in json["messages"][0]["content"]:
+                return RangeResponse()
+            return ReviewResponse()
+        return VisualResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+
+    # 复核与补全各一次纯文本调用（补全排在复核之后）
+    assert len(text_calls) == 2
+    assert result["success"] is True
+    assert result["review"] == {"issues": []}
+    # 标记 H 且数值 486 > 上限 428：不矛盾，补全接受
+    assert result["standardRanges"] == [{
+        "label": "尿酸", "referenceRange": "208-428", "unit": "umol/L",
+    }]
+
+
+def test_standard_ranges_skipped_when_parse_budget_low(monkeypatch):
+    """解析流程内预算不足（<8s）：result 无 standardRanges 键。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "尿酸", "value": 486, "unit": "umol/L",
+                     "referenceRange": "", "pageIndex": 0},
+                ],
+            })}}]}
+
+    post_calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        post_calls.append(json["model"])
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+
+    # 假时钟：复核/补全预算检查时剩余 7s（52-45）→ 两者都跳过
+    import threading
+    main_id = threading.get_ident()
+    clock = iter([0.0, 10.0, 45.0, 45.0])
+
+    def fake_monotonic():
+        return next(clock) if threading.get_ident() == main_id else 10.0
+
+    monkeypatch.setattr(ve.time, "monotonic", fake_monotonic)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+    assert result["success"] is True
+    assert "standardRanges" not in result
+    # 仅视觉解析 1 次调用，无复核/补全文本请求
+    assert len(post_calls) == 1
+
+
+def test_standard_ranges_degrade_on_text_call_error(monkeypatch):
+    """补全文本调用异常：降级无 standardRanges 键，主结果正常。"""
+    import parser.vision_engine as ve
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "reportDate": "2026-01-15",
+                "indicators": [
+                    {"rawLabel": "尿酸", "value": 486, "unit": "umol/L",
+                     "referenceRange": "", "pageIndex": 0},
+                ],
+            })}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        if isinstance(json["messages"][1]["content"], str):
+            raise ve.httpx.TimeoutException("text call timeout")
+        return FakeResponse()
+
+    monkeypatch.setattr(ve.httpx, "post", fake_post)
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+    result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
+
+    assert result["success"] is True
+    assert len(result["indicators"]) == 1
+    # 复核与补全的文本调用都超时：均降级，主结果不受影响
+    assert "review" not in result
+    assert "standardRanges" not in result

@@ -23,6 +23,7 @@ import {
   clusterUnnamedIndicators,
   groupUnnamedClusters,
   matchUnnamedLabels,
+  mergeStandardRanges,
   normalizeIndicatorText,
   normalizeUnit,
   convertUnitValue,
@@ -351,7 +352,8 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
         Array.isArray(r.indicators) && r.indicators.length > 0
           ? r.indicators
           : extractIndicatorsFromTables(r.tables);
-      const resolved = resolveIndicators(nextExtracted, existingCategories);
+      // 后端标准参考范围合并：报告未携带范围的项回填标准范围并标记来源，供预览「标准」徽标展示
+      const resolved = mergeStandardRanges(resolveIndicators(nextExtracted, existingCategories), r.standardRanges);
       setMatched(resolved);
       setExtracted(nextExtracted);
       setReviewIssues(r.review?.issues ?? []);
@@ -1016,7 +1018,12 @@ export function MedicalReportImportDialog({ onImportRecords, onAddAttachment, ex
                           {m.abnormalFlag === "L" && <span className="inline-flex items-center justify-center w-[15px] h-[15px] ml-[5px] rounded-[5px] bg-[#3b82f6] text-white text-[10px] font-extrabold leading-none shadow-[0_2px_5px_rgba(59,130,246,0.35)] align-[1px]">↓</span>}
                         </TableCell>
                         <TableCell className="text-[#55536e]">{m.unit}</TableCell>
-                        <TableCell className="text-[#9a9ab0] text-xs">{m.referenceRange || "-"}</TableCell>
+                        <TableCell className="text-[#9a9ab0] text-xs">
+                          {m.referenceRange || "-"}
+                          {m.rangeSource === "standard" && (
+                            <span className="ml-1 rounded bg-gray-100 px-1 text-[10px] text-gray-500">标准</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge
                             variant="secondary"

@@ -191,6 +191,8 @@ export interface ParseResult {
       confidence: "high" | "medium";
     }[];
   } | null;
+  /** 后端附带的标准参考范围（按指标名）；报告未携带范围时用于回填 */
+  standardRanges?: { label: string; referenceRange: string }[] | null;
 }
 
 export interface ParserServiceStatus {
@@ -911,6 +913,8 @@ export interface ResolvedIndicator {
   value: number;
   unit: string;
   referenceRange?: string;
+  /** 参考范围来源：报告自带（report）或标准范围回填（standard） */
+  rangeSource?: "report" | "standard";
   pageIndex: number;
   /** 报告原生分类（如「肝功能」），未命中指标库时用于分组 */
   reportCategory?: string;
@@ -1073,6 +1077,38 @@ export function resolveIndicators(
       userItemFound: false,
       action: 'unnamed' as const,
     };
+  });
+}
+
+/**
+ * 把后端标准参考范围合并进解析结果：
+ * - 报告自带范围（trim 非空）的项保持不变并标记 rangeSource="report"；
+ * - 范围为空的项按归一化指标名（rawLabel）查标准范围映射回填，标记 rangeSource="standard"；
+ * - 未命中标准范围的项不设置 rangeSource，原样返回。
+ */
+export function mergeStandardRanges(
+  resolved: ResolvedIndicator[],
+  standardRanges?: { label: string; referenceRange: string }[] | null,
+): ResolvedIndicator[] {
+  if (!Array.isArray(standardRanges) || standardRanges.length === 0) {
+    return resolved;
+  }
+  const rangeByLabel = new Map<string, string>();
+  for (const range of standardRanges) {
+    const key = normalizeIndicatorText(range.label);
+    if (key && !rangeByLabel.has(key)) {
+      rangeByLabel.set(key, range.referenceRange);
+    }
+  }
+  return resolved.map(item => {
+    if ((item.referenceRange ?? "").trim()) {
+      return { ...item, rangeSource: "report" as const };
+    }
+    const standard = rangeByLabel.get(normalizeIndicatorText(item.rawLabel));
+    if (!standard) {
+      return item;
+    }
+    return { ...item, referenceRange: standard, rangeSource: "standard" as const };
   });
 }
 

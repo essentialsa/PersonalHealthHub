@@ -1219,4 +1219,92 @@ describe("MedicalReportImportDialog E2E", () => {
     expect(categoryName).toBe("代谢");
     expect(itemDefs).toEqual([{ label: "尿酸", unit: "μmol/L", referenceRange: "150-420" }]);
   });
+
+  // ── standardRanges 合并：只填空范围、不覆盖报告自带范围 ──
+
+  it("standardRanges 只回填报告范围为空的项，不覆盖报告自带范围", async () => {
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      standardRanges: [
+        { label: "收缩压", referenceRange: "90-139" },
+        { label: "血 尿酸", referenceRange: "150-420" },
+      ],
+    });
+    const importItem = { rawLabel: "收缩压", value: 120, unit: "mmHg", referenceRange: "90-140", pageIndex: 0, systemId: "bp_item", userItemId: "bp_item", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "import" as const, userItemFound: true };
+    const suggestedItem = { rawLabel: "血尿酸", value: 420, unit: "μmol/L", referenceRange: "", pageIndex: 0, systemId: "uric_acid", systemLabel: "尿酸", categoryId: "cat_bs", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "create_item" as const, userItemFound: false };
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue([importItem, suggestedItem]);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ import: [importItem], createCategory: [], createItem: [suggestedItem], unnamed: [] });
+
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        existingCategories={[{ id: "cat_bs", name: "代谢", code: "", items: [] }]}
+      />,
+    );
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText("收缩压")).toBeInTheDocument(), { timeout: 5000 });
+    // 收缩压：报告自带 90-140 → rangeSource="report"，不被标准范围 90-139 覆盖，且无「标准」徽标
+    const reportRow = screen.getByText("收缩压").closest("tr") as HTMLTableRowElement;
+    expect(reportRow.textContent).toContain("90-140");
+    expect(reportRow.textContent).not.toContain("90-139");
+    expect(reportRow.textContent).not.toContain("标准");
+    // 血尿酸：报告范围为空 → 回填标准范围（归一化匹配「血 尿酸」）且 rangeSource="standard"
+    const standardRow = screen.getByText("血尿酸").closest("tr") as HTMLTableRowElement;
+    expect(standardRow.textContent).toContain("150-420");
+    expect(standardRow.textContent).toContain("标准");
+  });
+
+  it("预览参考范围列对 standard 来源的范围渲染「标准」徽标", async () => {
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      standardRanges: [{ label: "血尿酸", referenceRange: "150-420" }],
+    });
+    const suggestedItem = { rawLabel: "血尿酸", value: 420, unit: "μmol/L", referenceRange: "", pageIndex: 0, systemId: "uric_acid", systemLabel: "尿酸", categoryId: "cat_bs", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "create_item" as const, userItemFound: false };
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue([...mockMatched, suggestedItem]);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ import: mockMatched, createCategory: [], createItem: [suggestedItem], unnamed: [] });
+
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        existingCategories={[{ id: "cat_bs", name: "代谢", code: "", items: [] }]}
+      />,
+    );
+    await openAndParseReport();
+
+    await waitFor(() => expect(screen.getByText("血尿酸")).toBeInTheDocument(), { timeout: 5000 });
+    // 仅标准回填项带徽标，且徽标与回填范围同处参考范围单元格
+    const badges = screen.getAllByText("标准");
+    expect(badges).toHaveLength(1);
+    expect(badges[0].closest("td")?.textContent).toContain("150-420");
+    // 报告自带范围的已匹配项不渲染徽标
+    expect(screen.getByText("90-140").closest("td")?.textContent).not.toContain("标准");
+  });
+
+  it("确认导入时建议项建库 itemDefs 携带合并后的标准参考范围", async () => {
+    const onEnsure = vi.fn(() => ({ 尿酸: "ua_item" }));
+    vi.mocked(medicalReport.parseMedicalReport).mockResolvedValue({
+      ...mockParseResult,
+      standardRanges: [{ label: "血尿酸", referenceRange: "150-420" }],
+    });
+    const suggestedItem = { rawLabel: "血尿酸", value: 420, unit: "μmol/L", referenceRange: "", pageIndex: 0, systemId: "uric_acid", systemLabel: "尿酸", categoryId: "cat_bs", matchType: "exact" as const, confidence: { level: "high" as const, score: 1.0, reasons: [] }, action: "create_item" as const, userItemFound: false };
+    vi.mocked(medicalReport.resolveIndicators).mockReturnValue([...mockMatched, suggestedItem]);
+    vi.mocked(medicalReport.groupByAction).mockReturnValue({ import: mockMatched, createCategory: [], createItem: [suggestedItem], unnamed: [] });
+
+    render(
+      <MedicalReportImportDialog
+        onImportRecords={mockImportRecords}
+        onEnsureCategoryItems={onEnsure}
+        existingCategories={[{ id: "cat_bs", name: "代谢", code: "", items: [] }]}
+      />,
+    );
+    await openAndParseReport();
+    await waitFor(() => expect(screen.getByText(/确认导入 \(3 条\)/)).toBeInTheDocument(), { timeout: 5000 });
+    fireEvent.click(screen.getByText(/确认导入 \(3 条\)/));
+    await waitFor(() => expect(mockImportRecords).toHaveBeenCalledTimes(1));
+    expect(onEnsure).toHaveBeenCalledTimes(1);
+    const [categoryName, itemDefs] = onEnsure.mock.calls[0] as unknown as [string, { label: string; unit: string; referenceRange?: string }[]];
+    expect(categoryName).toBe("代谢");
+    expect(itemDefs).toEqual([{ label: "尿酸", unit: "μmol/L", referenceRange: "150-420" }]);
+  });
 });
