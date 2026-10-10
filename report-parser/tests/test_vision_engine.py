@@ -1167,36 +1167,37 @@ def test_fill_standard_ranges_drops_invalid_entries(monkeypatch):
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
 
+    # 指标均不在静态兜底表内，纯测模型路径校验链
     def fake_text_call(text, timeout, system_prompt=ve.DOCTOR_REVIEW_SYSTEM_PROMPT):
         return {"ranges": [
             # 合法：接受
-            {"label": "甘油三酯", "referenceRange": "0.45-1.7", "unit": "mmol/L"},
+            {"label": "白细胞（WBC）", "referenceRange": "3.5-9.5", "unit": "×10^9/L"},
             # 单位不一致（模型换成 mg/dL）→ 丢弃
-            {"label": "肌酐", "referenceRange": "0.6-1.2", "unit": "mg/dL"},
+            {"label": "血红蛋白", "referenceRange": "130-175", "unit": "mg/dL"},
             # 臆造指标（不在本次清单）→ 丢弃
             {"label": "不存在的指标", "referenceRange": "1-100", "unit": "u"},
             # 范围格式非法 → 丢弃
-            {"label": "尿酸", "referenceRange": "正常范围", "unit": "umol/L"},
+            {"label": "游离T4", "referenceRange": "正常范围", "unit": "pmol/L"},
             # abnormalFlag H 但数值落在范围上限内 → 矛盾丢弃
-            {"label": "尿酸", "referenceRange": "150-500", "unit": "umol/L"},
+            {"label": "游离T4", "referenceRange": "10-25", "unit": "pmol/L"},
             # 指标 unit 为空，模型给非空单位 → 丢弃
-            {"label": "心率", "referenceRange": "60-100", "unit": "次/分"},
+            {"label": "骨密度T值", "referenceRange": "60-100", "unit": "次/分"},
         ]}
 
     engine._review_text_call = fake_text_call
     indicators = [
-        _empty_range_indicator("甘油三酯", 1.5, "mmol/L"),
-        _empty_range_indicator("肌酐", 80, "umol/L"),
-        _empty_range_indicator("尿酸", 486, "umol/L", flag="H"),
-        _empty_range_indicator("心率", 80, ""),
+        _empty_range_indicator("白细胞(WBC)", 6.5, "×10^9/L"),
+        _empty_range_indicator("血红蛋白", 158, "g/L"),
+        _empty_range_indicator("游离T4", 20, "pmol/L", flag="H"),
+        _empty_range_indicator("骨密度T值", -0.5, ""),
     ]
     ranges = engine._fill_standard_ranges(indicators, 30.0)
 
-    assert ranges == [{"label": "甘油三酯", "referenceRange": "0.45-1.7", "unit": "mmol/L"}]
+    assert ranges == [{"label": "白细胞(WBC)", "referenceRange": "3.5-9.5", "unit": "×10^9/L"}]
 
 
 def test_fill_standard_ranges_skipped_when_budget_low(monkeypatch):
-    """预算不足 8s：不发文本请求，返回 None。"""
+    """预算不足 8s：不发文本请求，但静态兜底表仍生效。"""
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     calls = []
 
@@ -1206,12 +1207,40 @@ def test_fill_standard_ranges_skipped_when_budget_low(monkeypatch):
 
     engine._review_text_call = fake_text_call
     indicators = [_empty_range_indicator("尿酸", 486, "umol/L")]
-    assert engine._fill_standard_ranges(indicators, 7.9) is None
+    assert engine._fill_standard_ranges(indicators, 7.9) == [
+        {"label": "尿酸", "referenceRange": "150-420", "unit": "umol/L"},
+    ]
     assert calls == []
+    # 兜底表未命中的指标：预算不足时无结果
+    assert engine._fill_standard_ranges([_empty_range_indicator("骨密度T值", -0.5, "")], 7.9) is None
+
+
+def test_fill_standard_ranges_fallback_validation(monkeypatch):
+    """静态兜底同样走单位一致 + H/L 矛盾校验。"""
+    engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
+
+    def fake_text_call(text, timeout, system_prompt=None):
+        raise AssertionError("兜底校验不应依赖模型")
+
+    engine._review_text_call = fake_text_call
+    # 单位不一致（mg/dL ≠ umol/L）→ 丢弃
+    assert engine._fill_standard_ranges([_empty_range_indicator("尿酸", 486, "mg/dL")], 7.9) is None
+    # H 标记但数值落在标准范围内 → 矛盾丢弃
+    assert engine._fill_standard_ranges(
+        [_empty_range_indicator("收缩压", 128, "mmHg", flag="H")], 7.9,
+    ) is None
+    # 无标记且数值正常 → 命中
+    assert engine._fill_standard_ranges([_empty_range_indicator("收缩压", 128, "mmHg")], 7.9) == [
+        {"label": "收缩压", "referenceRange": "90-139", "unit": "mmHg"},
+    ]
+    # 带括号标签归一化命中
+    assert engine._fill_standard_ranges(
+        [_empty_range_indicator("收缩压 (高压)", 128, "mmHg")], 7.9,
+    ) == [{"label": "收缩压 (高压)", "referenceRange": "90-139", "unit": "mmHg"}]
 
 
 def test_fill_standard_ranges_degrades_on_call_error(monkeypatch):
-    """文本调用抛异常：降级返回 None，不上抛。"""
+    """文本调用抛异常：模型降级但静态兜底结果仍返回，不上抛。"""
     import parser.vision_engine as ve
 
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
@@ -1221,7 +1250,9 @@ def test_fill_standard_ranges_degrades_on_call_error(monkeypatch):
 
     engine._review_text_call = fake_text_call
     indicators = [_empty_range_indicator("尿酸", 486, "umol/L")]
-    assert engine._fill_standard_ranges(indicators, 30.0) is None
+    assert engine._fill_standard_ranges(indicators, 30.0) == [
+        {"label": "尿酸", "referenceRange": "150-420", "unit": "umol/L"},
+    ]
 
 
 def test_parse_result_includes_standard_ranges(monkeypatch):
@@ -1310,7 +1341,10 @@ def test_standard_ranges_skipped_when_parse_budget_low(monkeypatch):
     engine = make_engine(monkeypatch, VISION_LLM_API_KEY="test-key")
     result = engine.parse_pdf(b"fake" + b"\x00" * 2000, "report.png")
     assert result["success"] is True
-    assert "standardRanges" not in result
+    # 预算不足：模型补全跳过，但静态兜底仍生效（尿酸在兜底表内）
+    assert result["standardRanges"] == [
+        {"label": "尿酸", "referenceRange": "150-420", "unit": "umol/L"},
+    ]
     # 仅视觉解析 1 次调用，无复核/补全文本请求
     assert len(post_calls) == 1
 
@@ -1341,6 +1375,8 @@ def test_standard_ranges_degrade_on_text_call_error(monkeypatch):
 
     assert result["success"] is True
     assert len(result["indicators"]) == 1
-    # 复核与补全的文本调用都超时：均降级，主结果不受影响
+    # 复核与补全的文本调用都超时：复核降级；补全模型降级但静态兜底生效
     assert "review" not in result
-    assert "standardRanges" not in result
+    assert result["standardRanges"] == [
+        {"label": "尿酸", "referenceRange": "150-420", "unit": "umol/L"},
+    ]

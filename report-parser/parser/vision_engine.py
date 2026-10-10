@@ -92,6 +92,36 @@ STANDARD_RANGE_SYSTEM_PROMPT = """
    {"ranges": [{"label": "与输入完全一致的指标名", "referenceRange": "参考范围", "unit": "单位"}]}
 """.strip()
 
+# 常见指标标准参考范围静态兜底表：模型补全不可用（502/预算不足）时仍能保证
+# 血压/心率/BMI 等基础项有范围。key 为 _normalize_label 归一化后的指标名，
+# value 为 (单位, 范围)；命中后仍走单位一致 + H/L 矛盾校验，不会错配。
+# 注意：key 必须是 _normalize_label 归一化结果（去括号/空格/连字符、小写）。
+STANDARD_RANGE_FALLBACK: Dict[str, tuple] = {
+    "收缩压": ("mmHg", "90-139"),
+    "收缩压高压": ("mmHg", "90-139"),
+    "舒张压": ("mmHg", "60-89"),
+    "舒张压低压": ("mmHg", "60-89"),
+    "心率": ("次/分", "60-100"),
+    "脉搏": ("次/分", "60-100"),
+    "体重指数": ("", "18.5-23.9"),
+    "bmi": ("", "18.5-23.9"),
+    "体脂百分比": ("%", "10-28"),
+    "内脏脂肪等级": ("", "1-9"),
+    "空腹血糖": ("mmol/L", "3.9-6.1"),
+    "血糖": ("mmol/L", "3.9-6.1"),
+    "糖化血红蛋白": ("%", "4.0-6.0"),
+    "总胆固醇": ("mmol/L", "2.8-5.2"),
+    "甘油三酯": ("mmol/L", "0.29-1.7"),
+    "低密度脂蛋白胆固醇": ("mmol/L", "<3.4"),
+    "高密度脂蛋白胆固醇": ("mmol/L", "1.04-1.55"),
+    "尿酸": ("umol/L", "150-420"),
+    "肌酐": ("umol/L", "57-97"),
+    "尿素": ("mmol/L", "2.6-7.5"),
+    "尿素氮": ("mmol/L", "2.6-7.5"),
+    "谷丙转氨酶": ("U/L", "9-50"),
+    "谷草转氨酶": ("U/L", "15-40"),
+}
+
 METADATA_KEYWORDS = (
     "report date", "sample date", "test date", "collection date",
     "检验日期", "报告日期", "采样日期", "送检日期", "日期", "报告时间", "打印时间",
@@ -666,14 +696,13 @@ class VisionEngine:
 
     # ------------------------------------------------------------------
     # 标准参考范围补全：对缺参考范围的指标调用文本模型补全成人标准范围。
+    # 模型不可用/预算不足时，常见指标走静态兜底表，保证血压等基础项总有范围。
     # 任何失败降级为 None（不影响主解析结果）。
     def _fill_standard_ranges(
         self,
         indicators: List[Dict[str, Any]],
         budget_sec: float,
     ) -> Optional[List[Dict[str, Any]]]:
-        if budget_sec < STANDARD_RANGE_MIN_BUDGET_SEC:
-            return None
         missing = [
             item for item in indicators[:STANDARD_RANGE_MAX_LINES]
             if not (item.get("referenceRange") or "").strip()
@@ -686,6 +715,44 @@ class VisionEngine:
         for item in indicators:
             label_map.setdefault(_normalize_label(item["rawLabel"]), item)
 
+        ranges: List[Dict[str, Any]] = []
+
+        def accept(target: Dict[str, Any], reference_range: str, unit: str) -> None:
+            """单位一致 + H/L 矛盾校验，通过后记入结果；同 label 后到者覆盖
+            （模型结果晚于静态兜底，精度更高，可覆盖兜底值）。"""
+            key = _normalize_label(target["rawLabel"])
+            if _normalize_unit(unit) != _normalize_unit(target.get("unit", "")):
+                return
+            flag = target.get("abnormalFlag", "")
+            if flag:
+                value = float(target["value"])
+                parsed = parse_reference_range(reference_range) or {}
+                range_min, range_max = parsed.get("min"), parsed.get("max")
+                if flag == "H" and range_max is not None and value <= range_max:
+                    return
+                if flag == "L" and range_min is not None and value >= range_min:
+                    return
+            entry = {
+                "label": target["rawLabel"],
+                "referenceRange": reference_range.strip(),
+                "unit": target.get("unit", ""),
+            }
+            for index, existing in enumerate(ranges):
+                if _normalize_label(existing["label"]) == key:
+                    ranges[index] = entry
+                    return
+            ranges.append(entry)
+
+        # 静态兜底表不依赖模型调用：预算不足/模型降级时常见指标仍有范围
+        for item in missing:
+            hit = STANDARD_RANGE_FALLBACK.get(_normalize_label(item["rawLabel"]))
+            if not hit:
+                continue
+            accept(item, hit[1], hit[0])
+
+        if budget_sec < STANDARD_RANGE_MIN_BUDGET_SEC:
+            return ranges or None
+
         lines = [
             f"{item['rawLabel']}: {item['value']} {item.get('unit', '')}"
             for item in missing
@@ -696,13 +763,13 @@ class VisionEngine:
                 "\n".join(lines), timeout, system_prompt=STANDARD_RANGE_SYSTEM_PROMPT,
             )
         except Exception as exc:
+            # 模型降级：静态兜底结果仍然有效
             logger.warning("standard_range_call_failed error=%s", exc)
-            return None
+            return ranges or None
 
         raw_ranges = payload.get("ranges") if isinstance(payload, dict) else None
         if not isinstance(raw_ranges, list):
             raw_ranges = []
-        ranges: List[Dict[str, Any]] = []
         for entry in raw_ranges:
             if not isinstance(entry, dict):
                 continue
@@ -716,25 +783,8 @@ class VisionEngine:
             if not isinstance(reference_range, str) or not _looks_like_range(reference_range):
                 continue
             unit = entry.get("unit")
-            unit = unit if isinstance(unit, str) else ""
-            if _normalize_unit(unit) != _normalize_unit(target.get("unit", "")):
-                continue
-            # 矛盾校验：模型范围与本次数值/异常标记方向不符 → 丢弃
-            flag = target.get("abnormalFlag", "")
-            if flag:
-                value = float(target["value"])
-                parsed = parse_reference_range(reference_range) or {}
-                range_min, range_max = parsed.get("min"), parsed.get("max")
-                if flag == "H" and range_max is not None and value <= range_max:
-                    continue
-                if flag == "L" and range_min is not None and value >= range_min:
-                    continue
-            ranges.append({
-                "label": target["rawLabel"],
-                "referenceRange": reference_range.strip(),
-                "unit": target.get("unit", ""),
-            })
-        return ranges
+            accept(target, reference_range, unit if isinstance(unit, str) else "")
+        return ranges or None
 
     def _review_text_call(
         self,
